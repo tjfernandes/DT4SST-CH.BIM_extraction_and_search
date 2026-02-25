@@ -4,6 +4,13 @@ import json
 import argparse
 from pathlib import Path
 
+# CONSTANTES DE NORMALIZAÇÃO
+KEYS_AREA = ['NetArea', 'GrossArea', 'Area', 'Área', 'Area_Value']
+KEYS_VOLUME = ['NetVolume', 'GrossVolume', 'Volume', 'Volume_Value']
+KEYS_HEIGHT = ['Height', 'Altura', 'UnboundedHeight', 'L']
+KEYS_THICKNESS = ['Width', 'Thickness', 'Espessura', 'Largura']
+#KEYS_DATE = ['InterventionDate', 'LastAssessmentDate', 'SurveyDate', 'Data']
+
 # Configuração do Argparse
 parser = argparse.ArgumentParser(description='Extract BIM data from an IFC file and save it as JSON.')
 parser.add_argument('--ifc', type=str, required=True, help='Path to the input IFC file.')
@@ -12,6 +19,38 @@ parser.add_argument('--output', type=str, required=True, help='Path to the outpu
 args = parser.parse_args()
 ifc_path = args.ifc
 output_path = args.output
+
+def get_normalized_value(psets, qtos, keys):
+    """Procura um valor numa lista de chaves tanto nos Psets como nos Qtos."""
+    
+    # Garantir que psets e qtos são dicionários (ou listas de dicionários)
+    # Se forem tuplas/listas, iteramos diretamente. Se for dict, usamos .values()
+    
+    def search_in_collection(collection):
+        if not collection:
+            return None
+        
+        # Se for um dicionário (que é o esperado do get_psets moderno)
+        if isinstance(collection, dict):
+            source = collection.values()
+        # Se for uma tupla ou lista (o que causou o seu erro)
+        else:
+            source = collection
+            
+        for data_set in source:
+            # data_set aqui é o dicionário de propriedades (ex: {'NetArea': 10.5})
+            if isinstance(data_set, dict):
+                for key in keys:
+                    if key in data_set:
+                        return data_set[key]
+        return None
+
+    # 1. Tenta primeiro nas Quantities
+    val = search_in_collection(qtos)
+    if val is not None: return val
+    
+    # 2. Fallback para Property Sets
+    return search_in_collection(psets)
 
 def get_material_name(element):
     """
@@ -71,26 +110,66 @@ def get_associated_documents(element):
             
     return documents
 
+def get_classifications(element):
+    """Extrai códigos de classificação associados (ex: WBS, tabelas de património)."""
+    classificacoes = []
+    if not hasattr(element, "HasAssociations"):
+        return classificacoes
+    
+    for assoc in element.HasAssociations:
+        if assoc.is_a("IfcRelAssociatesClassification"):
+            cl = assoc.RelatingClassification
+            classificacoes.append({
+                "source": getattr(cl.ReferencedSource, "Name", "N/A") if hasattr(cl, "ReferencedSource") else "N/A",
+                "code": getattr(cl, "Identification", ""),
+                "name": getattr(cl, "Name", "")
+            })
+    return classificacoes
+
 def extract_bim_data(ifc_file):
     ifc = ifcopenshell.open(ifc_file)
     bim_data = []
     
     elements = ifc.by_type('IfcElement')
-    total = len(elements)
 
     for idx, element in enumerate(elements):
-        if idx % 10 == 0: # Print a cada 10 para não inundar o terminal
-            print(f"A processar elemento {idx + 1}/{total}: {element.Name}")
+        # Obter o Contentor Espacial (Piso)
+        container = ifcopenshell.util.element.get_container(element)
+        
+        # Obter o Agregado (Pai técnico, ex: a Escada que contém o degrau)
+        parent = ifcopenshell.util.element.get_aggregate(element)
+
+        psets = ifcopenshell.util.element.get_psets(element, psets_only=True)
+        qtos = ifcopenshell.util.element.get_psets(element, qtos_only=True)
+
         element_data = {
             'id': element.GlobalId,
             'type': element.is_a(),
             'name': element.Name or "",
-            # Chamamos a nossa nova função aqui:
+            
+            # PESQUISA ESPACIAL
+            'spatial_hierarchy': {
+                'storey_name': container.Name if (container and hasattr(container, 'Name')) else "Exterior/Unassigned",
+                'storey_id': container.GlobalId if (container and hasattr(container, 'GlobalId')) else None,
+                'parent_element_id': parent.GlobalId if parent else None
+            },
+            
+            # DADOS TÉCNICOS
             'material': get_material_name(element),
             'documents': get_associated_documents(element),
-            'properties': ifcopenshell.util.element.get_psets(element, psets_only=True),
-            'quantities': ifcopenshell.util.element.get_psets(element, qtos_only=True),
-            'location': ifcopenshell.util.element.get_container(element).Name
+            'classifications': get_classifications(element),
+            
+            # PROPRIEDADES (Heritage Psets e Quantities)
+            'properties': psets,
+            'quantities': qtos,
+
+            # Campos Normalizados (Para Pesquisa Rápida)
+            'metrics': {
+                'area': get_normalized_value(psets, qtos, KEYS_AREA),
+                'volume': get_normalized_value(psets, qtos, KEYS_VOLUME),
+                'height': get_normalized_value(psets, qtos, KEYS_HEIGHT),
+                'thickness': get_normalized_value(psets, qtos, KEYS_THICKNESS),
+            },
         }
         
         bim_data.append(element_data)
