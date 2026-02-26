@@ -15,10 +15,12 @@ KEYS_THICKNESS = ['Width', 'Thickness', 'Espessura', 'Largura']
 parser = argparse.ArgumentParser(description='Extract BIM data from an IFC file and save it as JSON.')
 parser.add_argument('--ifc', type=str, required=True, help='Path to the input IFC file.')
 parser.add_argument('--output', type=str, required=True, help='Path to the output JSON file.')
+parser.add_argument('--project-id', type=str, help='Project GUID to associate with this BIM data. If not provided, it will be extracted from the IFC file.')
 
 args = parser.parse_args()
 ifc_path = args.ifc
 output_path = args.output
+project_id_arg = args.project_id
 
 def get_normalized_value(psets, qtos, keys):
     """Procura um valor numa lista de chaves tanto nos Psets como nos Qtos."""
@@ -64,7 +66,7 @@ def get_material_name(element):
 
     # Caso 1: É um material simples (IfcMaterial)
     if material_obj.is_a('IfcMaterial'):
-        return material_obj.Name
+        return [material_obj.Name]
 
     # Caso 2: É uma lista/constituintes (IfcMaterialConstituentSet)
     if material_obj.is_a('IfcMaterialConstituentSet'):
@@ -126,8 +128,32 @@ def get_classifications(element):
             })
     return classificacoes
 
-def extract_bim_data(ifc_file):
+def sanitize_keys(d):
+    """Recursively replaces dots in dictionary keys with underscores for OpenSearch compatibility."""
+    if not isinstance(d, dict):
+        return d
+    new_dict = {}
+    for k, v in d.items():
+        new_key = k.replace('.', '_')
+        if isinstance(v, dict):
+            new_dict[new_key] = sanitize_keys(v)
+        elif isinstance(v, list):
+            new_dict[new_key] = [sanitize_keys(i) if isinstance(i, dict) else i for i in v]
+        else:
+            new_dict[new_key] = v
+    return new_dict
+
+def extract_bim_data(ifc_file, project_id=None):
     ifc = ifcopenshell.open(ifc_file)
+    
+    # Se não foi passado um project_id via CLI, tenta extrair do ficheiro IFC
+    if not project_id:
+        projects = ifc.by_type('IfcProject')
+        if projects:
+            project_id = projects[0].GlobalId
+        else:
+            project_id = "Unknown_Project"
+
     bim_data = []
     
     elements = ifc.by_type('IfcElement')
@@ -139,11 +165,13 @@ def extract_bim_data(ifc_file):
         # Obter o Agregado (Pai técnico, ex: a Escada que contém o degrau)
         parent = ifcopenshell.util.element.get_aggregate(element)
 
-        psets = ifcopenshell.util.element.get_psets(element, psets_only=True)
-        qtos = ifcopenshell.util.element.get_psets(element, qtos_only=True)
+        # Obter Psets e Qtos e sanitizar chaves (substituir . por _)
+        psets = sanitize_keys(ifcopenshell.util.element.get_psets(element, psets_only=True))
+        qtos = sanitize_keys(ifcopenshell.util.element.get_psets(element, qtos_only=True))
 
         element_data = {
             'id': element.GlobalId,
+            'project_id': project_id,
             'type': element.is_a(),
             'name': element.Name or "",
             
@@ -181,7 +209,7 @@ out_file.parent.mkdir(parents=True, exist_ok=True)
 
 # Execução
 print(f"A ler o ficheiro IFC: {ifc_path}")
-bim_data = extract_bim_data(ifc_path)
+bim_data = extract_bim_data(ifc_path, project_id=project_id_arg)
 
 # Escrita do JSON
 with open(out_file, 'w', encoding='utf-8') as f:
