@@ -1,29 +1,21 @@
 import json
+import os
 import argparse
 from opensearchpy import OpenSearch, helpers
 from pathlib import Path
+from utils import get_client
 
-# Configurações do OpenSearch
-OPENSEARCH_HOST = 'localhost'
-OPENSEARCH_PORT = 9200
-OPENSEARCH_USER = 'admin'
-OPENSEARCH_PASSWORD = '8jaT5wpmeatiago'
-INDEX_NAME = 'bim_elements'
-
-def get_client():
-    return OpenSearch(
-        hosts=[{"host": OPENSEARCH_HOST, "port": OPENSEARCH_PORT}],
-        http_auth=(OPENSEARCH_USER, OPENSEARCH_PASSWORD),
-        use_ssl=True,
-        verify_certs=False,
-        ssl_show_warn=False
-    )
+INDEX_NAME = os.getenv("INDEX_NAME", "bim_elements")
 
 def create_index(client):
     """Cria o índice com um mapping restrito para evitar conflitos de tipos."""
     mapping = {
         "settings": {
-            "index": {"number_of_shards": 1, "number_of_replicas": 0}
+            "index": {
+                "number_of_shards": 1, 
+                "number_of_replicas": 0,
+                "mapping.total_fields.limit": 10000  # Aumentado para lidar com muitas propriedades BIM
+            }
         },
         "mappings": {
             "dynamic": "strict",  # Não permite campos novos fora do esperado na raiz

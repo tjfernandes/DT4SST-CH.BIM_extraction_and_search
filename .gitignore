@@ -3,3 +3,10 @@ input/*
 
 # output folder
 output/*
+
+# .env file
+.env
+
+# Python cache files
+__pycache__/
+*.pyc
