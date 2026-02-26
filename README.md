@@ -71,7 +71,4 @@ python search.py
 ```
 
 ## 🤝 Contributions
-This project was developed within the scope of data pipelines for HBIM (Heritage Building Information Modeling). Feel free to open issues or submit pull requests.
-
----
-*Note: If you encounter "field limit" errors in OpenSearch, the `index_to_opensearch.py` script is already configured to automatically increase this limit to 10,000 fields.*
+This project was developed within the scope of data pipelines for HBIM (Heritage Building Information Modeling). 
