@@ -22,6 +22,88 @@ ifc_path = args.ifc
 output_path = args.output
 project_id_arg = args.project_id
 
+def _si_prefix_factor(prefix: str | None) -> float:
+    # IFC prefixes comuns
+    return {
+        None: 1.0,
+        "EXA": 1e18, "PETA": 1e15, "TERA": 1e12, "GIGA": 1e9, "MEGA": 1e6, "KILO": 1e3,
+        "HECTO": 1e2, "DECA": 1e1,
+        "DECI": 1e-1, "CENTI": 1e-2, "MILLI": 1e-3, "MICRO": 1e-6, "NANO": 1e-9,
+        "PICO": 1e-12, "FEMTO": 1e-15, "ATTO": 1e-18,
+    }.get(prefix, 1.0)
+
+
+def _length_unit_to_m_factor(ifc) -> float:
+    """
+    Devolve fator multiplicativo para converter unidades de comprimento do IFC -> metros.
+    Ex: se IFC estiver em mm, devolve 0.001.
+    """
+    projects = ifc.by_type("IfcProject")
+    if not projects:
+        return 1.0
+
+    units = getattr(projects[0], "UnitsInContext", None)
+    if not units:
+        return 1.0
+
+    unit_assignment = getattr(units, "Units", None)
+    if not unit_assignment:
+        return 1.0
+
+    # procurar LENGTHUNIT
+    for u in unit_assignment:
+        try:
+            unit_type = getattr(u, "UnitType", None)
+            if unit_type != "LENGTHUNIT":
+                continue
+
+            # Caso 1: IfcSIUnit (mais comum)
+            if u.is_a("IfcSIUnit"):
+                # Name costuma ser METRE e Prefix MILLI para mm
+                if getattr(u, "Name", None) == "METRE":
+                    return _si_prefix_factor(getattr(u, "Prefix", None))
+                # Se aparecer outra coisa, assume 1
+                return 1.0
+
+            # Caso 2: IfcConversionBasedUnit (menos comum)
+            if u.is_a("IfcConversionBasedUnit"):
+                # ConversionFactor é IfcMeasureWithUnit
+                cf = getattr(u, "ConversionFactor", None)
+                if not cf:
+                    return 1.0
+                # ValueComponent tem valor numérico (ex: 0.3048) e UnitComponent diz para que SI unit é
+                val_comp = getattr(cf, "ValueComponent", None)
+                unit_comp = getattr(cf, "UnitComponent", None)
+
+                # tenta extrair número
+                factor = None
+                if val_comp is not None:
+                    # alguns vêm como objetos com wrappedValue
+                    factor = getattr(val_comp, "wrappedValue", None)
+                    if factor is None and isinstance(val_comp, (int, float)):
+                        factor = float(val_comp)
+
+                # se unit_comp for SI METRE, o factor já está em metros
+                if factor is not None:
+                    if unit_comp and unit_comp.is_a("IfcSIUnit") and getattr(unit_comp, "Name", None) == "METRE":
+                        # pode ter prefix no UnitComponent (raro)
+                        return float(factor) * _si_prefix_factor(getattr(unit_comp, "Prefix", None))
+                    return float(factor)
+
+                return 1.0
+
+        except Exception:
+            continue
+
+    return 1.0
+
+
+def _to_float(x):
+    try:
+        return float(getattr(x, "wrappedValue", x))
+    except Exception:
+        return None
+
 def get_normalized_value(psets, qtos, keys):
     """Procura um valor numa lista de chaves tanto nos Psets como nos Qtos."""
     
@@ -145,6 +227,10 @@ def sanitize_keys(d):
 
 def extract_bim_data(ifc_file, project_id=None):
     ifc = ifcopenshell.open(ifc_file)
+
+    length_to_m = _length_unit_to_m_factor(ifc)  # <-- AQUI
+    area_to_m2 = length_to_m ** 2
+    vol_to_m3 = length_to_m ** 3
     
     # Se não foi passado um project_id via CLI, tenta extrair do ficheiro IFC
     if not project_id:
@@ -169,10 +255,15 @@ def extract_bim_data(ifc_file, project_id=None):
         psets = sanitize_keys(ifcopenshell.util.element.get_psets(element, psets_only=True))
         qtos = sanitize_keys(ifcopenshell.util.element.get_psets(element, qtos_only=True))
 
+        raw_area = _to_float(get_normalized_value(psets, qtos, KEYS_AREA))
+        raw_vol = _to_float(get_normalized_value(psets, qtos, KEYS_VOLUME))
+        raw_h = _to_float(get_normalized_value(psets, qtos, KEYS_HEIGHT))
+        raw_th = _to_float(get_normalized_value(psets, qtos, KEYS_THICKNESS))
+
         element_data = {
             'id': element.GlobalId,
             'project_id': project_id,
-            'type': element.is_a(),
+            'ifc_class': element.is_a(),
             'name': element.Name or "",
             
             # PESQUISA ESPACIAL
@@ -193,10 +284,10 @@ def extract_bim_data(ifc_file, project_id=None):
 
             # Campos Normalizados (Para Pesquisa Rápida)
             'metrics': {
-                'area': get_normalized_value(psets, qtos, KEYS_AREA),
-                'volume': get_normalized_value(psets, qtos, KEYS_VOLUME),
-                'height': get_normalized_value(psets, qtos, KEYS_HEIGHT),
-                'thickness': get_normalized_value(psets, qtos, KEYS_THICKNESS),
+                'area': (raw_area * area_to_m2) if raw_area is not None else None,         # m²
+                'volume': (raw_vol * vol_to_m3) if raw_vol is not None else None,         # m³
+                'height': (raw_h * length_to_m) if raw_h is not None else None,           # m
+                'thickness': (raw_th * length_to_m) if raw_th is not None else None,      # m
             },
         }
         
