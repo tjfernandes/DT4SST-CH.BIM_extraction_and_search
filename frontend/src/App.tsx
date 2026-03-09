@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Send, Bot, User, Loader2, Database, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -15,6 +16,17 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   plan?: any;
+  totalHits?: number;
+  resultFrom?: number;
+  resultCount?: number;
+}
+
+interface PaginationContext {
+  plan: any;
+  offset: number;
+  pageSize: number;
+  totalHits: number;
+  originalQuery: string;
 }
 
 const API_URL = 'http://localhost:8000/chat';
@@ -29,6 +41,7 @@ export default function App() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [paginationContext, setPaginationContext] = useState<PaginationContext | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -39,42 +52,56 @@ export default function App() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const userMessage = input.trim();
-    console.log('Enviando mensagem:', userMessage); // <-- ADICIONAR ESTE
-    setInput('');
+  const sendMessage = async (userMessage: string, paginationPayload?: { stored_plan: any; offset: number; original_query: string }) => {
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: userMessage,
-          history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Falha na comunicação com o servidor');
+      const body: any = {
+        message: userMessage,
+        history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+      };
+      if (paginationPayload) {
+        body.pagination = paginationPayload;
       }
 
-      const data = await response.json();
-      console.log("=== BACKEND ===");
-      console.log(data);
-      console.log("PLAN:", data.plan);
-      console.log("CONDITIONS:", data?.plan?.conditions);
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: data.response, plan: data.plan },
-      ]);
+      if (!response.ok) throw new Error('Falha na comunicação com o servidor');
+
+      const data = await response.json();
+      console.log('=== BACKEND ===', data);
+
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: data.response,
+        plan: data.plan,
+        totalHits: data.total_hits,
+        resultFrom: data.result_from,
+        resultCount: data.result_count,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+
+      // Update pagination context if this was a RAG search (not aggregation)
+      const isAggregation = data.plan?.search_strategy === 'aggregation';
+      if (!isAggregation && data.total_hits !== undefined && data.result_count > 0) {
+        const newOffset = data.result_from;
+        const pageSize = data.plan?.page_size ?? 10;
+        setPaginationContext({
+          plan: data.plan,
+          offset: newOffset,
+          pageSize,
+          totalHits: data.total_hits,
+          originalQuery: paginationPayload?.original_query ?? userMessage,
+        });
+      } else if (!paginationPayload) {
+        // New non-RAG message resets pagination
+        setPaginationContext(null);
+      }
     } catch (error) {
       console.error('Error:', error);
       setMessages((prev) => [
@@ -86,7 +113,32 @@ export default function App() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    const userMessage = input.trim();
+    setInput('');
+
+    // Detect "ver mais" intent
+    const isVerMais = /^(ver mais|mostrar mais|show more|next|pr[oó]ximos?|mais resultados?)$/i.test(userMessage.trim());
+    if (isVerMais && paginationContext) {
+      const nextOffset = paginationContext.offset + paginationContext.pageSize;
+      await sendMessage(userMessage, { stored_plan: paginationContext.plan, offset: nextOffset, original_query: paginationContext.originalQuery });
+    } else {
+      setPaginationContext(null); // new search resets pagination
+      await sendMessage(userMessage);
+    }
+  };
+
+  const handleVerMais = async () => {
+    if (!paginationContext || isLoading) return;
+    const nextOffset = paginationContext.offset + paginationContext.pageSize;
+    await sendMessage('Ver mais resultados', { stored_plan: paginationContext.plan, offset: nextOffset, original_query: paginationContext.originalQuery });
+  };
+
   const clearChat = () => {
+    setPaginationContext(null);
     setMessages([
       {
         role: 'assistant',
@@ -140,7 +192,23 @@ export default function App() {
             >
               {message.role === 'assistant' ? (
                 <div className="prose prose-slate max-w-none prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:text-slate-50 prose-code:text-blue-600 prose-code:bg-blue-50 prose-code:px-1 prose-code:rounded">
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({ href, children }) => (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 underline hover:text-blue-800 transition-colors"
+                        >
+                          {children}
+                        </a>
+                      ),
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
                   
                   {message.plan && message.plan.needs_rag && (
                     <div className="mt-3 pt-3 border-t border-slate-100">
@@ -171,6 +239,37 @@ export default function App() {
                             </span>
                           );
                         })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pagination footer */}
+                  {message.totalHits !== undefined && message.resultCount !== undefined && message.resultFrom !== undefined && message.resultCount > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-slate-400">
+                          A mostrar {message.resultFrom + 1}–{message.resultFrom + message.resultCount} de{' '}
+                          <span className="font-semibold text-slate-600">{message.totalHits}</span> resultados
+                        </span>
+                        {message.resultFrom + message.resultCount < message.totalHits && index === messages.length - 1 && (
+                          <button
+                            onClick={handleVerMais}
+                            disabled={isLoading}
+                            className="text-xs font-semibold px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shrink-0"
+                          >
+                            Ver mais
+                          </button>
+                        )}
+                        {message.resultFrom + message.resultCount >= message.totalHits && (
+                          <span className="text-xs text-slate-400 italic">Todos os resultados mostrados</span>
+                        )}
+                      </div>
+                      {/* Progress bar */}
+                      <div className="mt-1.5 h-1 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-400 rounded-full transition-all"
+                          style={{ width: `${Math.min(100, ((message.resultFrom + message.resultCount) / message.totalHits) * 100)}%` }}
+                        />
                       </div>
                     </div>
                   )}
@@ -228,9 +327,6 @@ export default function App() {
             )}
           </button>
         </form>
-        <p className="max-w-4xl mx-auto text-center mt-3 text-xs text-slate-400">
-          Pesquisa de Dados BIM inteligente &bull; Desenvolvido com FastAPI e React
-        </p>
       </footer>
     </div>
   );
