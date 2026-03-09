@@ -310,16 +310,21 @@ def build_aggregation_query(agg_field: str, filter_ifc_class: str = None, search
     """Build an OpenSearch aggregation query for distinct values + counts."""
     query: dict = {"size": 0, "track_total_hits": True}
 
+    bool_filter = []
+
     # Apply IFC class filter if provided
     if filter_ifc_class:
         variants = IFC_CLASS_VARIANTS.get(filter_ifc_class, [filter_ifc_class])
         if len(variants) == 1:
-            query["query"] = {"term": {"ifc_class": variants[0]}}
+            bool_filter.append({"term": {"ifc_class": variants[0]}})
         else:
-            query["query"] = {"terms": {"ifc_class": variants}}
+            bool_filter.append({"terms": {"ifc_class": variants}})
 
-    if search_plan.project_name:
-        query["query"] = {"term": {"project_name": search_plan.project_name}}
+    if search_plan and search_plan.project_name:
+        bool_filter.append({"term": {"project_name": search_plan.project_name}})
+
+    if bool_filter:
+        query["query"] = {"bool": {"filter": bool_filter}}
 
     # For 'count' we just need the total, no aggregation needed
     if agg_field != "count":
