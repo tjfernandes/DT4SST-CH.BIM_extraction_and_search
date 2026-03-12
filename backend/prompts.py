@@ -74,13 +74,15 @@ Analisa a pergunta do utilizador e determina a estratégia de pesquisa.
 - "structured"  → Todos os critérios podem ser mapeados a filtros exatos (classe IFC, piso, nome, condições numéricas). Não há termos vagos ou conceptuais.
 - "semantic"    → A pergunta contém termos como (piso, material, cor, tipo, nomes, propriedades) vagos, conceptuais, descritivos ou funcionais que não se traduzem em filtros exatos. Necessita pesquisa por similaridade semântica. Pode também ter filtros estruturados (piso, material, classe IFC) que serão usados como pré-filtros.
 - "aggregation" → O utilizador quer um RESUMO, CONTAGEM ou LISTA de valores DISTINTOS de um campo (ex: "quais materiais existem", "quantas paredes há", "lista os pisos", "que tipos existem"). O objetivo é obter estatísticas ou valores únicos, NÃO ver elementos individuais.
+- "detail"      → O utilizador faz uma pergunta sobre um elemento JÁ apresentado nos resultados anteriores (ex: "fala-me mais sobre esse", "que propriedades tem o primeiro?", "e essa viga?", "detalha o terceiro"). Requer acesso ao documento completo.
 
 [Campos de saída]
-1. search_strategy – "chat", "structured", "semantic" ou "aggregation"
+1. search_strategy – "chat", "structured", "semantic", "aggregation" ou "detail"
 2. semantic_query – frase curta em inglês descritiva do que o utilizador procura (apenas quando search_strategy="semantic"), caso contrário null
 
 [Regras]
 - Usa "chat" se a pergunta NÃO é sobre elementos do modelo (ex: "olá", "o que é o IFC?", "como estás?").
+- Usa "detail" se o utilizador refere um elemento ESPECÍFICO dos resultados anteriores (ex: "fala-me mais sobre esse", "que propriedades tem o primeiro?", "detalha o segundo", "e essa viga?", "diz-me mais sobre este elemento"). Requer que haja resultados no histórico.
 - Usa "aggregation" APENAS se o utilizador pede explicitamente contagens, valores distintos ou estatísticas (ex: "quantas", "quais materiais existem", "que tipos há"). Palavras como "listar", "mostrar", "ver" referem-se a elementos individuais → usa "structured" ou "semantic".
 - Se a pergunta é um follow-up vago (ex: "consegues listá-las?", "mostra-me", "sim"), interpreta no contexto do histórico. Se o contexto anterior era sobre elementos, usa "structured".
 - Usa "structured" se TODOS os critérios podem ser expressos como filtros exatos (classe, dimensões numéricas), ou se o utilizador quer VER elementos individuais.
@@ -151,6 +153,18 @@ Pergunta: "elementos decorativos da fachada principal"
 
 Pergunta: "elementos mais antigos do modelo"
 → {{"search_strategy": "semantic", "semantic_query": "oldest elements in the model"}}
+
+Pergunta: "fala-me mais sobre esse elemento"
+→ {{"search_strategy": "detail", "semantic_query": null}}
+
+Pergunta: "que propriedades tem o primeiro?"
+→ {{"search_strategy": "detail", "semantic_query": null}}
+
+Pergunta: "detalha o terceiro resultado"
+→ {{"search_strategy": "detail", "semantic_query": null}}
+
+Pergunta: "e essa viga?"
+→ {{"search_strategy": "detail", "semantic_query": null}}
 
 Pergunta do utilizador:
 "{user_input}"
@@ -306,15 +320,16 @@ Se não houver resultados, indica que nada foi encontrado.
 IMPORTANTE: Sempre que apresentares um URL ou caminho de ficheiro (ex: https://... ou docs/...), formata-o OBRIGATORIAMENTE como hiperligação Markdown: [texto descritivo](url_ou_caminho). NUNCA uses backticks nem texto simples para URLs ou caminhos.
 """)
 
-# ── Filtro LLM de relevância (por resultado individual) ───────────────
-FILTER_SINGLE_RESULT = textwrap.dedent("""\
+# ── Filtro LLM de relevância (batch) ──────────────────────────────────
+FILTER_RESULTS_BATCH = textwrap.dedent("""\
 O utilizador perguntou: "{user_input}"
 
-Este resultado foi devolvido pela pesquisa:
-{result}
+Estes resultados foram devolvidos pela pesquisa:
+{results}
 
-Este resultado é relevante para a pergunta do utilizador?
-Retorna JSON: {{"relevant": true}} ou {{"relevant": false}}
+Para CADA resultado (identificado pelo índice [1], [2], etc.), decide se é relevante para a pergunta do utilizador.
+Retorna JSON: {{"relevant_indices": [1, 3, 5]}} — lista dos índices dos resultados relevantes.
+Se nenhum for relevante, retorna {{"relevant_indices": []}}.
 
 [Regras]
 - Relevante = o tipo (ifc_class), nome, material, localização, métricas ou propriedades correspondem ao que o utilizador pediu.
@@ -339,7 +354,8 @@ Pergunta: "{user_input}"
 1. agg_field – o campo a agregar (um dos acima)
 
 [Regras]
-- Se o utilizador pede "quantos X existem?" ou "número de X", usa agg_field="count".
+- Se o utilizador pede "quantos X existem?" ou "número de X" sobre um TIPO DE ELEMENTO (paredes, portas, etc.), usa agg_field="count".
+- Se o utilizador pede "quantos projetos", "quantos modelos" ou quer saber QUE projetos existem, usa agg_field="project_name".
 - Se o utilizador pede "quais materiais" ou "lista de materiais", usa agg_field="material".
 - Se o utilizador pede "tipos de elementos", usa agg_field="ifc_class".
 - Se o utilizador pede "quantos por piso" ou "elementos por andar", usa agg_field="storey".
@@ -369,6 +385,57 @@ Pergunta: "materiais dos pilares"
 
 Pergunta: "classificações das vigas"
 → {{"agg_field": "classification"}}
+
+Pergunta: "quantos projetos HBIM tenho?"
+→ {{"agg_field": "project_name"}}
+
+Pergunta: "quais são os meus projetos?"
+→ {{"agg_field": "project_name"}}
+
+Pergunta: "quantos modelos existem?"
+→ {{"agg_field": "project_name"}}
+""")
+
+# ── Passo para detail: extrair referência ao resultado ────────────────
+EXTRACT_DETAIL_REF = textwrap.dedent("""\
+O utilizador fez uma pergunta sobre um elemento específico dos resultados anteriores.
+Os resultados anteriores tinham {num_results} elementos (índices 1 a {num_results}).
+
+Pergunta: "{user_input}"
+
+[Campo de saída]
+1. index – o índice (1-based) do resultado a que o utilizador se refere
+
+[Regras]
+- Se o utilizador diz "o primeiro", "o 1º", "esse" (singular, sem número) → index=1
+- Se o utilizador diz "o segundo", "o 2º" → index=2
+- Se o utilizador diz "o terceiro" → index=3
+- Se o utilizador diz "o último" → index={num_results}
+- Se o utilizador refere pelo nome (ex: "a viga BMR-007"), tenta mapear ao resultado correto.
+- Se não for claro, assume index=1.
+- Devolve apenas um objeto JSON válido: {{"index": N}}
+
+[Exemplos]
+Pergunta: "fala-me mais sobre esse"
+→ {{"index": 1}}
+
+Pergunta: "que propriedades tem o segundo?"
+→ {{"index": 2}}
+
+Pergunta: "detalha o último"
+→ {{"index": {num_results}}}
+""")
+
+DETAIL_RESPONSE_FORMAT = textwrap.dedent("""\
+Pergunta do utilizador: "{user_input}"
+
+Documento completo do elemento:
+{document}
+
+Gera uma resposta clara e detalhada para o utilizador, na lingua em que foi feita a pergunta.
+Apresenta TODAS as informações pedidas do elemento: nome, classe IFC, piso, materiais, métricas, classificações, documentos e propriedades.
+Se o utilizador perguntou algo específico (ex: propriedades, materiais), foca a resposta nisso mas inclui contexto.
+IMPORTANTE: Sempre que apresentares um URL ou caminho de ficheiro, formata-o OBRIGATORIAMENTE como hiperligação Markdown: [texto descritivo](url_ou_caminho).
 """)
 
 AGGREGATION_RESPONSE_FORMAT = textwrap.dedent("""\

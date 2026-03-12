@@ -16,13 +16,16 @@ from search import (
     build_aggregation_query,
     execute_aggregation,
     format_aggregation_for_prompt,
+    fetch_by_id,
+    format_full_document,
     SearchPlan,
     ClassifyResult,
     ExtractedIfcClass,
     ExtractedFilters,
     ExtractedConditions,
     ExtractedAggregation,
-    FilterResult,
+    FilterBatchResult,
+    DetailRef,
     CLASSIFY_INTENT,
     EXTRACT_IFC_CLASS,
     EXTRACT_FILTERS,
@@ -31,8 +34,10 @@ from search import (
     AGGREGATION_RESPONSE_FORMAT,
     IFC_CLASS_TABLE,
     FINAL_RESPONSE_FORMAT,
-    FILTER_SINGLE_RESULT,
-    REWRITE_QUERY
+    FILTER_RESULTS_BATCH,
+    REWRITE_QUERY,
+    EXTRACT_DETAIL_REF,
+    DETAIL_RESPONSE_FORMAT
 )
 
 load_dotenv()
@@ -61,6 +66,7 @@ class ChatRequest(BaseModel):
     message: str
     history: List[ChatMessage] = []
     pagination: Optional[PaginationState] = None
+    result_ids: Optional[List[str]] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -68,11 +74,13 @@ class ChatResponse(BaseModel):
     total_hits: Optional[int] = None
     result_from: int = 0
     result_count: int = 0
+    result_ids: Optional[List[str]] = None
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     try:
         user_input = request.message
+        print(f"Debug: Received user input: '{user_input}'")
         history = [{"role": m.role, "content": m.content} for m in request.history]
 
         
@@ -83,6 +91,7 @@ async def chat_endpoint(request: ChatRequest):
             search_plan.offset = request.pagination.offset
             needs_search = search_plan.search_strategy not in ("chat", "aggregation")
             is_aggregation = False
+            is_detail = False
             effective_query = request.pagination.original_query or user_input
             print(f"Debug: Pagination request — offset={search_plan.offset}, plan={search_plan.model_dump()}")
 
@@ -105,8 +114,9 @@ async def chat_endpoint(request: ChatRequest):
             classify_message = get_response(classify_prompt, history, { "type": "json_object" })
             print(f"Debug: Raw LLM classify response: {classify_message.content}")
             classify_result = ClassifyResult.model_validate_json(classify_message.content)
-            needs_search = classify_result.search_strategy not in ("chat", "aggregation")
+            needs_search = classify_result.search_strategy not in ("chat", "aggregation", "detail")
             is_aggregation = classify_result.search_strategy == "aggregation"
+            is_detail = classify_result.search_strategy == "detail"
 
             query_embedding = None
 
@@ -122,7 +132,7 @@ async def chat_endpoint(request: ChatRequest):
                 filters_message = get_response(filters_prompt, history, { "type": "json_object" })
                 print(f"Debug: Raw LLM filters response: {filters_message.content}")
                 filters_result = ExtractedFilters.model_validate_json(filters_message.content)
-                print(f"Debug: Extracted filters - name: {filters_result.name}, material: {filters_result.material}, storey: {filters_result.storey}, project_id: {filters_result.project_id}, project_name: {filters_result.project_name}")
+                print(f"Debug: Extracted filters:\n name - {filters_result.name}\n material: {filters_result.material}\n storey: {filters_result.storey}\n project_id: {filters_result.project_id}\n project_name: {filters_result.project_name}")
 
                 # Step 3: Extrair condições numéricas
                 conditions_prompt = EXTRACT_CONDITIONS.format(user_input=effective_query)
@@ -152,10 +162,40 @@ async def chat_endpoint(request: ChatRequest):
             else:
                 search_plan = SearchPlan(search_strategy="chat")
 
-        if not needs_search and not is_aggregation:
+        if not needs_search and not is_aggregation and not is_detail:
             response_message = get_response(user_input, history)
             response_text = response_message.content
             return ChatResponse(response=response_text, plan=None)
+        elif is_detail:
+            # --- Detail branch: fetch full document by ID ---
+            detail_ids = request.result_ids or []
+            if not detail_ids:
+                response_text = "Não tenho resultados anteriores para detalhar. Faça primeiro uma pesquisa."
+                return ChatResponse(response=response_text, plan=None)
+
+            # Extract which result the user refers to
+            ref_prompt = EXTRACT_DETAIL_REF.format(user_input=effective_query, num_results=len(detail_ids))
+            ref_message = get_response(ref_prompt, history, {"type": "json_object"})
+            print(f"Debug: Detail ref response: {ref_message.content}")
+            detail_ref = DetailRef.model_validate_json(ref_message.content)
+
+            idx = max(1, min(detail_ref.index, len(detail_ids)))
+            target_id = detail_ids[idx - 1]
+            print(f"Debug: Fetching full document for ID: {target_id} (index {idx})")
+
+            doc = fetch_by_id(target_id)
+            if not doc:
+                response_text = "Não consegui encontrar o elemento solicitado."
+                return ChatResponse(response=response_text, plan=None)
+
+            doc_str = format_full_document(doc)
+            detail_prompt = DETAIL_RESPONSE_FORMAT.format(user_input=effective_query, document=doc_str)
+            response_message = get_response(detail_prompt, history)
+            return ChatResponse(
+                response=response_message.content,
+                plan={"search_strategy": "detail", "element_id": target_id},
+                result_ids=detail_ids
+            )
         elif is_aggregation:
             # --- Aggregation branch ---
             agg_prompt = EXTRACT_AGGREGATION.format(user_input=effective_query)
@@ -174,7 +214,7 @@ async def chat_endpoint(request: ChatRequest):
             filters_message = get_response(filters_prompt, history, { "type": "json_object" })
             print(f"Debug: Raw LLM filters response: {filters_message.content}")
             filters_result = ExtractedFilters.model_validate_json(filters_message.content)
-            print(f"Debug: Extracted filters - name: {filters_result.name}, material: {filters_result.material}, storey: {filters_result.storey}, project_id: {filters_result.project_id}, project_name: {filters_result.project_name}")
+            print(f"Debug: Extracted filters:\n name - {filters_result.name}\n material: {filters_result.material}\n storey: {filters_result.storey}\n project_id: {filters_result.project_id}\n project_name: {filters_result.project_name}")
 
 
 
@@ -222,16 +262,13 @@ async def chat_endpoint(request: ChatRequest):
                     result_count=0
                 )
             
-            # 3. LLM Filter — evaluate relevance of each hit individually
-            filtered_hits = []
-            for idx, hit in enumerate(hits, start=1):
-                single_result_str = format_hits_for_prompt([hit])
-                filter_prompt = FILTER_SINGLE_RESULT.format(user_input=effective_query, result=single_result_str)
-                filter_message = get_response(filter_prompt, [], {"type": "json_object"})
-                print(f"Debug: Filter hit {idx}: {filter_message.content}")
-                filter_result = FilterResult.model_validate_json(filter_message.content)
-                if filter_result.relevant:
-                    filtered_hits.append(hit)
+            # 3. LLM Filter — evaluate relevance of all hits in a single call
+            all_results_str = format_hits_for_prompt(hits)
+            filter_prompt = FILTER_RESULTS_BATCH.format(user_input=effective_query, results=all_results_str)
+            filter_message = get_response(filter_prompt, [], {"type": "json_object"})
+            print(f"Debug: Filter batch response: {filter_message.content}")
+            filter_result = FilterBatchResult.model_validate_json(filter_message.content)
+            filtered_hits = [hit for idx, hit in enumerate(hits, start=1) if idx in filter_result.relevant_indices]
             
             print(f"Debug: Filtered {len(filtered_hits)}/{len(hits)} hits as relevant")
             
@@ -249,6 +286,7 @@ async def chat_endpoint(request: ChatRequest):
             showing_from = search_plan.offset + 1
             showing_to = search_plan.offset + len(filtered_hits)
             results_str = format_hits_for_prompt(filtered_hits)
+            print(f"Debug: Preparing RAG prompt with results: {results_str}")
             rag_prompt = FINAL_RESPONSE_FORMAT.format(
                 user_input=effective_query,
                 results=results_str,
@@ -256,17 +294,19 @@ async def chat_endpoint(request: ChatRequest):
                 total=total
             )
 
-            print(f"Debug RAG prompt: {rag_prompt}")
-            
             response_message = get_response(rag_prompt, history)
             response_text = response_message.content
+
+            # Extract _id from filtered hits for detail follow-ups
+            hit_ids = [h["_id"] for h in filtered_hits]
 
             return ChatResponse(
                 response=response_text,
                 plan=search_plan.model_dump(),
                 total_hits=total,
                 result_from=search_plan.offset,
-                result_count=len(filtered_hits)
+                result_count=len(filtered_hits),
+                result_ids=hit_ids
             )
             
     except Exception as e:

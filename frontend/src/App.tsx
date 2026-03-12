@@ -19,6 +19,7 @@ interface Message {
   totalHits?: number;
   resultFrom?: number;
   resultCount?: number;
+  resultIds?: string[];
 }
 
 interface PaginationContext {
@@ -42,6 +43,7 @@ export default function App() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [paginationContext, setPaginationContext] = useState<PaginationContext | null>(null);
+  const [lastResultIds, setLastResultIds] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -64,6 +66,10 @@ export default function App() {
       if (paginationPayload) {
         body.pagination = paginationPayload;
       }
+      // Send result_ids for potential detail lookups
+      if (lastResultIds.length > 0) {
+        body.result_ids = lastResultIds;
+      }
 
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -83,8 +89,14 @@ export default function App() {
         totalHits: data.total_hits,
         resultFrom: data.result_from,
         resultCount: data.result_count,
+        resultIds: data.result_ids,
       };
       setMessages((prev) => [...prev, assistantMsg]);
+
+      // Track result_ids for detail follow-ups
+      if (data.result_ids && data.result_ids.length > 0) {
+        setLastResultIds(data.result_ids);
+      }
 
       // Update pagination context if this was a RAG search (not aggregation)
       const isAggregation = data.plan?.search_strategy === 'aggregation';
@@ -139,6 +151,7 @@ export default function App() {
 
   const clearChat = () => {
     setPaginationContext(null);
+    setLastResultIds([]);
     setMessages([
       {
         role: 'assistant',
@@ -155,7 +168,7 @@ export default function App() {
           <div className="bg-blue-600 p-1.5 rounded-lg">
             <Database className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-800">HBIM Search</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-800">Pesquisa HBIM</h1>
         </div>
         <button
           onClick={clearChat}
@@ -311,7 +324,7 @@ export default function App() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Pergunte algo sobre o modelo (ex: 'quantas portas existem?')"
+            placeholder="Pergunte algo sobre o modelo (ex: 'quantas paredes existem?')"
             disabled={isLoading}
             className="w-full pl-4 pr-12 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50 text-slate-800 placeholder:text-slate-400"
           />

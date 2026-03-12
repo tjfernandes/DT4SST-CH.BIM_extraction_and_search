@@ -270,7 +270,11 @@ def build_actions(elements, pbar_embed=None):
 
 def index_data(input_path):
     client = get_opensearch_client()
-    create_index(client)
+    if client is None:
+        raise RuntimeError("Failed to create OpenSearch client. Check your connection and credentials.")
+    
+    if not client.indices.exists(index=INDEX_NAME):
+        create_index(client)
 
     path = Path(input_path)
     json_files = list(path.glob("*.json")) if path.is_dir() else [path]

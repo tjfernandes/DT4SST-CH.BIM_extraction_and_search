@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List, Optional
 
-from prompts import REWRITE_QUERY, CLASSIFY_INTENT, EXTRACT_IFC_CLASS, EXTRACT_FILTERS, EXTRACT_CONDITIONS, IFC_CLASS_TABLE, FINAL_RESPONSE_FORMAT, FILTER_SINGLE_RESULT, EXTRACT_AGGREGATION, AGGREGATION_RESPONSE_FORMAT
+from prompts import REWRITE_QUERY, CLASSIFY_INTENT, EXTRACT_IFC_CLASS, EXTRACT_FILTERS, EXTRACT_CONDITIONS, IFC_CLASS_TABLE, FINAL_RESPONSE_FORMAT, FILTER_RESULTS_BATCH, EXTRACT_AGGREGATION, AGGREGATION_RESPONSE_FORMAT, EXTRACT_DETAIL_REF, DETAIL_RESPONSE_FORMAT
 from utils import get_opensearch_client
 
 class Condition(BaseModel):
@@ -32,8 +32,11 @@ class ExtractedFilters(BaseModel):
 class ExtractedConditions(BaseModel):
     conditions: List[Condition] = []
 
-class FilterResult(BaseModel):
-    relevant: bool = True
+class FilterBatchResult(BaseModel):
+    relevant_indices: List[int] = []
+
+class DetailRef(BaseModel):
+    index: int = 1
 
 class ExtractedAggregation(BaseModel):
     agg_field: str  # "count", "material", "ifc_class", "storey", "classification"
@@ -115,6 +118,8 @@ def format_hits_for_prompt(hits, max_chars_per_hit: int = 1200) -> str:
     for idx, hit in enumerate(hits, start=1):
         src = hit.get("_source") or {}
 
+        print(f"Debug: Formatando hit {idx} com _source keys: {list(src.keys())}")
+
         spatial = src.get("spatial_hierarchy") or {}
         metrics = src.get("metrics") or {}
 
@@ -159,6 +164,18 @@ def format_hits_for_prompt(hits, max_chars_per_hit: int = 1200) -> str:
             elif dloc:
                 doc_bits.append(dloc)
 
+        property_bits = []
+        props = src.get("properties") or {}
+        if isinstance(props, dict):
+            for pset_name, pset_vals in props.items():
+                if not isinstance(pset_vals, dict):
+                    continue
+                for k, v in pset_vals.items():
+                    if k == "id":
+                        continue
+                    property_bits.append(f"{pset_name}.{k}={v}")
+
+
         lines = [f"[{idx}]", f"ifc_class: {ifc_class}"]
         if name:
             lines.append(f"name: {name}")
@@ -172,6 +189,9 @@ def format_hits_for_prompt(hits, max_chars_per_hit: int = 1200) -> str:
             lines.append(f"classifications: {' | '.join(class_bits)}")
         if doc_bits:
             lines.append(f"documents: {' | '.join(doc_bits)}")
+        if property_bits:
+            lines.append(f"properties: {' | '.join(property_bits)}")
+        
 
         chunks.append(_truncate_text("\n".join(lines), max_chars_per_hit))
 
@@ -184,8 +204,6 @@ def get_response(prompt, history=[], response_format={"type": "text"}):
     messages.extend(history)
     messages.append({"role": "user", "content": prompt})
 
-    print(f"Debug: Sending prompt to LLM model {os.getenv('LLM_MODEL', 'gpt-4')} and expected format: {response_format}")
-    
     response = llm_client.chat.completions.parse(
         model=os.getenv("LLM_MODEL", "gpt-4"),
         messages=messages,
@@ -296,6 +314,69 @@ def execute_search(query):
     total = total_info["value"] if isinstance(total_info, dict) else total_info
     return hits, total
 
+def fetch_by_id(doc_id: str) -> dict | None:
+    """Fetch a single document by its OpenSearch _id."""
+    try:
+        response = opensearch_client.get(index=os.getenv("OPENSEARCH_INDEX", "bim_elements"), id=doc_id)
+        return response.get("_source")
+    except Exception:
+        return None
+
+def format_full_document(src: dict) -> str:
+    """Format a full document (no truncation) for the detail prompt."""
+    lines = []
+    lines.append(f"ifc_class: {src.get('ifc_class', '')}")
+    lines.append(f"name: {src.get('name', '')}")
+    lines.append(f"project_name: {src.get('project_name', '')}")
+
+    spatial = src.get("spatial_hierarchy") or {}
+    if spatial.get("storey_name"):
+        lines.append(f"storey: {spatial['storey_name']}")
+
+    materials = src.get("material") or []
+    if isinstance(materials, str):
+        materials = [materials]
+    if materials:
+        lines.append(f"materials: {', '.join(str(m) for m in materials)}")
+
+    metrics = src.get("metrics") or {}
+    metric_bits = []
+    for key in ("height", "area", "volume", "thickness"):
+        val = metrics.get(key)
+        if isinstance(val, (int, float)):
+            metric_bits.append(f"{key}={val:g}")
+    if metric_bits:
+        lines.append(f"metrics: {', '.join(metric_bits)}")
+
+    for c in (src.get("classifications") or []):
+        if isinstance(c, dict):
+            parts = [c.get("source", ""), c.get("code", ""), c.get("name", "")]
+            lines.append(f"classification: {'/'.join(p for p in parts if p)}")
+
+    for d in (src.get("documents") or []):
+        if isinstance(d, dict):
+            dname = d.get("name", "")
+            dloc = d.get("location", "")
+            lines.append(f"document: {dname} ({dloc})" if dloc else f"document: {dname}")
+
+    props = src.get("properties") or {}
+    if isinstance(props, dict):
+        for pset_name, pset_vals in props.items():
+            if not isinstance(pset_vals, dict):
+                continue
+            for k, v in pset_vals.items():
+                if k == "id":
+                    continue
+                lines.append(f"property: {pset_name}.{k} = {v}")
+
+    quantities = src.get("quantities") or {}
+    if isinstance(quantities, dict):
+        for k, v in quantities.items():
+            if v is not None:
+                lines.append(f"quantity: {k} = {v}")
+
+    return "\n".join(lines)
+
 # ── Aggregation support ──
 
 AGG_FIELD_MAP = {
@@ -354,10 +435,14 @@ def format_aggregation_for_prompt(buckets: list, agg_field: str, total: int = 0)
     if not buckets:
         return "Nenhum resultado encontrado."
     lines = []
-    for b in buckets:
-        lines.append(f"- {b['key']}: {b['count']} elemento(s)")
-    lines.append(f"\nTotal: {total} elemento(s)")
-    return "\n".join(lines)
+    if agg_field == "project_name":
+        lines.append(f"Número de projetos distintos: {len(buckets)}")
+        for b in buckets:
+            lines.append(f"- {b['key']}: {b['count']} elemento(s)")
+    else:
+        for b in buckets:
+            lines.append(f"- {b['key']}: {b['count']} elemento(s)")
+        lines.append(f"\nTotal: {total} elemento(s)")
     return "\n".join(lines)
 
 def chat():
