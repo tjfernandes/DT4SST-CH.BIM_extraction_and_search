@@ -348,14 +348,14 @@ Pergunta: "{user_input}"
 - ifc_class       → tipos/classes IFC dos elementos
 - storey          → pisos/andares/níveis
 - classification  → classificações (ex: Uniclass, OmniClass)
-- project_name    → nome do projeto (ex: "Mosteiro de Santa Clara a Velha")
+- project_id      → projeto/modelo distinto (agrega por ID do projeto)
 
 [Campo de saída]
 1. agg_field – o campo a agregar (um dos acima)
 
 [Regras]
 - Se o utilizador pede "quantos X existem?" ou "número de X" sobre um TIPO DE ELEMENTO (paredes, portas, etc.), usa agg_field="count".
-- Se o utilizador pede "quantos projetos", "quantos modelos" ou quer saber QUE projetos existem, usa agg_field="project_name".
+- Se o utilizador pede "quantos projetos", "quantos modelos" ou quer saber QUE projetos existem, usa agg_field="project_id".
 - Se o utilizador pede "quais materiais" ou "lista de materiais", usa agg_field="material".
 - Se o utilizador pede "tipos de elementos", usa agg_field="ifc_class".
 - Se o utilizador pede "quantos por piso" ou "elementos por andar", usa agg_field="storey".
@@ -387,13 +387,13 @@ Pergunta: "classificações das vigas"
 → {{"agg_field": "classification"}}
 
 Pergunta: "quantos projetos HBIM tenho?"
-→ {{"agg_field": "project_name"}}
+→ {{"agg_field": "project_id"}}
 
 Pergunta: "quais são os meus projetos?"
-→ {{"agg_field": "project_name"}}
+→ {{"agg_field": "project_id"}}
 
 Pergunta: "quantos modelos existem?"
-→ {{"agg_field": "project_name"}}
+→ {{"agg_field": "project_id"}}
 """)
 
 # ── Passo para detail: extrair referência ao resultado ────────────────

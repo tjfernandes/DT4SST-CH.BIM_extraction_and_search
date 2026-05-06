@@ -39,7 +39,7 @@ class DetailRef(BaseModel):
     index: int = 1
 
 class ExtractedAggregation(BaseModel):
-    agg_field: str  # "count", "material", "ifc_class", "storey", "classification"
+    agg_field: str  # "count", "material", "ifc_class", "storey", "classification", "project_id"
 
 class SearchPlan(BaseModel):
     search_strategy: str = "structured"  # "chat", "structured", "semantic"
@@ -380,7 +380,7 @@ def format_full_document(src: dict) -> str:
 # ── Aggregation support ──
 
 AGG_FIELD_MAP = {
-    "project_name": "project_name",
+    "project_id": "project_id",
     "material": "material",
     "ifc_class": "ifc_class",
     "storey": "spatial_hierarchy.storey_name",
@@ -402,7 +402,14 @@ def build_aggregation_query(agg_field: str, filter_ifc_class: str = None, search
             bool_filter.append({"terms": {"ifc_class": variants}})
 
     if search_plan and search_plan.project_name:
-        bool_filter.append({"term": {"project_name": search_plan.project_name}})
+        bool_filter.append({
+            "match": {
+                "project_name": {
+                    "query": search_plan.project_name,
+                    "operator": "and"
+                }
+            }
+        })
 
     if bool_filter:
         query["query"] = {"bool": {"filter": bool_filter}}
@@ -435,7 +442,7 @@ def format_aggregation_for_prompt(buckets: list, agg_field: str, total: int = 0)
     if not buckets:
         return "Nenhum resultado encontrado."
     lines = []
-    if agg_field == "project_name":
+    if agg_field == "project_id":
         lines.append(f"Número de projetos distintos: {len(buckets)}")
         for b in buckets:
             lines.append(f"- {b['key']}: {b['count']} elemento(s)")

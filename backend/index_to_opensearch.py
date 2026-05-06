@@ -119,7 +119,7 @@ def create_index(client):
             "properties": {
                 "id": {"type": "keyword", "normalizer": "lc"},
                 "project_id": {"type": "keyword", "normalizer": "lc"},
-                "project_name": {"type": "keyword", "normalizer": "lc"},
+                "project_name": {"type": "text"},
                 "ifc_class": {"type": "keyword"},
                 "name": {
                     "type": "text",
