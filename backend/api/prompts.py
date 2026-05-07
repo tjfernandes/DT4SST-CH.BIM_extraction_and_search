@@ -1,32 +1,109 @@
 import textwrap
 
-# ── Tabela de referência IFC ──────────────────────────────────────────
-# Tabela explícita de termos → classes IFC, para que modelos pequenos
-# consigam mapear sem conhecimento prévio de IFC4.
+# ── Mapa de referência IFC ────────────────────────────────────────────
+# Uma linha por termo, no formato "termo -> ifc_class", para que modelos
+# pequenos consigam mapear sem interpretar tabelas markdown.
 IFC_CLASS_TABLE = """\
-| Termos (PT / EN)                                           | ifc_class               |
-|------------------------------------------------------------|-------------------------|
-| porta, portas, door, doors                                 | IfcDoor                 |
-| janela, janelas, window, windows                           | IfcWindow               |
-| parede, paredes, wall, walls, muro                         | IfcWall                 |
-| laje, lajes, pavimento, slab, floor slab                   | IfcSlab                 |
-| pilar, pilares, coluna, colunas, column, columns           | IfcColumn               |
-| viga, vigas, beam, beams                                   | IfcBeam                 |
-| escada, escadas, stair, stairs, staircase                  | IfcStair                |
-| telhado, cobertura, roof                                   | IfcRoof                 |
-| rampa, rampas, ramp, ramps                                 | IfcRamp                 |
-| fachada cortina, curtain wall                              | IfcCurtainWall          |
-| guarda, guardas, corrimão, railing, handrail               | IfcRailing              |
-| mobiliário, móvel, móveis, furniture, furnishing           | IfcFurnishingElement    |
-| placa, placas, plate                                       | IfcPlate                |
-| membro, member                                             | IfcMember               |
-| abertura, aberturas, opening                               | IfcOpeningElement       |
-| revestimento, revestimentos, covering                      | IfcCovering             |
-| genérico, proxy, artefacto, artefactos, artifact           | IfcBuildingElementProxy |
-| tubo, tubagem, pipe, pipe segment                          | IfcFlowSegment          |
-| válvula, controlador, valve, flow controller               | IfcFlowController       |
-| torneira, sanita, terminal, flow terminal                  | IfcFlowTerminal         |
-| acessório, fitting, flow fitting                           | IfcFlowFitting          |
+porta -> IfcDoor
+portas -> IfcDoor
+door -> IfcDoor
+doors -> IfcDoor
+janela -> IfcWindow
+janelas -> IfcWindow
+window -> IfcWindow
+windows -> IfcWindow
+parede -> IfcWall
+paredes -> IfcWall
+wall -> IfcWall
+walls -> IfcWall
+muro -> IfcWall
+laje -> IfcSlab
+lajes -> IfcSlab
+pavimento -> IfcSlab
+slab -> IfcSlab
+floor slab -> IfcSlab
+pilar -> IfcColumn
+pilares -> IfcColumn
+coluna -> IfcColumn
+colunas -> IfcColumn
+column -> IfcColumn
+columns -> IfcColumn
+viga -> IfcBeam
+vigas -> IfcBeam
+beam -> IfcBeam
+beams -> IfcBeam
+escada -> IfcStair
+escadas -> IfcStair
+stair -> IfcStair
+stairs -> IfcStair
+staircase -> IfcStair
+telhado -> IfcRoof
+cobertura -> IfcRoof
+roof -> IfcRoof
+rampa -> IfcRamp
+rampas -> IfcRamp
+ramp -> IfcRamp
+ramps -> IfcRamp
+fachada cortina -> IfcCurtainWall
+curtain wall -> IfcCurtainWall
+guarda -> IfcRailing
+guardas -> IfcRailing
+corrimão -> IfcRailing
+corrimao -> IfcRailing
+railing -> IfcRailing
+handrail -> IfcRailing
+mobiliário -> IfcFurnishingElement
+mobiliario -> IfcFurnishingElement
+móvel -> IfcFurnishingElement
+movel -> IfcFurnishingElement
+móveis -> IfcFurnishingElement
+moveis -> IfcFurnishingElement
+furniture -> IfcFurnishingElement
+furnishing -> IfcFurnishingElement
+placa -> IfcPlate
+placas -> IfcPlate
+plate -> IfcPlate
+plates -> IfcPlate
+membro -> IfcMember
+member -> IfcMember
+members -> IfcMember
+abertura -> IfcOpeningElement
+aberturas -> IfcOpeningElement
+opening -> IfcOpeningElement
+openings -> IfcOpeningElement
+revestimento -> IfcCovering
+revestimentos -> IfcCovering
+covering -> IfcCovering
+coverings -> IfcCovering
+genérico -> IfcBuildingElementProxy
+generico -> IfcBuildingElementProxy
+proxy -> IfcBuildingElementProxy
+artefacto -> IfcBuildingElementProxy
+artefactos -> IfcBuildingElementProxy
+artefato -> IfcBuildingElementProxy
+artefatos -> IfcBuildingElementProxy
+artifact -> IfcBuildingElementProxy
+artifacts -> IfcBuildingElementProxy
+tubo -> IfcFlowSegment
+tubagem -> IfcFlowSegment
+pipe -> IfcFlowSegment
+pipes -> IfcFlowSegment
+pipe segment -> IfcFlowSegment
+válvula -> IfcFlowController
+valvula -> IfcFlowController
+controlador -> IfcFlowController
+valve -> IfcFlowController
+valves -> IfcFlowController
+flow controller -> IfcFlowController
+torneira -> IfcFlowTerminal
+sanita -> IfcFlowTerminal
+terminal -> IfcFlowTerminal
+flow terminal -> IfcFlowTerminal
+acessório -> IfcFlowFitting
+acessorio -> IfcFlowFitting
+fitting -> IfcFlowFitting
+fittings -> IfcFlowFitting
+flow fitting -> IfcFlowFitting
 """
 
 REWRITE_QUERY = textwrap.dedent("""\
@@ -174,15 +251,17 @@ Pergunta do utilizador:
 EXTRACT_IFC_CLASS = textwrap.dedent("""\
 Identifica a classe IFC mencionada na pergunta do utilizador.
 
-[Tabela de Classes IFC]
+[Mapa termo -> ifc_class]
 {ifc_table}
 
 [Campos de saída]
 1. ifc_class – a classe IFC do objeto mencionado (da tabela acima), ou null
 
 [Regras]
-- Procura na pergunta palavras que correspondam à coluna "Termos" da tabela acima.
-- Se encontrares correspondência, copia o valor EXATO da coluna "ifc_class" (PascalCase, case-sensitive).
+- Cada linha do mapa tem este formato: termo -> ifc_class.
+- Procura na pergunta um termo que esteja à esquerda de "->".
+- Se encontrares correspondência, devolve exatamente a classe IFC à direita de "->" (PascalCase, case-sensitive).
+- Não devolvas o termo encontrado. Devolve só a classe IFC.
 - Se NÃO encontrares correspondência ou não tiveres certeza, usa ifc_class=null.
 - Se a pergunta mencionar "elementos" de forma genérica, sem especificar tipo, usa ifc_class=null.
 - Retorna APENAS UM valor. Se houver múltiplos tipos, escolhe o principal.
@@ -228,8 +307,10 @@ Retorna um JSON com estes campos (usa null se não mencionado):
 
 [Regras]
 1. name: extrai o nome se mencionado (ex: "Artifact_0", "porta principal"). Usa null se não mencionado.
-2. project_id: extrai se o utilizador mencionar um ID de projeto específico. Usa null se não mencionado.
-3. project_name: extrai se o utilizador mencionar o nome de um projeto específico. Usa null se não mencionado.
+2. project_id: NUNCA inferir. Só extrai se a pergunta disser explicitamente que o valor é um ID de projeto, usando expressões como "project_id", "project id", "id do projeto", "id de projeto", "id do projecto" ou "identificador do projeto".
+3. Se a pergunta disser apenas "projeto X", "modelo X" ou mencionar um nome de projeto, isso NÃO é project_id. Nesse caso usa project_name.
+4. project_name: extrai se o utilizador mencionar o nome de um projeto específico. Usa null se não mencionado.
+5. Se houver dúvida entre project_id e project_name, usa project_id=null e coloca o valor em project_name.
 
 [Exemplos]
 Pergunta: "portas de madeira do piso 1"
@@ -249,6 +330,15 @@ Pergunta: "artefactos de granito"
                                   
 Pergunta: "elementos do projeto Mosteiro de Santa Clara a Velha"
 → {{"name": null, "project_id": null, "project_name": "Mosteiro de Santa Clara a Velha"}}
+
+Pergunta: "elementos do projeto SCV_2024"
+→ {{"name": null, "project_id": null, "project_name": "SCV_2024"}}
+
+Pergunta: "elementos com project_id SCV_2024"
+→ {{"name": null, "project_id": "SCV_2024", "project_name": null}}
+
+Pergunta: "elementos com id do projeto SCV_2024"
+→ {{"name": null, "project_id": "SCV_2024", "project_name": null}}
 
 Pergunta do utilizador:
 "{user_input}"
@@ -316,6 +406,7 @@ FINAL_RESPONSE_FORMAT = textwrap.dedent("""
 Gera uma resposta clara e concisa para o utilizador, na lingua em que foi feita a pergunta, explicando os resultados encontrados.
 Indica que estás a mostrar os resultados {showing} de {total} no total, apenas se não forem iguais.
 Não refiras ids dos resultados.
+Se o nome de um elemento for apenas um código (ex: "WD"), usa o ifc_class para dar contexto (ex: "a parede WD"). Se o nome for mais descritivo (ex: "porta principal"), usa só o nome.
 Se não houver resultados, indica que nada foi encontrado.
 IMPORTANTE: Sempre que apresentares um URL ou caminho de ficheiro (ex: https://... ou docs/...), formata-o OBRIGATORIAMENTE como hiperligação Markdown: [texto descritivo](url_ou_caminho). NUNCA uses backticks nem texto simples para URLs ou caminhos.
 """)
@@ -348,14 +439,17 @@ Pergunta: "{user_input}"
 - ifc_class       → tipos/classes IFC dos elementos
 - storey          → pisos/andares/níveis
 - classification  → classificações (ex: Uniclass, OmniClass)
-- project_id      → projeto/modelo distinto (agrega por ID do projeto)
+- project         → projetos/modelos distintos, quando o utilizador pede projetos sem falar em project_id
+- project_id      → IDs de projeto distintos, APENAS quando o utilizador diz explicitamente "project_id", "project id", "id do projeto" ou equivalente
 
 [Campo de saída]
 1. agg_field – o campo a agregar (um dos acima)
 
 [Regras]
 - Se o utilizador pede "quantos X existem?" ou "número de X" sobre um TIPO DE ELEMENTO (paredes, portas, etc.), usa agg_field="count".
-- Se o utilizador pede "quantos projetos", "quantos modelos" ou quer saber QUE projetos existem, usa agg_field="project_id".
+- Se o utilizador pede "quantos projetos", "quantos modelos" ou quer saber QUE projetos existem, usa agg_field="project".
+- NUNCA uses agg_field="project_id" só porque a pergunta menciona "projeto" ou "modelo".
+- Usa agg_field="project_id" apenas se a pergunta disser explicitamente que quer project_id/id do projeto.
 - Se o utilizador pede "quais materiais" ou "lista de materiais", usa agg_field="material".
 - Se o utilizador pede "tipos de elementos", usa agg_field="ifc_class".
 - Se o utilizador pede "quantos por piso" ou "elementos por andar", usa agg_field="storey".
@@ -387,12 +481,15 @@ Pergunta: "classificações das vigas"
 → {{"agg_field": "classification"}}
 
 Pergunta: "quantos projetos HBIM tenho?"
-→ {{"agg_field": "project_id"}}
+→ {{"agg_field": "project"}}
 
 Pergunta: "quais são os meus projetos?"
-→ {{"agg_field": "project_id"}}
+→ {{"agg_field": "project"}}
 
 Pergunta: "quantos modelos existem?"
+→ {{"agg_field": "project"}}
+
+Pergunta: "quantos project_id distintos existem?"
 → {{"agg_field": "project_id"}}
 """)
 

@@ -72,8 +72,12 @@ VERIFY_CERTS=false
 SSL_SHOW_WARN=false
 OPENSEARCH_INDEX=bim_elements
 
-LLM_MODEL=gpt-4
-OPENAI_API_KEY=your_key_here
+LLM_MODEL=your_model
+LLM_API_KEY=your_key_here
+# Optional for OpenAI-compatible providers. Use the API root, not /chat/completions.
+LLM_BASE_URL=https://api.example.com/v1
+LLM_LOG_OUTPUTS=true
+PREPROCESS_LOG_JSONS=true
 
 EMBEDDING_MODEL_NAME=zeroentropy/zembed-1
 EMBEDDING_DIM=640

@@ -2,14 +2,16 @@ import logging
 from functools import lru_cache
 from typing import Any, List, Optional
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 from pydantic import BaseModel, Field
 
 from shared.config import (
     EMBEDDING_DIM,
     EMBEDDING_MODEL_NAME,
     LLM_MODEL,
-    OPENAI_API_KEY,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_LOG_OUTPUTS,
     OPENSEARCH_INDEX,
 )
 from shared.opensearch import get_opensearch_client
@@ -110,7 +112,13 @@ def get_query_embedding(text: str) -> list:
     return vector.tolist() if hasattr(vector, "tolist") else list(vector)
 
 
-llm_client = OpenAI(api_key=OPENAI_API_KEY)
+llm_client_kwargs = {}
+if LLM_API_KEY:
+    llm_client_kwargs["api_key"] = LLM_API_KEY
+if LLM_BASE_URL:
+    llm_client_kwargs["base_url"] = LLM_BASE_URL
+
+llm_client = OpenAI(**llm_client_kwargs)
 opensearch_client = get_opensearch_client()
 
 
@@ -119,6 +127,23 @@ def _truncate_text(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 1].rstrip() + "..."
+
+
+def log_llm_output(message: Any, response_format: dict[str, str], finish_reason: str | None = None):
+    if not LLM_LOG_OUTPUTS:
+        return
+
+    content = getattr(message, "content", None)
+    if content is None:
+        content = str(message)
+
+    logger.info(
+        "LLM output | model=%s | format=%s | finish_reason=%s\n%s",
+        LLM_MODEL,
+        response_format.get("type", "text"),
+        finish_reason or "unknown",
+        content,
+    )
 
 
 def format_hits_for_prompt(hits: list[dict], max_chars_per_hit: int = 1200) -> str:
@@ -224,12 +249,26 @@ def get_response(
     messages.extend(history)
     messages.append({"role": "user", "content": prompt})
 
-    response = llm_client.chat.completions.parse(
-        model=LLM_MODEL,
-        messages=messages,
-        response_format=response_format,
-    )
-    return response.choices[0].message
+    request_kwargs = {
+        "model": LLM_MODEL,
+        "messages": messages,
+    }
+    if response_format.get("type") != "text":
+        request_kwargs["response_format"] = response_format
+
+    try:
+        response = llm_client.chat.completions.create(**request_kwargs)
+    except BadRequestError:
+        if "response_format" not in request_kwargs:
+            raise
+        logger.warning("LLM rejected response_format; retrying without it.")
+        request_kwargs.pop("response_format")
+        response = llm_client.chat.completions.create(**request_kwargs)
+
+    choice = response.choices[0]
+    message = choice.message
+    log_llm_output(message, response_format, getattr(choice, "finish_reason", None))
+    return message
 
 
 def build_opensearch_query(search_plan: SearchPlan, query_embedding: Optional[list] = None):
@@ -370,6 +409,7 @@ def format_full_document(src: dict) -> str:
 
 AGG_FIELD_MAP = {
     "project_id": "project_id",
+    "project": "project_id",
     "material": "material",
     "ifc_class": "ifc_class",
     "storey": "spatial_hierarchy.storey_name",
@@ -428,7 +468,7 @@ def format_aggregation_for_prompt(buckets: list, agg_field: str, total: int = 0)
         return "Nenhum resultado encontrado."
 
     lines = []
-    if agg_field == "project_id":
+    if agg_field in ("project", "project_id"):
         lines.append(f"Número de projetos distintos: {len(buckets)}")
         for bucket in buckets:
             lines.append(f"- {bucket['key']}: {bucket['count']} elemento(s)")
