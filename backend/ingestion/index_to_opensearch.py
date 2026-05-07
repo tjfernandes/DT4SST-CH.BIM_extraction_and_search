@@ -1,21 +1,15 @@
 import argparse
 import json
-import os
 from functools import lru_cache
 from pathlib import Path
 
-from dotenv import load_dotenv
 from opensearchpy import helpers
 from tqdm import tqdm
 
-from utils import get_opensearch_client
+from shared.config import EMBEDDING_BATCH_SIZE, EMBEDDING_DIM, EMBEDDING_MODEL_NAME, OPENSEARCH_INDEX
+from shared.opensearch import get_opensearch_client
 
-load_dotenv()
-
-INDEX_NAME = os.getenv("INDEX_NAME", "bim_elements")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "zeroentropy/zembed-1")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "640"))
-EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "2"))
+INDEX_NAME = OPENSEARCH_INDEX
 SUPPORTED_EMBEDDING_DIMS = {40, 80, 160, 320, 640, 1280, 2560}
 
 
