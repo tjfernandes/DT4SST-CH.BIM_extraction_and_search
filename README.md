@@ -34,7 +34,7 @@ search_pipeline/
 - Python 3.10+
 - Node.js and npm
 - OpenSearch instance
-- OpenAI API key
+- LLM API key (openai compatible)
 
 ## Backend Setup
 
