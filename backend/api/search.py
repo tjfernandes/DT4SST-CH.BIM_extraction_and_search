@@ -252,6 +252,7 @@ def get_response(
     request_kwargs = {
         "model": LLM_MODEL,
         "messages": messages,
+        "temperature": 0.1,
     }
     if response_format.get("type") != "text":
         request_kwargs["response_format"] = response_format
