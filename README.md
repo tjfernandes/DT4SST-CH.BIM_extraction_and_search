@@ -76,6 +76,7 @@ LLM_MODEL=your_model
 LLM_API_KEY=your_key_here
 # Optional for OpenAI-compatible providers. Use the API root, not /chat/completions.
 LLM_BASE_URL=https://api.example.com/v1
+LLM_LOG_PROMPTS=false
 LLM_LOG_OUTPUTS=true
 PREPROCESS_LOG_JSONS=true
 

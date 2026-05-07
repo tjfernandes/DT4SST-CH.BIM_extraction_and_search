@@ -1,3 +1,4 @@
+import json
 import logging
 from functools import lru_cache
 from typing import Any, List, Optional
@@ -11,6 +12,7 @@ from shared.config import (
     LLM_MODEL,
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_LOG_PROMPTS,
     LLM_LOG_OUTPUTS,
     OPENSEARCH_INDEX,
 )
@@ -25,7 +27,6 @@ class Condition(BaseModel):
 
 class ClassifyResult(BaseModel):
     search_strategy: str
-    semantic_query: Optional[str] = None
 
 
 class ExtractedIfcClass(BaseModel):
@@ -56,6 +57,10 @@ class ExtractedAggregation(BaseModel):
     agg_field: str
 
 
+class ExtractedEmbeddingQuery(BaseModel):
+    embedding_query: str
+
+
 class SearchPlan(BaseModel):
     search_strategy: str = "structured"
     ifc_class: Optional[str] = None
@@ -65,7 +70,7 @@ class SearchPlan(BaseModel):
     project_id: Optional[str] = None
     project_name: Optional[str] = None
     conditions: List[Condition] = Field(default_factory=list)
-    semantic_query: Optional[str] = None
+    embedding_query: Optional[str] = None
     top_k: int = 500
     page_size: int = 10
     offset: int = 0
@@ -143,6 +148,18 @@ def log_llm_output(message: Any, response_format: dict[str, str], finish_reason:
         response_format.get("type", "text"),
         finish_reason or "unknown",
         content,
+    )
+
+
+def log_llm_prompt(messages: list[dict[str, Any]], response_format: dict[str, str]):
+    if not LLM_LOG_PROMPTS:
+        return
+
+    logger.info(
+        "LLM prompt | model=%s | format=%s | messages=%s",
+        LLM_MODEL,
+        response_format.get("type", "text"),
+        json.dumps(messages, ensure_ascii=False, indent=2, default=str),
     )
 
 
@@ -256,6 +273,8 @@ def get_response(
     }
     if response_format.get("type") != "text":
         request_kwargs["response_format"] = response_format
+
+    log_llm_prompt(messages, response_format)
 
     try:
         response = llm_client.chat.completions.create(**request_kwargs)

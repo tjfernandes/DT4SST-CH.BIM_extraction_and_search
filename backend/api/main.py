@@ -14,6 +14,7 @@ from api.prompts import (
     DETAIL_RESPONSE_FORMAT,
     EXTRACT_AGGREGATION,
     EXTRACT_CONDITIONS,
+    EXTRACT_EMBEDDING_QUERY,
     EXTRACT_DETAIL_REF,
     EXTRACT_FILTERS,
     EXTRACT_IFC_CLASS,
@@ -27,6 +28,7 @@ from api.search import (
     DetailRef,
     ExtractedAggregation,
     ExtractedConditions,
+    ExtractedEmbeddingQuery,
     ExtractedFilters,
     ExtractedIfcClass,
     FilterBatchResult,
@@ -140,6 +142,34 @@ def clear_inferred_project_id_aggregation(
     return agg_params
 
 
+def extract_embedding_query(
+    effective_query: str,
+    ifc_result: ExtractedIfcClass,
+    filters_result: ExtractedFilters,
+    conditions_result: ExtractedConditions,
+) -> str:
+    prompt = EXTRACT_EMBEDDING_QUERY.format(
+        user_input=effective_query,
+        ifc_class=ifc_result.ifc_class or "null",
+        filters_json=json.dumps(filters_result.model_dump(mode="json"), ensure_ascii=False),
+        conditions_json=json.dumps(conditions_result.model_dump(mode="json"), ensure_ascii=False),
+    )
+
+    try:
+        message = get_response(prompt, [], {"type": "json_object"})
+        result = ExtractedEmbeddingQuery.model_validate_json(message.content)
+        embedding_query = result.embedding_query.strip()
+    except Exception:
+        logger.warning("Failed to extract embedding query; falling back to effective query.", exc_info=True)
+        embedding_query = ""
+
+    if not embedding_query:
+        embedding_query = effective_query
+
+    log_preprocess_json("extract_embedding_query", {"embedding_query": embedding_query})
+    return embedding_query
+
+
 app = FastAPI(title="HBIM Search API")
 
 app.add_middleware(
@@ -217,8 +247,11 @@ async def chat_endpoint(request: ChatRequest):
             )
 
             query_embedding = None
-            if search_plan.search_strategy == "semantic" and search_plan.semantic_query:
-                query_embedding = get_query_embedding(search_plan.semantic_query)
+            if search_plan.search_strategy == "semantic":
+                embedding_query = search_plan.embedding_query or effective_query
+                search_plan.embedding_query = embedding_query
+                log_preprocess_json("semantic_embedding_query", {"query": embedding_query})
+                query_embedding = get_query_embedding(embedding_query)
         else:
             has_prior_user_messages = any(m["role"] == "user" for m in history)
             if has_prior_user_messages:
@@ -271,8 +304,16 @@ async def chat_endpoint(request: ChatRequest):
                     filters_result.project_name,
                 )
 
-                if classify_result.search_strategy == "semantic" and classify_result.semantic_query:
-                    query_embedding = get_query_embedding(effective_query)
+                embedding_query = None
+                if classify_result.search_strategy == "semantic":
+                    embedding_query = extract_embedding_query(
+                        effective_query,
+                        ifc_result,
+                        filters_result,
+                        conditions_result,
+                    )
+                    log_preprocess_json("semantic_embedding_query", {"query": embedding_query})
+                    query_embedding = get_query_embedding(embedding_query)
 
                 search_plan = SearchPlan(
                     search_strategy=classify_result.search_strategy,
@@ -283,7 +324,7 @@ async def chat_endpoint(request: ChatRequest):
                     project_id=filters_result.project_id,
                     project_name=filters_result.project_name,
                     conditions=conditions_result.conditions,
-                    semantic_query=classify_result.semantic_query,
+                    embedding_query=embedding_query,
                 )
                 search_plan.offset = 0
                 logger.debug("Combined search plan: %s", search_plan.model_dump())

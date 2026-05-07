@@ -155,7 +155,6 @@ Analisa a pergunta do utilizador e determina a estratégia de pesquisa.
 
 [Campos de saída]
 1. search_strategy – "chat", "structured", "semantic", "aggregation" ou "detail"
-2. semantic_query – frase curta em inglês descritiva do que o utilizador procura (apenas quando search_strategy="semantic"), caso contrário null
 
 [Regras]
 - Usa "chat" se a pergunta NÃO é sobre elementos do modelo (ex: "olá", "o que é o IFC?", "como estás?").
@@ -164,84 +163,83 @@ Analisa a pergunta do utilizador e determina a estratégia de pesquisa.
 - Se a pergunta é um follow-up vago (ex: "consegues listá-las?", "mostra-me", "sim"), interpreta no contexto do histórico. Se o contexto anterior era sobre elementos, usa "structured".
 - Usa "structured" se TODOS os critérios podem ser expressos como filtros exatos (classe, dimensões numéricas), ou se o utilizador quer VER elementos individuais.
 - Usa "semantic" se a pergunta contém termos vagos, descritivos, conceptuais, funcionais ou relações que não se mapeiam a filtros exatos.
-- Para semantic_query: cria uma frase curta em inglês que capture a intenção semântica, incluindo o tipo de elemento se mencionado.
 - Devolve apenas um objeto JSON válido.
                                   
 [Exemplos]
 Pergunta: "olá, como estás?"
-→ {{"search_strategy": "chat", "semantic_query": null}}
+→ {{"search_strategy": "chat"}}
 
 Pergunta: "mostra-me as portas do piso 1"
-→ {{"search_strategy": "structured", "semantic_query": null}}
+→ {{"search_strategy": "structured"}}
 
 Pergunta: "paredes de betão com mais de 3 metros"
-→ {{"search_strategy": "structured", "semantic_query": null}}
+→ {{"search_strategy": "structured"}}
 
 Pergunta: "mostra-me todos os elementos do piso 2"
-→ {{"search_strategy": "structured", "semantic_query": null}}
+→ {{"search_strategy": "structured"}}
 
 Pergunta: "artefactos de calcário"
-→ {{"search_strategy": "structured", "semantic_query": null}}
+→ {{"search_strategy": "structured"}}
 
 Pergunta: "vigas com mais de 5 metros"
-→ {{"search_strategy": "structured", "semantic_query": null}}
+→ {{"search_strategy": "structured"}}
 
 Pergunta: "lista todos os materiais das paredes"
-→ {{"search_strategy": "aggregation", "semantic_query": null}}
+→ {{"search_strategy": "aggregation"}}
 
 Pergunta: "quais são os pisos do edifício?"
-→ {{"search_strategy": "aggregation", "semantic_query": null}}
+→ {{"search_strategy": "aggregation"}}
 
 Pergunta: "quantas portas existem por piso?"
-→ {{"search_strategy": "aggregation", "semantic_query": null}}
+→ {{"search_strategy": "aggregation"}}
 
 Pergunta: "que tipos de elementos existem no modelo?"
-→ {{"search_strategy": "aggregation", "semantic_query": null}}
+→ {{"search_strategy": "aggregation"}}
 
 Pergunta: "quantos elementos tem o modelo?"
-→ {{"search_strategy": "aggregation", "semantic_query": null}}
+→ {{"search_strategy": "aggregation"}}
 
 Pergunta: "lista as paredes"
-→ {{"search_strategy": "structured", "semantic_query": null}}
+→ {{"search_strategy": "structured"}}
                                   
 Pergunta: "Que elementos contêm documentos associados?"
-→ {{"search_strategy": "semantic", "semantic_query": "has documents"}}
+→ {{"search_strategy": "semantic"}}
                                   
 Pergunta: "Que elementos contêm classificações associadas?"
-→ {{"search_strategy": "semantic", "semantic_query": "has classifications"}}                                  
+→ {{"search_strategy": "semantic"}}                                  
 
 Pergunta: "elementos estruturais do edifício"
-→ {{"search_strategy": "semantic", "semantic_query": "structural building elements"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "tudo relacionado com a fachada"
-→ {{"search_strategy": "semantic", "semantic_query": "facade related elements"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "paredes com anomalias ou patologias"
-→ {{"search_strategy": "semantic", "semantic_query": "walls with anomalies or pathologies"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "componentes de proteção contra incêndio"
-→ {{"search_strategy": "semantic", "semantic_query": "fire protection components"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "o que suporta o telhado?"
-→ {{"search_strategy": "semantic", "semantic_query": "roof support elements"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "elementos decorativos da fachada principal"
-→ {{"search_strategy": "semantic", "semantic_query": "decorative elements of the main facade"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "elementos mais antigos do modelo"
-→ {{"search_strategy": "semantic", "semantic_query": "oldest elements in the model"}}
+→ {{"search_strategy": "semantic"}}
 
 Pergunta: "fala-me mais sobre esse elemento"
-→ {{"search_strategy": "detail", "semantic_query": null}}
+→ {{"search_strategy": "detail"}}
 
 Pergunta: "que propriedades tem o primeiro?"
-→ {{"search_strategy": "detail", "semantic_query": null}}
+→ {{"search_strategy": "detail"}}
 
 Pergunta: "detalha o terceiro resultado"
-→ {{"search_strategy": "detail", "semantic_query": null}}
+→ {{"search_strategy": "detail"}}
 
 Pergunta: "e essa viga?"
-→ {{"search_strategy": "detail", "semantic_query": null}}
+→ {{"search_strategy": "detail"}}
 
 Pergunta do utilizador:
 "{user_input}"
@@ -397,6 +395,57 @@ Pergunta do utilizador:
 "{user_input}"
 """)
 
+EXTRACT_EMBEDDING_QUERY = textwrap.dedent("""\
+Cria uma query textual para pesquisa vetorial em OpenSearch.
+
+Esta query vai ser transformada em embedding e comparada com o campo semantic_text dos documentos BIM.
+O semantic_text dos documentos usa linhas parecidas com:
+- project: nome do projeto
+- name: nome do elemento
+- ifc_class: classe IFC e termos relacionados
+- materials: materiais
+- storey: piso/nível
+- classifications: classificações associadas
+- documents: documentos associados
+- properties: propriedades descritivas
+
+Pergunta original:
+"{user_input}"
+
+Contexto estruturado extraído:
+- ifc_class: {ifc_class}
+- filters: {filters_json}
+- conditions: {conditions_json}
+
+[Campo de saída]
+1. embedding_query – texto curto e útil para embeddings
+
+[Regras]
+- Não cries uma query DSL de OpenSearch. Isto é apenas texto para embedding.
+- Mantém os termos importantes da pergunta original.
+- Usa palavras que provavelmente aparecem em semantic_text: ifc_class, name, materials, storey, classifications, documents, properties.
+- Inclui a classe IFC, material, piso, nome ou propriedade apenas se estiverem na pergunta ou no contexto estruturado.
+- Não inventes IDs, nomes de projeto, materiais, pisos, classificações, documentos nem propriedades.
+- Se a pergunta procura documentos, inclui "documents".
+- Se a pergunta procura classificações, inclui "classifications".
+- Se a pergunta procura propriedades/características, inclui "properties".
+- Pode ser uma frase curta ou várias linhas no estilo "campo: valor".
+- Devolve apenas um objeto JSON válido.
+
+[Exemplos]
+Pergunta: "Que elementos contêm documentos associados?"
+→ {{"embedding_query": "documents associated documents"}}
+
+Pergunta: "paredes com anomalias ou patologias"
+→ {{"embedding_query": "ifc_class: IfcWall wall parede\nproperties: anomalies pathologies anomalias patologias"}}
+
+Pergunta: "elementos estruturais do edifício"
+→ {{"embedding_query": "structural building elements properties classifications"}}
+
+Pergunta: "tudo relacionado com a fachada"
+→ {{"embedding_query": "facade fachada exterior wall curtain wall covering"}}
+""")
+
 FINAL_RESPONSE_FORMAT = textwrap.dedent("""
 - Pergunta do utilizador: "{user_input}"
 - A mostrar resultados {showing} de {total} no total
@@ -544,3 +593,4 @@ Resultados da agregação ({agg_field}):
 Gera uma resposta clara e concisa para o utilizador, na lingua em que foi feita a pergunta, apresentando os resultados da agregação.
 Se houver contagens, apresenta-as. Formata como lista ou tabela Markdown se adequado.
 """)
+
