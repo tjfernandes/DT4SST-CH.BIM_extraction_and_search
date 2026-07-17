@@ -6,11 +6,15 @@ HBIM-002 — Typed OpenSearch settings and client normalization
 
 ## Status
 
-Specification preparation
+Ready for implementation
 
 ## Current branch
 
-`docs/hbim-implementation-plan`
+`feat/hbim-002-typed-settings`
+
+## Specification
+
+`docs/implementation/issues/HBIM-002_TYPED_SETTINGS.md`
 
 ## Environment
 
