@@ -1,100 +1,73 @@
 # HBIM Implementation Status
 
-## Active issue
+## Last completed issue
 
 HBIM-002 — Typed OpenSearch settings and client normalization
 
+## Active issue
+
+HBIM-003 — API authentication, hardening and frontend integration
+
 ## Status
 
-Implemented — awaiting independent review
+Specification preparation
 
 ## Current branch
 
-`feat/hbim-002-typed-settings`
+`feat/hbim-003-api-auth`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-002_TYPED_SETTINGS.md`
+`docs/implementation/issues/HBIM-003_API_AUTH.md`
+
+## Execution decision
+
+The roadmap entries HBIM-003A and HBIM-003B are being executed together
+as a single issue and pull request:
+
+- backend API authentication and hardening;
+- integration of the existing frontend with the protected API.
+
+This does not include a frontend redesign.
 
 ## Environment
 
 - Development environment: WSL
-- Repository working directory: Linux filesystem
-- Secrets are stored only in the ignored `backend/.env`
+- Conda environment: `hbim-rag`
+- Python commands and tests must use `conda run -n hbim-rag`
+- Secrets remain only in the ignored `backend/.env`
 - Automated tests must not contact remote services
 
-## Python environment
+## Scope
 
-- Conda environment: `hbim-rag`
-- Python: `3.10.20`
-- Torch: `2.8.0+cu128`
-- CUDA runtime used by Torch: `12.8`
-- GPU: NVIDIA RTX PRO 6000 Blackwell Workstation Edition
-- Python commands and tests must run through this environment
+### Backend
 
-## Authoritative documents
+- Typed API settings
+- API-key authentication
+- Restricted CORS configuration
+- `/healthz`
+- `/readyz`
+- JSON logging
+- Request ID generation and propagation
+- Prometheus-compatible metrics
+- Offline tests
 
-- `docs/architecture/HBIM_RAG_DECISIONS.md`
-- `docs/implementation/ROADMAP.md`
-- `docs/implementation/issues/HBIM-002_TYPED_SETTINGS.md`
+### Frontend
 
-## Implementation summary
-
-- Typed `OpenSearchSettings` implemented with `pydantic-settings`
-- OpenSearch secrets represented using `SecretStr`
-- OpenSearch host, scheme and port normalization implemented
-- Legacy environment aliases retained with deprecation warnings
-- Secure TLS defaults implemented
-- OpenSearch client creation is lazy
-- OpenAI and OpenSearch clients are no longer created during imports
-- Timeout and retry settings are configurable
-- IFC extractor import is free from CLI execution side effects
-- Minimum pytest bootstrap created
-- Configuration and import-safety tests created
-- 20 tests pass offline
-- Independent review pending
-
-## Files changed by HBIM-002
-
-- `backend/.env.example`
-- `backend/api/search.py`
-- `backend/ingestion/extract_bim.py`
-- `backend/shared/config.py`
-- `backend/shared/opensearch.py`
-- `backend/pytest.ini`
-- `backend/tests/conftest.py`
-- `backend/tests/test_config.py`
-- `backend/tests/test_import_safety.py`
+- Read the API key from a frontend environment variable
+- Send the authentication header with API requests
+- Handle `401` and `403` responses
+- Preserve the current frontend behaviour and layout
+- Avoid exposing secrets in logs or error messages
 
 ## Out of scope
 
-- API authentication
-- CORS changes
-- Frontend authentication
-- Full CI pipeline
-- Ruff and mypy configuration
-- Testcontainers and Docker Compose
+- Frontend redesign
+- BIM viewer
+- Search-as-you-type
+- New `/search`, `/facets` or `/elements` endpoints
 - OpenSearch mappings
-- Index migrations
-- Canonical HBIM schema
-- Embeddings
 - Retrieval changes
+- Embeddings
 - Neo4j integration
-
-## Security rules
-
-- Never open, print or modify `backend/.env`
-- Never include real secrets or operational values in tests
-- Never contact remote OpenSearch during automated tests
-- Never create network clients during module imports
-- The IFC extractor must remain usable without OpenSearch configuration
-
-## Validation status
-
-- Configuration tests: PASS
-- Import-safety tests: PASS
-- Offline network guard: PASS
-- IFC extractor import without OpenSearch settings: PASS
-- `git diff --check`: PASS
-- Secret scan of current diff: PASS
-- Independent code review: PENDING
+- CI, Ruff, mypy, testcontainers and Docker Compose
