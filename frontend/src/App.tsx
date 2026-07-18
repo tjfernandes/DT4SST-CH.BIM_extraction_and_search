@@ -5,26 +5,16 @@ import { Bot, Database, Loader2, Send, Trash2, User } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import { ApiError, postChat } from './api';
+import type {
+  ChatRequestPayload,
+  MessageRole,
+  PaginationPayload,
+  SearchPlanPayload,
+} from './api';
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-type MessageRole = 'user' | 'assistant';
-
-type SearchConditionValue = string | number | Array<string | number>;
-
-interface SearchCondition {
-  field: string;
-  op: string;
-  value: SearchConditionValue;
-}
-
-interface SearchPlanPayload {
-  search_strategy?: string;
-  page_size?: number;
-  ifc_class?: string | null;
-  conditions?: SearchCondition[];
-  [key: string]: unknown;
 }
 
 interface Message {
@@ -45,29 +35,6 @@ interface PaginationContext {
   originalQuery: string;
 }
 
-interface PaginationPayload {
-  stored_plan: SearchPlanPayload;
-  offset: number;
-  original_query: string;
-}
-
-interface ChatRequestPayload {
-  message: string;
-  history: Array<{ role: MessageRole; content: string }>;
-  pagination?: PaginationPayload;
-  result_ids?: string[];
-}
-
-interface ChatApiResponse {
-  response: string;
-  plan?: SearchPlanPayload | null;
-  total_hits?: number;
-  result_from?: number;
-  result_count?: number;
-  result_ids?: string[];
-}
-
-const API_URL = 'http://localhost:8000/chat';
 const INITIAL_ASSISTANT_MESSAGE = 'Olá! Sou o seu assistente HBIM. Como posso ajudar a explorar os seus modelos hoje?';
 
 export default function App() {
@@ -99,17 +66,7 @@ export default function App() {
         body.result_ids = lastResultIds;
       }
 
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        throw new Error('Falha na comunicação com o servidor');
-      }
-
-      const data = (await response.json()) as ChatApiResponse;
+      const data = await postChat(body);
       const assistantMsg: Message = {
         role: 'assistant',
         content: data.response,
@@ -138,11 +95,18 @@ export default function App() {
       } else if (!paginationPayload) {
         setPaginationContext(null);
       }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Desculpe, ocorreu um erro ao processar o seu pedido.' },
-      ]);
+    } catch (error) {
+      // Mensagens seguras: nunca incluem a chave nem texto bruto do servidor.
+      let content = 'Desculpe, ocorreu um erro ao processar o seu pedido.';
+      if (error instanceof ApiError) {
+        if (error.code === 'unauthorized') {
+          content =
+            'A aplicação não está autenticada junto do servidor. Configure a chave de acesso (VITE_API_KEY) e recarregue a página.';
+        } else if (error.code === 'forbidden') {
+          content = 'O acesso a este recurso não é permitido com a chave configurada.';
+        }
+      }
+      setMessages((prev) => [...prev, { role: 'assistant', content }]);
     } finally {
       setIsLoading(false);
     }

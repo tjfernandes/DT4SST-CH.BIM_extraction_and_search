@@ -1,6 +1,8 @@
+import json
 import os
 import warnings
-from typing import Literal
+from functools import lru_cache
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
@@ -9,11 +11,12 @@ from pydantic import (
     Field,
     PrivateAttr,
     SecretStr,
+    ValidationInfo,
     computed_field,
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _to_bool(value: str | None, default: bool = False) -> bool:
@@ -52,6 +55,93 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "640"))
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "2"))
 
 _LEGACY_OPENSEARCH_ENV_VARS = ("OPENSEARCH_USER", "USE_SSL", "VERIFY_CERTS", "SSL_SHOW_WARN")
+
+
+class ApiConfigurationError(RuntimeError):
+    """Configuração inválida da API (auth/CORS).
+
+    Não deriva de ValueError de propósito: erros de validador embrulhados em
+    ValidationError anexam o input bruto (que incluiria as chaves API).
+    """
+
+
+class ApiSettings(BaseSettings):
+    """Definições da API (auth, CORS, métricas, logging).
+
+    Construível com defaults sem qualquer variável de ambiente (import-safety):
+    a política "auth ativa exige chaves" é imposta no primeiro uso
+    (verify_api_key) e no arranque (lifespan), nunca na construção.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    auth_enabled: bool = Field(default=True, alias="API_AUTH_ENABLED")
+    api_keys: Annotated[list[SecretStr], NoDecode] = Field(
+        default_factory=list, alias="API_KEYS"
+    )
+    metrics_public: bool = Field(default=False, alias="METRICS_PUBLIC")
+    cors_allow_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=list, alias="CORS_ALLOW_ORIGINS"
+    )
+    cors_allow_credentials: bool = Field(default=False, alias="CORS_ALLOW_CREDENTIALS")
+    log_format: Literal["json", "text"] = Field(default="json", alias="LOG_FORMAT")
+
+    @field_validator("api_keys", "cors_allow_origins", mode="before")
+    @classmethod
+    def _split_list(cls, value: object, info: ValidationInfo) -> object:
+        # Aceita lista JSON ou CSV; NoDecode entrega a string crua do env.
+        if value is None:
+            return []
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            if text.startswith("["):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ApiConfigurationError(
+                        f"{info.field_name}: lista JSON malformada."
+                    ) from exc
+                if not isinstance(parsed, list):
+                    raise ApiConfigurationError(
+                        f"{info.field_name}: esperada uma lista JSON."
+                    )
+                items = [str(item).strip() for item in parsed]
+            else:
+                items = [item.strip() for item in text.split(",")]
+        elif isinstance(value, (list, tuple)):
+            items = [
+                item.strip() if isinstance(item, str) else item for item in value
+            ]
+        else:
+            return value
+
+        if info.field_name == "api_keys":
+            if any(isinstance(item, str) and item == "" for item in items):
+                raise ApiConfigurationError("API_KEYS contém elementos vazios.")
+            return items
+        return [item for item in items if item]
+
+    @model_validator(mode="after")
+    def _validate_policy(self) -> "ApiSettings":
+        if "*" in self.cors_allow_origins and self.cors_allow_credentials:
+            raise ApiConfigurationError(
+                "CORS_ALLOW_ORIGINS='*' com CORS_ALLOW_CREDENTIALS=true é inválido "
+                "pela especificação CORS; configurar origens explícitas."
+            )
+        return self
+
+
+@lru_cache(maxsize=1)
+def get_api_settings() -> ApiSettings:
+    return ApiSettings()
 
 
 class OpenSearchConfigurationError(RuntimeError):

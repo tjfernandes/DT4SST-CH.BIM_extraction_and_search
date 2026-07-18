@@ -10,7 +10,18 @@ HBIM-003 — API authentication, hardening and frontend integration
 
 ## Status
 
-Specification preparation
+Implemented — validated and ready for commit
+
+## Validation status
+
+- Backend tests: 52 passed
+- Frontend lint: PASS
+- Frontend build: PASS
+- Manual frontend checklist: 4/4 PASS
+- Import safety: PASS
+- Offline network guard: PASS
+- `git diff --check`: PASS
+- Secrets scan: PASS
 
 ## Current branch
 
@@ -71,3 +82,15 @@ This does not include a frontend redesign.
 - Embeddings
 - Neo4j integration
 - CI, Ruff, mypy, testcontainers and Docker Compose
+
+## Implementation summary
+
+- API-key authentication implemented for protected endpoints
+- CORS restricted through environment-based configuration
+- `/healthz`, `/readyz` and `/metrics` implemented
+- Request IDs propagated through responses and logs
+- Structured logging and safe error responses implemented
+- Frontend sends `X-API-Key` and handles `401` and `403`
+- Backend test suite: 52 passed
+- Frontend lint and build: PASS
+- Manual frontend authentication checklist: 4/4 PASS
