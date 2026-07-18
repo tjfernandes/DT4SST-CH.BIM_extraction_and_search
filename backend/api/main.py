@@ -2,11 +2,18 @@ import json
 import logging
 import re
 import unicodedata
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CollectorRegistry
 from pydantic import BaseModel
+
+from api.errors import internal_error_response, register_exception_handlers
+from api.health import healthz, readyz
+from api.metrics import MetricsMiddleware, create_metrics, make_metrics_endpoint
+from api.middleware import RequestIdMiddleware
 
 from api.prompts import (
     AGGREGATION_RESPONSE_FORMAT,
@@ -44,9 +51,16 @@ from api.search import (
     get_query_embedding,
     get_response,
 )
-from shared.config import LOG_LEVEL, PREPROCESS_LOG_JSONS
+from shared.config import (
+    LOG_LEVEL,
+    PREPROCESS_LOG_JSONS,
+    ApiConfigurationError,
+    ApiSettings,
+    get_api_settings,
+)
+from shared.logging import setup_logging
+from shared.security import redact_mapping, verify_api_key
 
-logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger(__name__)
 
 
@@ -66,10 +80,13 @@ def log_preprocess_json(step: str, payload):
     if not PREPROCESS_LOG_JSONS:
         return
 
+    serialisable = _json_log_payload(payload)
+    if isinstance(serialisable, dict):
+        serialisable = redact_mapping(serialisable)
     logger.info(
         "Preprocess JSON | step=%s\n%s",
         step,
-        json.dumps(_json_log_payload(payload), ensure_ascii=False, indent=2, default=str),
+        json.dumps(serialisable, ensure_ascii=False, indent=2, default=str),
     )
 
 
@@ -170,17 +187,6 @@ def extract_embedding_query(
     return embedding_query
 
 
-app = FastAPI(title="HBIM Search API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
 class PaginationState(BaseModel):
     stored_plan: dict
     offset: int = 0
@@ -208,7 +214,6 @@ class ChatResponse(BaseModel):
     result_ids: Optional[List[str]] = None
 
 
-@app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     try:
         user_input = request.message
@@ -493,14 +498,83 @@ async def chat_endpoint(request: ChatRequest):
             result_count=len(filtered_hits),
             result_ids=hit_ids,
         )
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception:
+        # Nunca devolver str(exc) ao cliente: schema padrão + detalhe só no log.
         logger.exception("Unhandled error in /chat")
-        raise HTTPException(status_code=500, detail=str(exc))
+        return internal_error_response()
 
 
-@app.get("/health")
 async def health():
+    # Alias deprecado de /healthz, mantido por compatibilidade de probes.
     return {"status": "ok"}
+
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    settings: ApiSettings = application.state.api_settings
+    if not settings.auth_enabled:
+        logger.warning(
+            "API authentication is DISABLED (API_AUTH_ENABLED=false); "
+            "protected endpoints accept unauthenticated requests."
+        )
+    elif not settings.api_keys:
+        # Fail closed também no arranque real: recusar servir sem chaves.
+        raise ApiConfigurationError(
+            "API_AUTH_ENABLED=true mas API_KEYS está vazio ou ausente."
+        )
+    yield
+
+
+def create_app(api_settings: ApiSettings | None = None) -> FastAPI:
+    settings = api_settings if api_settings is not None else get_api_settings()
+    setup_logging(settings.log_format, LOG_LEVEL)
+
+    application = FastAPI(title="HBIM Search API", lifespan=_lifespan)
+    application.state.api_settings = settings
+    # verify_api_key mantém a assinatura pública Depends(get_api_settings);
+    # cada app fica ligada às settings com que foi construída.
+    application.dependency_overrides[get_api_settings] = lambda: settings
+
+    registry = CollectorRegistry()
+    metrics = create_metrics(registry)
+    application.state.metrics_registry = registry
+
+    # add_middleware é LIFO: CORS exterior (preflight), request-id, métricas.
+    application.add_middleware(MetricsMiddleware, metrics=metrics)
+    application.add_middleware(RequestIdMiddleware)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
+    )
+    register_exception_handlers(application)
+
+    application.add_api_route(
+        "/chat",
+        chat_endpoint,
+        methods=["POST"],
+        response_model=ChatResponse,
+        dependencies=[Depends(verify_api_key)],
+    )
+    application.add_api_route("/healthz", healthz, methods=["GET"])
+    application.add_api_route("/readyz", readyz, methods=["GET"])
+    application.add_api_route("/health", health, methods=["GET"], deprecated=True)
+    application.add_api_route(
+        "/metrics",
+        make_metrics_endpoint(registry),
+        methods=["GET"],
+        dependencies=[] if settings.metrics_public else [Depends(verify_api_key)],
+        include_in_schema=False,
+    )
+    return application
+
+
+app = create_app()
 
 
 if __name__ == "__main__":

@@ -142,6 +142,37 @@ Valid blocking conditions:
 9. Give concrete evidence: file, symbol and test.
 10. Present `git diff --stat`.
 
+## Mandatory implementation self-review
+
+Implementation is not complete when the code first passes its expected
+tests.
+
+Before reporting completion, the implementation session must perform a
+review pass over its own complete diff.
+
+The agent must:
+
+1. Re-read the active issue specification.
+2. Review every changed and created file.
+3. Check for scope creep and undocumented interface changes.
+4. Check for secret exposure and accidental environment access.
+5. Check import-time side effects.
+6. Run the complete test suite.
+7. Run affected test files individually.
+8. Run affected test files in at least one different order.
+9. Verify that tests do not leave modified modules, globals, caches,
+   mocks or environment variables for later tests.
+10. Run `git diff --check`.
+11. Inspect `git status --short`, including untracked files.
+12. Fix findings and repeat the review until clean.
+
+The agent must not report `READY FOR COMMIT` while any reproducible
+high- or medium-severity finding remains.
+
+The final report must include a section named `Self-review findings`,
+including findings that were detected and fixed during the same
+implementation session.
+
 # Git rules
 
 - Never work directly on `main`.
