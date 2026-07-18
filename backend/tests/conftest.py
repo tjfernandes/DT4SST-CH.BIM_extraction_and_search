@@ -1,5 +1,6 @@
 import importlib
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -53,28 +54,98 @@ class _GuardedSocket(socket.socket):
         super().__init__(family, *args, **kwargs)
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _assert_loopback_destination(sock: socket.socket, address: object) -> None:
+    if sock.family not in (socket.AF_INET, socket.AF_INET6):
+        return
+    host: object = address[0] if isinstance(address, tuple) and address else address
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    if host not in _LOOPBACK_HOSTS:
+        raise SocketBlockedError(
+            f"Testes de integração só podem contactar loopback; destino bloqueado: {host!r}"
+        )
+
+
+class _LoopbackOnlySocket(socket.socket):
+    """Sockets de rede permitidos apenas para destinos loopback (integração)."""
+
+    def connect(self, address):
+        _assert_loopback_destination(self, address)
+        return super().connect(address)
+
+    def connect_ex(self, address):
+        _assert_loopback_destination(self, address)
+        return super().connect_ex(address)
+
+
 @pytest.fixture(autouse=True)
 def isolated_opensearch_env(monkeypatch, tmp_path):
     """Ambiente determinístico por teste.
 
-    Remove todas as variáveis OpenSearch (canónicas e legadas), muda o CWD para
-    um diretório vazio — assim o env_file relativo "backend/.env" nunca resolve
-    para o ficheiro real — e neutraliza o load_dotenv() usado em reloads de
-    shared.config, para que nenhum teste leia o backend/.env verdadeiro.
+    Remove todas as variáveis OpenSearch/API (canónicas e legadas) e muda o
+    CWD para um diretório vazio — assim o env_file relativo "backend/.env"
+    nunca resolve para o ficheiro real. O isolamento dotenv adicional vive na
+    fixture forbid_real_env_files.
     """
     for name in OPENSEARCH_ENV_VARS + API_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)
 
-    import dotenv
 
-    monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: False)
+@pytest.fixture(autouse=True)
+def network_guard(request, monkeypatch):
+    """Guarda de rede consciente de markers — nunca desativada.
+
+    unit (default, incl. testes sem marker): criação de sockets de rede
+    proibida. integration: sockets de rede permitidos apenas para destinos
+    loopback; qualquer outro destino falha o teste.
+    """
+    if "integration" in request.keywords:
+        monkeypatch.setattr(socket, "socket", _LoopbackOnlySocket)
+    else:
+        monkeypatch.setattr(socket, "socket", _GuardedSocket)
 
 
 @pytest.fixture(autouse=True)
-def block_network(monkeypatch):
-    """Guarda de rede: qualquer tentativa de criar um socket falha o teste."""
-    monkeypatch.setattr(socket, "socket", _GuardedSocket)
+def forbid_real_env_files(monkeypatch):
+    """Nenhum teste pode carregar os .env reais.
+
+    O chdir para tmp_path já impede a resolução relativa; esta fixture
+    acrescenta a asserção exigida pela spec: qualquer chamada dotenv dirigida
+    a backend/.env ou frontend/.env reais falha o teste, e as leituras dotenv
+    em testes devolvem sempre vazio (reloads de shared.config incluídos).
+    """
+    import dotenv
+    import dotenv.main as dotenv_main
+
+    repo_root = Path(__file__).resolve().parents[2]
+    forbidden = {repo_root / "backend" / ".env", repo_root / "frontend" / ".env"}
+
+    def _check(dotenv_path: object) -> None:
+        if not dotenv_path:
+            return
+        try:
+            resolved = Path(str(dotenv_path)).resolve()
+        except (OSError, ValueError):
+            return
+        if resolved in forbidden:
+            pytest.fail(f"Teste tentou carregar um .env real: {resolved}")
+
+    def guarded_load_dotenv(dotenv_path=None, *args, **kwargs):
+        _check(dotenv_path)
+        return False
+
+    def guarded_dotenv_values(dotenv_path=None, *args, **kwargs):
+        _check(dotenv_path)
+        return {}
+
+    monkeypatch.setattr(dotenv, "load_dotenv", guarded_load_dotenv)
+    monkeypatch.setattr(dotenv_main, "load_dotenv", guarded_load_dotenv)
+    monkeypatch.setattr(dotenv, "dotenv_values", guarded_dotenv_values)
+    monkeypatch.setattr(dotenv_main, "dotenv_values", guarded_dotenv_values)
 
 
 @pytest.fixture(autouse=True)

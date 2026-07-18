@@ -1,0 +1,72 @@
+# Configuração de ferramentas apenas (pytest, Ruff, mypy) — HBIM-004.
+# Deliberadamente sem [project] e sem [build-system]: nada aqui implica um
+# pacote instalável.
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+# Integração é opt-in: um `pytest` simples nunca precisa de Docker.
+# Testes sem marker são tratados como unitários (incluídos por esta seleção).
+addopts = "-m 'not integration'"
+markers = [
+    "unit: teste unitário (default para testes sem marker; sem rede, sem Docker)",
+    "integration: exige Docker local; correr com -o addopts=\"\" -m integration",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = [
+    "frontend",
+    "node_modules",
+    "backend/input",
+    "backend/output",
+    ".venv",
+]
+
+[tool.ruff.lint]
+# Conjunto inicial deliberadamente pequeno (HBIM-004):
+#   E4/E7/E9 — erros de import/statement/sintaxe (E5/E501 excluído: sem
+#   rewrites em massa de linhas longas); F — pyflakes; I — ordenação de
+#   imports (auto-fix permitido); B — bugbear (adotado: primeira passagem
+#   exigiu apenas correções triviais preservadoras de comportamento).
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.isort]
+# Pacotes do backend (rootdir é a raiz do repo; sem isto a classificação
+# first-party seria inconsistente entre módulos).
+known-first-party = ["api", "ingestion", "shared", "tests"]
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "backend"
+plugins = ["pydantic.mypy"]
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# Gate bloqueante HBIM-004: exatamente os oito módulos tipados de HBIM-002/003.
+[[tool.mypy.overrides]]
+module = [
+    "shared.config",
+    "shared.opensearch",
+    "shared.security",
+    "shared.logging",
+    "api.health",
+    "api.metrics",
+    "api.middleware",
+    "api.errors",
+]
+disallow_untyped_defs = true
+
+# Legacy (fora do gate bloqueante; verificação informativa, adoção gradual —
+# nunca silenciado com ignore_errors global).
+[[tool.mypy.overrides]]
+module = ["api.main", "api.search", "api.prompts", "ingestion.*"]
+check_untyped_defs = false
+disallow_untyped_defs = false
+
+# Bibliotecas sem stubs — apenas as efetivamente reportadas pelo mypy.
+[[tool.mypy.overrides]]
+module = ["opensearchpy.*", "ifcopenshell.*", "testcontainers.*", "tqdm.*"]
+ignore_missing_imports = true

@@ -2,3 +2,8 @@
 
 __pycache__/
 *.pyc
+
+# Tool caches (rootdir moved to repository root in HBIM-004)
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

@@ -24,10 +24,13 @@ search_pipeline/
       opensearch.py         # OpenSearch client factory
     input/                  # Sample IFC inputs (gitignored by default)
     output/                 # Extracted JSON outputs (gitignored by default)
-    environment.yml         # Conda environment
+    requirements*.txt       # Runtime / ML / dev dependencies
   frontend/
     src/
 ```
+
+Development workflow (tests, quality checks, local services):
+see [docs/development/LOCAL_SETUP.md](docs/development/LOCAL_SETUP.md).
 
 ## Requirements
 
@@ -38,17 +41,14 @@ search_pipeline/
 
 ## Backend Setup
 
-```bash
-cd backend
-conda env create -f environment.yml
-conda activate bim_data
-```
-
-Or with pip:
+The operative conda environment is `hbim-rag` (Python 3.10):
 
 ```bash
-cd backend
-pip install fastapi uvicorn ifcopenshell opensearch-py openai python-dotenv sentence-transformers torch
+conda run -n hbim-rag python -m pip install -r backend/requirements.txt
+# ML/embedding stack (multi-GB; needed only for indexing / semantic queries):
+conda run -n hbim-rag python -m pip install -r backend/requirements-ml.txt
+# Development and test tooling:
+conda run -n hbim-rag python -m pip install -r backend/requirements-dev.txt
 ```
 
 ## Frontend Setup

@@ -48,7 +48,7 @@ async def healthz() -> dict[str, str]:
 
 
 async def readyz(
-    checker: ReadinessChecker = Depends(get_readiness_checker),
+    checker: ReadinessChecker = Depends(get_readiness_checker),  # noqa: B008 — idioma de DI do FastAPI; substituível em testes via dependency_overrides
 ) -> JSONResponse:
     checks = checker.check()
     ready = all(state == "ok" for state in checks.values())

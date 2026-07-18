@@ -14,15 +14,14 @@ from api.errors import internal_error_response, register_exception_handlers
 from api.health import healthz, readyz
 from api.metrics import MetricsMiddleware, create_metrics, make_metrics_endpoint
 from api.middleware import RequestIdMiddleware
-
 from api.prompts import (
     AGGREGATION_RESPONSE_FORMAT,
     CLASSIFY_INTENT,
     DETAIL_RESPONSE_FORMAT,
     EXTRACT_AGGREGATION,
     EXTRACT_CONDITIONS,
-    EXTRACT_EMBEDDING_QUERY,
     EXTRACT_DETAIL_REF,
+    EXTRACT_EMBEDDING_QUERY,
     EXTRACT_FILTERS,
     EXTRACT_IFC_CLASS,
     FILTER_RESULTS_BATCH,

@@ -3,7 +3,7 @@ import re
 import time
 import uuid
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -16,16 +16,19 @@ logger = logging.getLogger("api.request")
 
 
 def is_valid_request_id(value: str | None) -> bool:
-    return bool(value) and _REQUEST_ID_RE.fullmatch(value) is not None
+    return value is not None and _REQUEST_ID_RE.fullmatch(value) is not None
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Aceita um X-Request-ID válido ou gera um; liga-o ao contextvar dos logs;
     ecoa-o na resposta; regista a conclusão do pedido."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         incoming = request.headers.get(REQUEST_ID_HEADER)
-        request_id = incoming if is_valid_request_id(incoming) else uuid.uuid4().hex
+        if incoming is not None and is_valid_request_id(incoming):
+            request_id = incoming
+        else:
+            request_id = uuid.uuid4().hex
         # Sem reset: cada pedido ASGI corre no seu próprio contexto, e o valor
         # tem de sobreviver à propagação de exceções até aos handlers externos.
         REQUEST_ID_VAR.set(request_id)

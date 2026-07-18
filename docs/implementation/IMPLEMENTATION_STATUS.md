@@ -2,95 +2,98 @@
 
 ## Last completed issue
 
-HBIM-002 — Typed OpenSearch settings and client normalization
+HBIM-003 — API authentication, hardening and frontend integration
 
 ## Active issue
 
-HBIM-003 — API authentication, hardening and frontend integration
+HBIM-004 — Test harness, CI, code quality and local development services
 
 ## Status
 
-Implemented — validated and ready for commit
-
-## Validation status
-
-- Backend tests: 52 passed
-- Frontend lint: PASS
-- Frontend build: PASS
-- Manual frontend checklist: 4/4 PASS
-- Import safety: PASS
-- Offline network guard: PASS
-- `git diff --check`: PASS
-- Secrets scan: PASS
+Implemented — Docker-dependent validation pending (local Docker daemon
+unreachable from WSL at validation time; see HBIM-004 validation notes)
 
 ## Current branch
 
-`feat/hbim-003-api-auth`
+`feat/hbim-004-ci-quality`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-003_API_AUTH.md`
+`docs/implementation/issues/HBIM-004_CI_QUALITY.md`
 
-## Execution decision
+## Last completed validation
 
-The roadmap entries HBIM-003A and HBIM-003B are being executed together
-as a single issue and pull request:
-
-- backend API authentication and hardening;
-- integration of the existing frontend with the protected API.
-
-This does not include a frontend redesign.
+- HBIM-003 backend tests: 52 passed
+- Frontend lint: PASS
+- Frontend build: PASS
+- Manual frontend authentication checklist: 4/4 PASS
+- Import safety: PASS
+- Offline network guard: PASS
+- Secrets scan: PASS
 
 ## Environment
 
 - Development environment: WSL
 - Conda environment: `hbim-rag`
+- Python: `3.10.20`
 - Python commands and tests must use `conda run -n hbim-rag`
-- Secrets remain only in the ignored `backend/.env`
-- Automated tests must not contact remote services
+- Node dependencies are installed with `npm ci`
+- Secrets remain only in ignored local `.env` files
+- Automated tests must never contact operational remote services
+- Container integration tests may contact only local containers created
+  specifically for the test run
 
 ## Scope
 
-### Backend
+### Test harness
 
-- Typed API settings
-- API-key authentication
-- Restricted CORS configuration
-- `/healthz`
-- `/readyz`
-- JSON logging
-- Request ID generation and propagation
-- Prometheus-compatible metrics
-- Offline tests
+- Consolidate the backend pytest harness
+- Preserve test-order independence
+- Preserve import-safety and network isolation
+- Define unit and integration test markers
+- Add an OpenSearch integration smoke test using Testcontainers
+- Keep integration tests isolated from real credentials and endpoints
 
-### Frontend
+### Code quality
 
-- Read the API key from a frontend environment variable
-- Send the authentication header with API requests
-- Handle `401` and `403` responses
-- Preserve the current frontend behaviour and layout
-- Avoid exposing secrets in logs or error messages
+- Add and configure Ruff
+- Add and configure mypy
+- Define a realistic initial typing scope for the existing codebase
+- Avoid unrelated mass formatting or refactoring
+- Declare development and test dependencies reproducibly
+
+### Continuous integration
+
+- Backend pytest
+- Ruff checks
+- mypy checks
+- Frontend `npm ci`, lint and build
+- OpenSearch Testcontainers integration test
+- Secret-safe CI configuration
+- No dependency on local `.env` files
+
+### Local development services
+
+- `docker-compose.dev.yml`
+- Local OpenSearch
+- Local Neo4j
+- Synthetic development credentials only
+- Healthchecks
+- Persistent named volumes
+- Explicit local-only configuration
+- No production deployment configuration
 
 ## Out of scope
 
+- Production deployment
+- Kubernetes
+- Production secrets or secret managers
+- Retrieval changes
+- Evaluation datasets and retrieval baselines — HBIM-005
+- Canonical HBIM schema — HBIM-010
+- OpenSearch production mappings and migrations
+- Embeddings and reranking
+- Neo4j knowledge-graph ingestion
 - Frontend redesign
 - BIM viewer
 - Search-as-you-type
-- New `/search`, `/facets` or `/elements` endpoints
-- OpenSearch mappings
-- Retrieval changes
-- Embeddings
-- Neo4j integration
-- CI, Ruff, mypy, testcontainers and Docker Compose
-
-## Implementation summary
-
-- API-key authentication implemented for protected endpoints
-- CORS restricted through environment-based configuration
-- `/healthz`, `/readyz` and `/metrics` implemented
-- Request IDs propagated through responses and logs
-- Structured logging and safe error responses implemented
-- Frontend sends `X-API-Key` and handles `401` and `403`
-- Backend test suite: 52 passed
-- Frontend lint and build: PASS
-- Manual frontend authentication checklist: 4/4 PASS

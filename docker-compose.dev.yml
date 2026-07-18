@@ -1,0 +1,60 @@
+# HBIM — serviços de DESENVOLVIMENTO LOCAL (HBIM-004).
+# NÃO é configuração de produção: sem TLS, sem HA, credenciais sintéticas.
+# A suite de testes NÃO usa este ficheiro (a integração usa Testcontainers
+# efémeros); serve apenas o desenvolvimento manual local.
+# Ciclo de vida documentado em docs/development/LOCAL_SETUP.md.
+
+name: hbim-dev
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - hbim-dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  neo4j:
+    image: neo4j:5.26.0
+    environment:
+      # Credencial de DESENVOLVIMENTO obviamente sintética; nunca reutilizar.
+      - NEO4J_AUTH=neo4j/localdevpassword
+      - NEO4J_server_memory_heap_max__size=1G
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    volumes:
+      - neo4j-data:/data
+    networks:
+      - hbim-dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  opensearch-data:
+  neo4j-data:
+
+networks:
+  hbim-dev:

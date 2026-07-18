@@ -27,7 +27,7 @@ def _key_matches(candidate: str, configured: list[SecretStr]) -> bool:
 
 def verify_api_key(
     x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
-    settings: ApiSettings = Depends(get_api_settings),
+    settings: ApiSettings = Depends(get_api_settings),  # noqa: B008 — idioma de DI do FastAPI; avaliado por pedido, não no import
 ) -> None:
     """Levanta 401 quando a autenticação está ativa e a chave falta ou é inválida.
 

@@ -10,11 +10,11 @@ from pydantic import BaseModel, Field
 from shared.config import (
     EMBEDDING_DIM,
     EMBEDDING_MODEL_NAME,
-    LLM_MODEL,
     LLM_API_KEY,
     LLM_BASE_URL,
-    LLM_LOG_PROMPTS,
     LLM_LOG_OUTPUTS,
+    LLM_LOG_PROMPTS,
+    LLM_MODEL,
     OPENSEARCH_INDEX,
 )
 from shared.opensearch import get_opensearch_client
