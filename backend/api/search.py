@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any, List, Optional
 
 from openai import BadRequestError, OpenAI
+from opensearchpy import OpenSearch
 from pydantic import BaseModel, Field
 
 from shared.config import (
@@ -117,14 +118,19 @@ def get_query_embedding(text: str) -> list:
     return vector.tolist() if hasattr(vector, "tolist") else list(vector)
 
 
-llm_client_kwargs = {}
-if LLM_API_KEY:
-    llm_client_kwargs["api_key"] = LLM_API_KEY
-if LLM_BASE_URL:
-    llm_client_kwargs["base_url"] = LLM_BASE_URL
+@lru_cache(maxsize=1)
+def get_llm_client() -> OpenAI:
+    llm_client_kwargs = {}
+    if LLM_API_KEY:
+        llm_client_kwargs["api_key"] = LLM_API_KEY
+    if LLM_BASE_URL:
+        llm_client_kwargs["base_url"] = LLM_BASE_URL
+    return OpenAI(**llm_client_kwargs)
 
-llm_client = OpenAI(**llm_client_kwargs)
-opensearch_client = get_opensearch_client()
+
+@lru_cache(maxsize=1)
+def get_search_client() -> OpenSearch:
+    return get_opensearch_client()
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
@@ -276,6 +282,7 @@ def get_response(
 
     log_llm_prompt(messages, response_format)
 
+    llm_client = get_llm_client()
     try:
         response = llm_client.chat.completions.create(**request_kwargs)
     except BadRequestError:
@@ -357,7 +364,7 @@ def build_opensearch_query(search_plan: SearchPlan, query_embedding: Optional[li
 
 
 def execute_search(query: dict):
-    response = opensearch_client.search(index=OPENSEARCH_INDEX, body=query)
+    response = get_search_client().search(index=OPENSEARCH_INDEX, body=query)
     hits = response["hits"]["hits"]
     total_info = response["hits"]["total"]
     total = total_info["value"] if isinstance(total_info, dict) else total_info
@@ -366,7 +373,7 @@ def execute_search(query: dict):
 
 def fetch_by_id(doc_id: str) -> dict | None:
     try:
-        response = opensearch_client.get(index=OPENSEARCH_INDEX, id=doc_id)
+        response = get_search_client().get(index=OPENSEARCH_INDEX, id=doc_id)
         return response.get("_source")
     except Exception:
         return None
@@ -474,7 +481,7 @@ def build_aggregation_query(
 
 
 def execute_aggregation(query: dict) -> tuple:
-    response = opensearch_client.search(index=OPENSEARCH_INDEX, body=query)
+    response = get_search_client().search(index=OPENSEARCH_INDEX, body=query)
     total_info = response["hits"]["total"]
     total = total_info["value"] if isinstance(total_info, dict) else total_info
     buckets = response.get("aggregations", {}).get("agg_result", {}).get("buckets", [])
