@@ -54,19 +54,16 @@ SEMANTIC_PROPERTY_SKIP_KEYS = {
 }
 
 # Configuracao do argparse
-parser = argparse.ArgumentParser(description="Extract BIM data from an IFC file and save it as JSON.")
-parser.add_argument("--ifc", type=str, required=True, help="Path to the input IFC file.")
-parser.add_argument("--output", type=str, required=True, help="Path to the output JSON file.")
-parser.add_argument(
-    "--project-id",
-    type=str,
-    help="Project GUID to associate with this BIM data. If not provided, it will be extracted from the IFC file.",
-)
-
-args = parser.parse_args()
-ifc_path = args.ifc
-output_path = args.output
-project_id_arg = args.project_id
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Extract BIM data from an IFC file and save it as JSON.")
+    parser.add_argument("--ifc", type=str, required=True, help="Path to the input IFC file.")
+    parser.add_argument("--output", type=str, required=True, help="Path to the output JSON file.")
+    parser.add_argument(
+        "--project-id",
+        type=str,
+        help="Project GUID to associate with this BIM data. If not provided, it will be extracted from the IFC file.",
+    )
+    return parser
 
 
 def _si_prefix_factor(prefix: str | None) -> float:
@@ -431,13 +428,20 @@ def extract_bim_data(ifc_file, project_id=None):
     return bim_data
 
 
-out_file = Path(output_path).resolve()
-out_file.parent.mkdir(parents=True, exist_ok=True)
+def main() -> None:
+    args = _build_arg_parser().parse_args()
 
-print(f"A ler o ficheiro IFC: {ifc_path}")
-bim_data = extract_bim_data(ifc_path, project_id=project_id_arg)
+    out_file = Path(args.output).resolve()
+    out_file.parent.mkdir(parents=True, exist_ok=True)
 
-with open(out_file, "w", encoding="utf-8") as output_file:
-    json.dump(bim_data, output_file, indent=4, ensure_ascii=False)
+    print(f"A ler o ficheiro IFC: {args.ifc}")
+    bim_data = extract_bim_data(args.ifc, project_id=args.project_id)
 
-print(f"JSON guardado em: {out_file}")
+    with open(out_file, "w", encoding="utf-8") as output_file:
+        json.dump(bim_data, output_file, indent=4, ensure_ascii=False)
+
+    print(f"JSON guardado em: {out_file}")
+
+
+if __name__ == "__main__":
+    main()
