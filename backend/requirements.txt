@@ -1,3 +1,6 @@
+# Runtime (non-ML) dependencies: API, configuration, extraction, indexing I/O.
+# ML/embedding dependencies live in requirements-ml.txt (lazy-imported at
+# runtime); test and quality tooling lives in requirements-dev.txt.
 fastapi==0.133.1
 uvicorn[standard]==0.41.0
 openai==2.24.0
@@ -8,19 +11,8 @@ python-dotenv==1.2.1
 python-multipart>=0.0.9
 prometheus-client>=0.25.0,<1.0.0
 
-# Testing (offline suite: FastAPI TestClient requires httpx)
-pytest>=9.0.0,<10.0.0
-httpx>=0.28.0,<1.0.0
-
 ifcopenshell==0.8.3.post1
 
-sentence-transformers==5.4.0
-transformers==5.7.0
-huggingface-hub==1.13.0
-qwen-vl-utils>=0.0.14
-accelerate>=0.33.0
-safetensors>=0.4.0
-sentencepiece>=0.2.0
 pillow>=10.0.0
 numpy>=1.26.0
 tqdm==4.67.1

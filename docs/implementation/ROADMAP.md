@@ -947,3 +947,19 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 7. **Multimodal/museu:** HBIM-090→092.
 
 Cada bloco deixa o sistema funcional e avaliável. Nenhuma reescrita total: `extract_bim.py`, `search.py`, `index_to_opensearch.py`, `main.py` evoluem por extração de módulos, não por substituição em bloco. As decisões-mãe (OpenSearch+Neo4j, Qwen3 embedding/reranker, router determinístico, índices separados, EvidencePack, AMALIA grounded, multimodal com verificação) mantêm-se **intactas**; a v3 só corrige configuração, segurança, ordem de avaliação, dependências e a fixação prematura da dimensão de embedding.
+
+## Future product direction
+
+A future version may support user-submitted IFC files, with local or
+server-side ingestion and indexing managed entirely by the application.
+
+This may include:
+
+- project lifecycle management;
+- upload-triggered ingestion jobs;
+- progress and failure recovery;
+- isolation by `project_id`;
+- automatic local service management;
+- desktop packaging.
+
+This is not part of the current implementation scope.

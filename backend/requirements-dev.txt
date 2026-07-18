@@ -1,0 +1,9 @@
+# Development, test and quality tooling. Not imported by application code.
+#   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+# Compatible-release pins (~=) allow patch upgrades without freezing CI.
+pytest~=9.1.1
+pytest-randomly~=4.1.0
+httpx~=0.28.1
+ruff~=0.15.22
+mypy~=2.3.0
+testcontainers~=4.14.2

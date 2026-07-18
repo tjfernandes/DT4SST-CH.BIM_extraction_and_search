@@ -251,7 +251,8 @@ class OpenSearchSettings(BaseSettings):
                 f"Conflito de configuração: OPENSEARCH_SCHEME={self.scheme!r} difere do "
                 f"scheme embutido em OPENSEARCH_HOST ({embedded_scheme!r})."
             )
-        if scheme_provided:
+        effective_scheme: str
+        if scheme_provided and self.scheme is not None:
             effective_scheme = self.scheme
         elif embedded_scheme is not None:
             effective_scheme = embedded_scheme
@@ -284,22 +285,24 @@ class OpenSearchSettings(BaseSettings):
                 stacklevel=3,
             )
 
-    @computed_field
+    # Os ignores [prop-decorator] nos computed_field seguem o padrão documentado
+    # do pydantic para mypy (decorator sobre @property não suportado pelo mypy).
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def effective_scheme(self) -> Literal["http", "https"]:
         return "https" if self._effective_scheme == "https" else "http"
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def effective_host(self) -> str:
         return self._effective_host
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def effective_port(self) -> int:
         return self._effective_port
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def effective_use_ssl(self) -> bool:
         # SSL vem do flag explícito ou do scheme — nunca da presença de credenciais.

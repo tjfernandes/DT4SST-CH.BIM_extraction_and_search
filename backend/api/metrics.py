@@ -1,4 +1,5 @@
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from prometheus_client import (
@@ -8,9 +9,10 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp
 
 
 @dataclass(frozen=True)
@@ -71,11 +73,11 @@ def _endpoint_label(request: Request) -> str:
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, metrics: Metrics):
+    def __init__(self, app: ASGIApp, metrics: Metrics) -> None:
         super().__init__(app)
         self._metrics = metrics
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start = time.perf_counter()
         try:
             response = await call_next(request)
@@ -102,7 +104,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             ).inc()
 
 
-def make_metrics_endpoint(registry: CollectorRegistry):
+def make_metrics_endpoint(registry: CollectorRegistry) -> Callable[[], Awaitable[Response]]:
     async def metrics_endpoint() -> Response:
         return Response(content=generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
 

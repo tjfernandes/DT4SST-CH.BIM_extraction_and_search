@@ -1,0 +1,13 @@
+# ML/embedding dependencies (multi-GB Torch stack). Install IN ADDITION to
+# requirements.txt when running the indexer or the semantic query path:
+#   pip install -r backend/requirements.txt -r backend/requirements-ml.txt
+# The application imports these lazily, so API startup, configuration,
+# extraction and the unit test suite work without them.
+# CI unit, Ruff, mypy and OpenSearch integration jobs must NOT install this file.
+sentence-transformers==5.4.0
+transformers==5.7.0
+huggingface-hub==1.13.0
+qwen-vl-utils>=0.0.14
+accelerate>=0.33.0
+safetensors>=0.4.0
+sentencepiece>=0.2.0

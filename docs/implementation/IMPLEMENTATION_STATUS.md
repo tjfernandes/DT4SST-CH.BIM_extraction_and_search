@@ -10,7 +10,8 @@ HBIM-004 — Test harness, CI, code quality and local development services
 
 ## Status
 
-Specification preparation
+Implemented — Docker-dependent validation pending (local Docker daemon
+unreachable from WSL at validation time; see HBIM-004 validation notes)
 
 ## Current branch
 

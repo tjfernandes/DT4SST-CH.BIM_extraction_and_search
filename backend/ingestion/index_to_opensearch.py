@@ -253,7 +253,7 @@ def build_actions(elements, pbar_embed=None):
         texts = [element["semantic_text"] for element in clean_batch]
         embeddings = generate_embeddings(texts, pbar_embed)
 
-        for clean_element, embedding in zip(clean_batch, embeddings):
+        for clean_element, embedding in zip(clean_batch, embeddings, strict=False):
             clean_element["semantic_embedding"] = embedding
             yield {
                 "_index": INDEX_NAME,
@@ -266,7 +266,7 @@ def index_data(input_path):
     client = get_opensearch_client()
     if client is None:
         raise RuntimeError("Failed to create OpenSearch client. Check your connection and credentials.")
-    
+
     if not client.indices.exists(index=INDEX_NAME):
         create_index(client)
 
