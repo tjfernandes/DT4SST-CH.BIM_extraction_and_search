@@ -2,47 +2,59 @@
 
 ## Last completed issue
 
-HBIM-010 — Canonical Pydantic schema (intermediate representation)
-(16/16 acceptance criteria; full suite 166 passed across seeds and
-`-p no:randomly`; contract-only, no functional change; HBIM-005 baseline
-byte-unchanged)
+HBIM-011 — IFC → canonical records extraction
+(typed `convert_ifc_to_canonical` / `write_canonical_jsonl`; IFC2X3 + IFC4;
+IfcSpace as ElementRecord without self-reference; two containment regimes;
+scalar PropertyFact; many-to-many DocumentRef with deterministic conflicts;
+name-free warnings + coverage; atomic per-directory publication; synthetic
+golden fixtures; HBIM-005 baseline byte-unchanged; no legacy/indexer/retrieval
+change)
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap (HBIM-011: extractor refactor
-to emit canonical records).
+None — awaiting the next issue in the roadmap (HBIM-012: advanced PropertyFact
+atomisation, complex value types, unit resolution and deduplication).
 
 ## Status
 
-Complete — `backend/canonical` defines the strict, versioned, deterministic,
-infrastructure-independent data contract (`schema.py`, `ids.py`,
-`serialization.py`), with synthetic golden fixtures, a coverage manifest, and a
-full offline test suite. `backend/canonical` is in the blocking mypy gate and
-Ruff scope. No IFC→canonical conversion (HBIM-011), no extractor refactor, no
-mappings/indexers, and no change to retrieval, API, ingestion, frontend or the
-HBIM-005 evaluation baseline.
+Complete — `backend/ingestion/{canonical_ifc,ifc_spatial,ifc_materials,ifc_values}.py`
+read IFC with IfcOpenShell and emit validated HBIM-010 records plus a structured
+coverage report and aggregated, name-free warnings, serialised as deterministic
+JSONL published atomically (staging dir + single rename; `output_dir` must not
+pre-exist; no `overwrite`). IfcOpenShell logic lives only in `ingestion/`;
+`backend/canonical` stays IfcOpenShell-free. The four modules are in the blocking
+mypy gate and Ruff scope. The legacy `extract_bim.py` / `index_to_opensearch.py`,
+retrieval, API, frontend, mappings and the HBIM-005 evaluation baseline are
+unchanged. Advanced property atomisation/dedup, complex value types and full unit
+resolution remain deferred to HBIM-012.
 
 ## Current branch
 
-`feat/hbim-010-canonical-schema`
+`feat/hbim-011-canonical-ifc-extraction`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-010_CANONICAL_SCHEMA.md`
+`docs/implementation/issues/HBIM-011_CANONICAL_IFC_EXTRACTION.md`
 
 ## Last completed validation
 
-- Full backend suite: 166 passed (100 prior + 66 canonical) across seeds
-  77082843/1 and `-p no:randomly`; unit-only 159 passed, 7 deselected
-- Blocking mypy: 14 modules (incl. `backend/canonical`) clean; Ruff clean
-- Canonical: strict `PropertyValue` union (int rejected as float via a
-  `mode="before"` validator; bool ≠ int), deterministic IDs (known vector
-  `element_id("p1","GID") == "el_99d9f5f0ef2b7cb5fa2a2d39994a0642"`),
-  byte-stable golden JSONL, complete coverage manifest, import-safety proven
+- Full backend suite: 242 passed (166 prior + 76 HBIM-011) across seeds
+  77082843/1 and `-p no:randomly`; unit-only 235 passed, 7 deselected
+- Blocking mypy: 18 modules (incl. the four `backend/ingestion` HBIM-011
+  modules) clean; Ruff clean
+- HBIM-011: IFC2X3 + IFC4 synthetic builders; IfcSpace as ElementRecord with
+  `location.space is None`; both containment regimes; scalar PropertyFact
+  (complex values → coverage, never `str()`); many-to-many DocumentRef with
+  deterministic (lexicographic) metadata-conflict resolution; total-ordered,
+  aggregated, name-free warnings; byte-stable golden fixtures; atomic
+  per-directory publication with staging + single rename (no partial output,
+  `output_dir` must not pre-exist); duplicate GlobalId aborts with no output;
+  import-safety proven in fresh subprocesses (no OpenSearch/FastAPI/settings/
+  `.env`/socket; `canonical` stays IfcOpenShell-free)
 - HBIM-005 evaluation integration: 6 passed; baseline `current_system.json`
   byte-unchanged (sha256 prefix `7bf3c8d7200f0512`)
-- Ruff: PASS; blocking mypy (11 modules incl. `backend/eval`): PASS
-- `git diff --check`: clean; secret scan: clean; no `.env` tracked
+- `git diff --check`: clean; secret scan: clean; no `.env` tracked; no `.ifc`
+  tracked or staged; `local_data/` still git-ignored
 
 ## Environment
 

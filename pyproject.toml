@@ -64,6 +64,10 @@ module = [
     "canonical.schema",
     "canonical.ids",
     "canonical.serialization",
+    "ingestion.canonical_ifc",
+    "ingestion.ifc_spatial",
+    "ingestion.ifc_materials",
+    "ingestion.ifc_values",
 ]
 disallow_untyped_defs = true
 
