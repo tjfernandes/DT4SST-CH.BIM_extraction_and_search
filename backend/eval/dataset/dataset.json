@@ -1,0 +1,40 @@
+{
+  "checksums": {
+    "corpus.jsonl": "sha256:7b83750e43aecca68fe98794dbad7078265c77e987b92d4866e80a578f4ff7a5",
+    "qrels.jsonl": "sha256:63524a5565739a84a42647f9b1099795bc193c716c8a35de34cd76db1a060b0e",
+    "queries.jsonl": "sha256:01ffb1dba51e64ede583d622fe3cc092810f354675680db522e5f045c3dcc8c8"
+  },
+  "counts": {
+    "by_category": {
+      "aggregation": 5,
+      "ambiguous_multi": 3,
+      "combined_filters": 3,
+      "exact_id": 3,
+      "numeric_condition": 3,
+      "pagination": 3,
+      "regression_snapshot": 3,
+      "semantic_vector": 4,
+      "structured_filter": 3,
+      "zero_result": 3
+    },
+    "documents": 28,
+    "projects": 2,
+    "qrels": 121,
+    "queries": 33
+  },
+  "created": "2026-07-20",
+  "dataset_version": "1.0.0",
+  "embedding_dim": 40,
+  "name": "hbim-current-retrieval",
+  "predicate_notes": {
+    "aggregation": "expected bucket counts computed directly from the corpus; keyword fields are already lowercase so index normalisation is a no-op.",
+    "combined_filters": "intersection of class, project and numeric predicates above.",
+    "numeric_condition": "relevant = documents whose effective metric (metrics.<field>, else the first present fallback field) satisfies the operator; approx means value +/- 0.5.",
+    "pagination": "relevant = full filtered set; integrity requires no cross-page duplicates and union == full set.",
+    "regression_snapshot": "COMPATIBILITY ONLY — records current behaviour (may include known gaps: material filter ignored, classification aggregation broken). Not ground truth; excluded from correctness metrics.",
+    "semantic_vector": "relevant = documents whose fixed 40-dim vector has cosine > 0.35 with the fixed query vector (pre-filtered by class where given); computed offline, independent of OpenSearch.",
+    "structured_filter": "relevant = documents whose ifc_class is in the query class variant set and (if given) whose project_id matches.",
+    "zero_result": "expects_zero: system must return 0 hits and total 0."
+  },
+  "schema_version": 1
+}

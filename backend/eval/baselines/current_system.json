@@ -1,0 +1,101 @@
+{
+  "compatibility_metrics": {
+    "snapshots": {
+      "q-rs-classification-agg": {
+        "error": "RequestError"
+      },
+      "q-rs-material-ignored": {
+        "tie_groups": [
+          [
+            "synthetic-project-a_beam-a-16",
+            "synthetic-project-a_beam-a-21",
+            "synthetic-project-a_sem-a-03",
+            "synthetic-project-b_beam-b-12"
+          ]
+        ],
+        "total": 4
+      },
+      "q-rs-semantic-order": {
+        "tie_groups": [
+          [
+            "synthetic-project-a_sem-a-00"
+          ],
+          [
+            "synthetic-project-a_sem-a-01"
+          ],
+          [
+            "synthetic-project-a_sem-a-02"
+          ],
+          [
+            "synthetic-project-a_beam-a-16",
+            "synthetic-project-a_beam-a-21",
+            "synthetic-project-a_col-a-17",
+            "synthetic-project-a_door-a-15",
+            "synthetic-project-a_sem-a-03",
+            "synthetic-project-a_slab-a-19",
+            "synthetic-project-a_stair-a-20"
+          ]
+        ],
+        "total": 10
+      }
+    }
+  },
+  "config": {
+    "image_tag": "opensearchproject/opensearch:2.19.1",
+    "k": 10,
+    "tolerance": 0.0
+  },
+  "correctness_metrics": {
+    "aggregation_exactness": 1.0,
+    "dataset_valid": true,
+    "exact_id_success": 1.0,
+    "filter_correctness": 1.0,
+    "pagination_integrity": 1.0,
+    "rank_metrics": {
+      "global": {
+        "mrr_at_10": 1.0,
+        "precision_at_10": 0.820139,
+        "recall_at_10": 0.982143
+      },
+      "per_category": {
+        "ambiguous_multi": {
+          "mrr_at_10": 1.0,
+          "precision_at_10": 1.0,
+          "recall_at_10": 1.0
+        },
+        "combined_filters": {
+          "mrr_at_10": 1.0,
+          "precision_at_10": 1.0,
+          "recall_at_10": 1.0
+        },
+        "numeric_condition": {
+          "mrr_at_10": 1.0,
+          "precision_at_10": 1.0,
+          "recall_at_10": 0.904762
+        },
+        "semantic_vector": {
+          "mrr_at_10": 1.0,
+          "precision_at_10": 0.280556,
+          "recall_at_10": 1.0
+        },
+        "structured_filter": {
+          "mrr_at_10": 1.0,
+          "precision_at_10": 1.0,
+          "recall_at_10": 1.0
+        }
+      }
+    },
+    "semantic_correctness": 1.0,
+    "zero_result_correctness": 1.0
+  },
+  "dataset": {
+    "checksums": {
+      "corpus.jsonl": "sha256:7b83750e43aecca68fe98794dbad7078265c77e987b92d4866e80a578f4ff7a5",
+      "qrels.jsonl": "sha256:63524a5565739a84a42647f9b1099795bc193c716c8a35de34cd76db1a060b0e",
+      "queries.jsonl": "sha256:01ffb1dba51e64ede583d622fe3cc092810f354675680db522e5f045c3dcc8c8"
+    },
+    "dataset_version": "1.0.0",
+    "embedding_dim": 40,
+    "name": "hbim-current-retrieval"
+  }
+}

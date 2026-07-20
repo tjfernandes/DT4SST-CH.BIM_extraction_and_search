@@ -68,7 +68,7 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - name: Install dependencies (runtime + dev; sem requirements-ml.txt)
         run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-      - name: mypy (blocking gate — eight typed modules)
+      - name: mypy (blocking gate — typed modules + backend/eval)
         run: >-
           python -m mypy
           backend/shared/config.py
@@ -79,6 +79,9 @@ jobs:
           backend/api/metrics.py
           backend/api/middleware.py
           backend/api/errors.py
+          backend/eval/dataset.py
+          backend/eval/metrics.py
+          backend/eval/run_eval.py
 
   frontend:
     runs-on: ubuntu-latest
@@ -117,3 +120,31 @@ jobs:
         run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
       - name: Run OpenSearch integration tests (Testcontainers)
         run: python -m pytest backend/tests -q -o addopts="" -m integration
+
+  evaluation-opensearch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [backend-unit]
+    env:
+      HBIM_REQUIRE_DOCKER: "1"
+      # Direct the run report into a fixed path so it can be uploaded; the
+      # committed baseline (backend/eval/baselines/current_system.json) is the
+      # gate — CI only reproduces, compares and publishes, never approves it.
+      HBIM_EVAL_REPORT_DIR: backend/eval/reports
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install dependencies (runtime + dev; sem requirements-ml.txt)
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Run evaluation baseline (Testcontainers; gates against committed baseline)
+        run: python -m pytest backend/tests/integration/test_eval_baseline.py -q -o addopts="" -m integration
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-report
+          path: backend/eval/reports/**

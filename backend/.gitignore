@@ -11,3 +11,6 @@ output/*
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Evaluation run reports (HBIM-005); the approved baseline IS versioned.
+eval/reports/

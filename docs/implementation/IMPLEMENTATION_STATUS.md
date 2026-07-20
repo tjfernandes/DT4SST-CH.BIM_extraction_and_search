@@ -2,16 +2,20 @@
 
 ## Last completed issue
 
-HBIM-004 — Test harness, CI, code quality and local development services
-(merged as PR #4; 15/15 acceptance criteria with real Docker evidence)
+HBIM-005 — Evaluation baseline for the current retrieval behaviour
+(17/17 acceptance criteria; full suite 100 passed across seeds and
+`-p no:randomly`; live baseline generated and committed)
 
 ## Active issue
 
-HBIM-005 — Evaluation baseline for the current retrieval behaviour
+None — awaiting the next issue in the roadmap.
 
 ## Status
 
-Specification prepared — awaiting spec review
+Complete — evaluation harness, versioned synthetic dataset, deterministic
+runner, unit + Testcontainers integration tests, CI job and the reviewed
+`backend/eval/baselines/current_system.json` baseline are all in place. No
+functional change to retrieval, API, ingestion, mappings or frontend.
 
 ## Current branch
 
@@ -20,6 +24,15 @@ Specification prepared — awaiting spec review
 ## Specification
 
 `docs/implementation/issues/HBIM-005_EVALUATION_BASELINE.md`
+
+## Last completed validation
+
+- Full backend suite: 100 passed (seeds 77082843/1/2/3/4 and `-p no:randomly`)
+- Evaluation integration (Testcontainers OpenSearch 2.19.1): 6 passed
+- Live baseline: all absolute correctness gates 1.0; `semantic_vector`
+  recall@10 = 1.0 with fixed 40-dim vectors and zero model inference
+- Ruff: PASS; blocking mypy (11 modules incl. `backend/eval`): PASS
+- `git diff --check`: clean; secret scan: clean; no `.env` tracked
 
 ## Environment
 
