@@ -47,16 +47,53 @@ só podem contactar loopback.
 ```bash
 ~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend
 
-# Gate bloqueante do mypy (exatamente os oito módulos tipados de HBIM-002/003)
+# Gate bloqueante do mypy (módulos tipados de HBIM-002/003 + backend/eval de HBIM-005)
 ~/miniconda3/bin/conda run -n hbim-rag python -m mypy \
   backend/shared/config.py backend/shared/opensearch.py \
   backend/shared/security.py backend/shared/logging.py \
   backend/api/health.py backend/api/metrics.py \
-  backend/api/middleware.py backend/api/errors.py
+  backend/api/middleware.py backend/api/errors.py \
+  backend/eval/dataset.py backend/eval/metrics.py backend/eval/run_eval.py
 
 # Scan informativo (não bloqueante) do resto do backend
 ~/miniconda3/bin/conda run -n hbim-rag python -m mypy backend
 ```
+
+## Avaliação (HBIM-005)
+
+Baseline determinístico do comportamento de retrieval atual, contra um
+OpenSearch local real, com dados sintéticos versionados e vetores fixos de 40
+dimensões (sem modelo, sem inferência, sem downloads). O runner **não** inicia
+containers; recusa hosts não-loopback; nunca lê `.env`.
+
+```bash
+# Testes unitários das métricas / dataset / relatório (offline)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_eval_metrics.py backend/tests/test_eval_dataset.py \
+  backend/tests/test_eval_report.py -q
+
+# Integração real (Testcontainers efémero, gates absolutos + determinismo)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_eval_baseline.py -q -o addopts="" -m integration
+
+# Runner end-to-end contra o serviço Compose local (loopback)
+docker compose -f docker-compose.dev.yml up -d --wait opensearch
+~/miniconda3/bin/conda run -n hbim-rag python -m eval.run_eval run \
+  --opensearch-host 127.0.0.1 --opensearch-port 9200 \
+  --dataset backend/eval/dataset --report-dir backend/eval/reports --runs 2 \
+  --save-baseline backend/eval/baselines/current_system.json
+docker compose -f docker-compose.dev.yml down
+```
+
+Fluxo do baseline: a **primeira** baseline é gerada localmente com Docker
+(comando acima, `--save-baseline`), **revista por uma pessoa** e só então
+**committed** (`backend/eval/baselines/current_system.json`). O CI nunca cria
+nem aprova a baseline — apenas reproduz, compara (`--compare-baseline`) e
+publica o relatório. Alterar a baseline exige, no mesmo changeset: a alteração
+funcional documentada, o diff do relatório revisto, justificação no PR e a
+baseline atualizada. Os relatórios de execução (`backend/eval/reports/`,
+`report.json` + `report.md`) são git-ignored; apenas o dataset e a baseline
+aprovada são versionados.
 
 ## Serviços locais de desenvolvimento (Docker Compose)
 
@@ -93,6 +130,8 @@ falha dura.
 
 Workflow único em `.github/workflows/ci.yml` (push + pull_request), com
 `permissions: contents: read`, sem `secrets.*` e sem `.env`: jobs
-`backend-unit`, `ruff`, `mypy` (gate dos oito módulos), `frontend`
-(`npm ci` + lint + build, Node 22) e `integration-opensearch`
-(`needs: backend-unit`, `HBIM_REQUIRE_DOCKER=1`).
+`backend-unit`, `ruff`, `mypy` (gate dos módulos tipados + `backend/eval`),
+`frontend` (`npm ci` + lint + build, Node 22), `integration-opensearch`
+(`needs: backend-unit`, `HBIM_REQUIRE_DOCKER=1`) e `evaluation-opensearch`
+(`needs: backend-unit`, gate contra a baseline committed + upload do relatório
+como artifact).
