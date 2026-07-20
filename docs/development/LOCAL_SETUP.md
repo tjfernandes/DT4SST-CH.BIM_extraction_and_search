@@ -194,6 +194,36 @@ alterado.
   backend/ingestion/ifc_properties.py backend/ingestion/property_facts.py
 ```
 
+## Mapeamentos estáticos de índice OpenSearch (HBIM-020)
+
+`backend/canonical/mappings/*.json` definem os mappings **estáticos, versionados
+e `dynamic: strict`** dos quatro records canónicos (`elements_v1`,
+`property_facts_v1`, `classification_facts_v1`, `documents_v1`): sem mapping
+explosion, sem vetores, sem aliases, sem criação de índices e sem `settings`
+operacionais (esses são HBIM-021). São **dados** (JSON) — não há loader nem
+`__init__.py`; o primeiro consumidor é a HBIM-021. O `PropertyFact.value`
+polimórfico é mapeado como projeção tipada e disjunta (`value_type`/`value_is_null`/
+`value_text`/`value_integer`/`value_number`/`value_boolean`); a projeção em si
+pertence à HBIM-022.
+
+```bash
+# Validação offline dos mappings (sem Docker; lê os JSON com json+pathlib,
+# cobertura de campos por model_fields, byte-stability golden)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_index_mappings.py -q -o addopts=""
+
+# Aplicação real contra OpenSearch efémero (exige Docker local; Testcontainers
+# 2.19.1): index/get, term/full-text/range/nested/agg, rejeição de campos
+# desconhecidos e de coerção, prova anti-mapping-explosion
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_index_mappings_apply.py -m integration -q -o addopts=""
+```
+
+Pré-requisito do teste de integração: **Docker local** (mesma deteção WSL da
+secção "Nota WSL + Docker Desktop"); sem Docker faz **skip** com razão explícita,
+e em CI (`HBIM_REQUIRE_DOCKER=1`) é falha dura. Reutiliza o job existente
+`integration-opensearch` — sem job novo.
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.

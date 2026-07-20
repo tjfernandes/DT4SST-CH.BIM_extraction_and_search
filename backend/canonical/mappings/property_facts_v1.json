@@ -1,0 +1,78 @@
+{
+  "_meta": {
+    "canonical_schema_versions": [
+      "1.0"
+    ],
+    "created_by": "HBIM-020",
+    "mapping_version": "1",
+    "record_type": "property_fact"
+  },
+  "_source": {
+    "enabled": true
+  },
+  "dynamic": "strict",
+  "properties": {
+    "container": {
+      "type": "keyword"
+    },
+    "element_id": {
+      "type": "keyword"
+    },
+    "fact_id": {
+      "type": "keyword"
+    },
+    "occurrence_key": {
+      "type": "keyword"
+    },
+    "project_id": {
+      "type": "keyword"
+    },
+    "property_name": {
+      "fields": {
+        "keyword": {
+          "ignore_above": 256,
+          "type": "keyword"
+        }
+      },
+      "type": "text"
+    },
+    "property_name_norm": {
+      "type": "keyword"
+    },
+    "schema_version": {
+      "type": "keyword"
+    },
+    "source": {
+      "type": "keyword"
+    },
+    "unit": {
+      "type": "keyword"
+    },
+    "value_boolean": {
+      "type": "boolean"
+    },
+    "value_integer": {
+      "coerce": false,
+      "type": "long"
+    },
+    "value_is_null": {
+      "type": "boolean"
+    },
+    "value_number": {
+      "coerce": false,
+      "type": "double"
+    },
+    "value_text": {
+      "fields": {
+        "keyword": {
+          "ignore_above": 256,
+          "type": "keyword"
+        }
+      },
+      "type": "text"
+    },
+    "value_type": {
+      "type": "keyword"
+    }
+  }
+}

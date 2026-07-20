@@ -2,14 +2,14 @@
 
 ## Last completed issue
 
-HBIM-012 — PropertyFact atomisation and deduplication
-(raw IFC traversal replaces `get_psets` as the PropertyFact producer; closed
-`RawOccurrence` union atomised by the pure `property_facts.py`; enum/list/bounded/
-table/complex/physical-complex-quantity atomised; references → coverage; closed
-`occurrence_key` grammar with netstring complex paths; instance>type precedence;
-same-level conflict fails closed; explicit + project units; explosion limits;
-scalar parity — existing single/quantity `fact_id` byte-unchanged; no
-`backend/canonical` change; HBIM-005 baseline byte-unchanged)
+HBIM-020 — Static OpenSearch index mappings
+(four static, versioned, `dynamic: strict` mappings for the canonical records —
+`elements_v1` / `property_facts_v1` / `classification_facts_v1` / `documents_v1`;
+`ClassificationFact` has its own mapping; `chunks` deferred to HBIM-070; no
+vectors, no aliases, no index creation, no operational settings; recursive
+strictness on every object/nested; `PropertyValue` mapped as a typed disjoint
+projection whose projection code is HBIM-022; mappings are JSON data with no
+loader; `backend/canonical` schema and the HBIM-005 baseline byte-unchanged)
 
 ## Active issue
 
@@ -17,46 +17,59 @@ None — awaiting the next issue in the roadmap.
 
 ## Status
 
-Complete — `backend/ingestion/ifc_properties.py` performs a raw traversal of
-instance/type property and quantity sets (no `get_psets` for facts), building a
-closed, typed, cycle-free `RawOccurrence` tree; the pure, IfcOpenShell-free
-`backend/ingestion/property_facts.py` atomises it into canonical `PropertyFact`
-v1.0 records with a closed `occurrence_key` grammar, instance>type precedence,
-deduplication, fail-closed conflicts (`AmbiguousPropertySlotError` /
-`FactIdCollisionError`) and explosion limits (`FactsPerElementLimitError`).
-`canonical_ifc.py` wires them in, mapping typed diagnostics to the closed
-warning vocabulary and integrating coverage; public APIs, the atomic writer,
-`ElementRecord`, spatial, materials, classifications, documents and metrics are
-unchanged. `backend/canonical` is untouched (schema v1.0). Metrics still use
-`get_psets` as an independent heuristic path (never produces PropertyFact).
+Complete — `backend/canonical/mappings/{elements,property_facts,classification_facts,documents}_v1.json`
+are static, versioned OpenSearch mappings: `dynamic: "strict"` at the root and
+recursively on every `object`/`nested` (`materials`, `location`, the five spatial
+refs, `metrics`, `source`), `_source.enabled: true`, and a fixed `_meta`
+(`canonical_schema_versions: ["1.0"]`, `mapping_version: "1"`, `record_type`,
+`created_by: "HBIM-020"`). Identity fields are `keyword` with **no** normalizer
+(case-sensitive `global_id`); checksums are indexable `keyword`; `materials` is
+`nested`; `coerce: false` guards `materials.ordinal`, `metrics.*`,
+`value_integer`, `value_number`. The polymorphic `PropertyFact.value` is **not**
+mapped: `property_facts_v1` declares the typed, disjoint projection
+(`value_type`/`value_is_null`/`value_text`/`value_integer`/`value_number`/`value_boolean`).
+The mappings are **data** — no loader, no `__init__.py`, no `opensearchpy` import
+in `backend/canonical`; the first consumer is HBIM-021. **The projection code and
+its invariants (required presence, payload XOR, `value_type`→payload coherence)
+are HBIM-022 and are NOT implemented here.** No vectors/`knn`; operational
+settings and physical indices/aliases are HBIM-021. `backend/canonical`
+(schema/ids/serialization), `index_to_opensearch.py`, the API, retrieval and the
+HBIM-005 baseline are unchanged.
 
 ## Current branch
 
-`feat/hbim-012-property-fact-atomization`
+`feat/hbim-020-static-index-mappings`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-012_PROPERTY_FACT_ATOMIZATION.md`
+`docs/implementation/issues/HBIM-020_STATIC_INDEX_MAPPINGS.md`
 
 ## Last completed validation
 
-- Full backend suite: 288 passed (242 prior + 46 HBIM-012) across seeds
-  77082843/1 and `-p no:randomly`; unit-only 281 passed, 7 deselected
-- Blocking mypy: 20 modules (incl. `ingestion.ifc_properties` and
-  `ingestion.property_facts`) clean; Ruff clean
-- HBIM-012: IFC2X3 + IFC4; enum/list/bounded/table/complex/physical-complex-
-  quantity atomised with a closed `occurrence_key` grammar (netstring complex
-  paths); references → coverage `unsupported_references` (never `str()`);
-  instance>type property-level precedence; same-level conflict → fail-closed;
-  explicit + implicit project units (length quantities gain `METRE`);
-  `IfcQuantityCount` integral→int / non-integral→float; explosion limits;
-  `property_facts.py` pure (no IfcOpenShell) with an offline suite; scalar
-  parity — existing single/quantity `fact_id` byte-unchanged
-- Golden: `elements.jsonl` / `classification_facts.jsonl` / `documents.jsonl`
-  byte-identical; `property_facts.jsonl` / `warnings.jsonl` / `coverage.json`
-  changed intentionally (list atomisation, project units, coverage manifest 1.1)
+- Full backend suite: 368 passed across seeds 77082843/1 and `-p no:randomly`;
+  unit-only 346 passed, 22 deselected
+- Offline mapping suite (`test_index_mappings.py`): 61 passed — mappings-only
+  shape, exact `_meta`, recursive strictness, field coverage driven by Pydantic
+  `model_fields` (with the `PropertyValue` projection), ids `keyword` without
+  normalizer, checksums indexable `keyword`, `materials` nested, `coerce:false`,
+  no vectors, no legacy fields, byte-stable golden JSON
+- Integration (Testcontainers `opensearchproject/opensearch:2.19.1`, ephemeral,
+  loopback-only): 22 passed = 15 `test_index_mappings_apply` + 1 smoke + 6 eval
+  baseline. Applying each mapping proves index/get round-trip, term / full-text /
+  range / nested (per-material correlation) / classification aggregation, and
+  rejection of unknown top-level, object and nested fields plus string→number
+  coercion (`materials.ordinal`, `metrics.area`, `value_integer`,
+  `value_number`); anti-mapping-explosion — many distinct `property_name` values
+  never grow `total_fields`
+- Reload-robust offline tests: models resolved by name at call time (the
+  import-safety suite reloads `canonical.schema` in-process); passes in all
+  three orders
+- Blocking mypy: same 20 modules clean (no new module — mappings are JSON data);
+  Ruff clean
 - HBIM-005 evaluation integration: 6 passed; baseline `current_system.json`
   byte-unchanged (sha256 prefix `7bf3c8d7200f0512`)
+- Protected files byte-unchanged: `backend/canonical/{schema,ids,serialization}.py`,
+  `backend/ingestion/index_to_opensearch.py`
 - `git diff --check`: clean; secret scan: clean; no `.env` tracked; no `.ifc`
   tracked or staged; `local_data/` still git-ignored
 
