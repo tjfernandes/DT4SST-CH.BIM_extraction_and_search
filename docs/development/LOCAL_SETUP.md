@@ -133,6 +133,45 @@ committed, copiados para fixtures nem incluídos em patches, relatórios ou
 documentação. As fixtures canónicas são exclusivamente sintéticas; **é proibido
 committar qualquer IFC real** (o CI não depende de `local_data/`).
 
+## Extração canónica IFC (HBIM-011)
+
+`backend/ingestion/canonical_ifc.py` (+ `ifc_spatial.py`, `ifc_materials.py`,
+`ifc_values.py`) converte um IFC em records canónicos (HBIM-010) e escreve JSONL
+determinístico, publicado **atomicamente por diretório**. A lógica dependente de
+IfcOpenShell vive em `ingestion/`; `backend/canonical` permanece livre de
+IfcOpenShell. Não importa OpenSearch/FastAPI/settings, não lê `.env`, não abre
+rede.
+
+```bash
+# Testes HBIM-011 (offline, sem Docker; IFC sintético em tmp_path)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_ifc_values.py backend/tests/test_ifc_spatial.py \
+  backend/tests/test_ifc_materials.py backend/tests/test_canonical_ifc.py \
+  backend/tests/test_canonical_ifc_import_safety.py -q -o addopts=""
+
+# Qualidade (os 4 módulos estão no gate bloqueante do mypy e no Ruff)
+~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend/ingestion
+~/miniconda3/bin/conda run -n hbim-rag python -m mypy \
+  backend/ingestion/canonical_ifc.py backend/ingestion/ifc_spatial.py \
+  backend/ingestion/ifc_materials.py backend/ingestion/ifc_values.py
+```
+
+**Validação local (fora do CI)** contra as amostras privadas em `local_data/ifc/`,
+por CLI, com `output_dir` que **não pode pré-existir**. O modo `--summary` imprime
+**apenas** contagens/categorias/códigos de warning — nunca nomes, paths ou
+conteúdo do IFC:
+
+```bash
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.canonical_ifc \
+  --source <path-para-o-ifc> --project-id <id> --source-id <id> \
+  --output-dir <dir-novo> --summary
+```
+
+As fixtures canónicas de extração (`backend/tests/fixtures/canonical/ifc_extraction/`)
+são golden **sintéticos** gerados pelos builders válidos (`ifc_builder.py`,
+`build_valid_ifc4`); **nenhum `.ifc` é committed**.
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.
