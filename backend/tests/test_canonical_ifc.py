@@ -21,15 +21,26 @@ from canonical import (
 )
 from ingestion import canonical_ifc as C
 from ingestion.canonical_ifc import (
+    AmbiguousPropertySlotError,
+    CanonicalExtractionError,
     DuplicateGlobalIdError,
     EmptyIdentityError,
+    FactIdCollisionError,
+    FactsPerElementLimitError,
     IfcProjectMismatchError,
     MultipleIfcProjectError,
     OutputDirectoryError,
     SourceNotFoundError,
+    TableStructureError,
     UnsupportedIfcSchemaError,
     convert_ifc_to_canonical,
     write_canonical_jsonl,
+)
+from ingestion.property_facts import (
+    PropertyAmbiguousSlotError,
+    PropertyFactError,
+    PropertyFactIdCollisionError,
+    PropertyTableStructureError,
 )
 from tests.fixtures import ifc_builder as B
 
@@ -222,12 +233,16 @@ def test_fact_id_excludes_value(tmp_path):
     assert fire.fact_id == property_fact_id("p", wall_id, "pset", "Pset_WallCommon", "FireRating", "0")
 
 
-def test_complex_values_go_to_coverage_not_facts(tmp_path):
+def test_list_value_atomized_hbim012(tmp_path):
+    # HBIM-012: the proxy's IfcPropertyListValue "Camadas" now atomises into
+    # per-item facts (was coverage-only in HBIM-011); no COMPLEX_PROPERTY_VALUE.
     result = _convert4(tmp_path)
     proxy_id = element_id("p", B.GID_PROXY)
-    assert not [f for f in result.property_facts if f.element_id == proxy_id]  # list value not emitted
-    assert result.coverage.value_categories["planned_atomization"] == 1
-    assert _warning_codes(result).count("COMPLEX_PROPERTY_VALUE") == 1
+    proxy_facts = {f.occurrence_key: f for f in result.property_facts if f.element_id == proxy_id}
+    assert set(proxy_facts) == {"item:000000", "item:000001"}
+    assert proxy_facts["item:000000"].value.value == "a"
+    assert result.coverage.atomized_list_items == 2
+    assert "COMPLEX_PROPERTY_VALUE" not in _warning_codes(result)
 
 
 def _wall_units_ifc(tmp_path, schema: str, name: str) -> Path:
@@ -273,11 +288,18 @@ def test_property_fact_unit_populated_when_declared(tmp_path, schema):
     assert "Ifc" not in length.unit and "#" not in length.unit
 
 
-def test_unit_absent_stays_none(tmp_path):
-    # The comprehensive fixture declares no units → every fact keeps unit = None.
+def test_unit_project_implicit_and_absent(tmp_path):
+    # HBIM-012 §9.1: a length quantity without an explicit unit inherits the
+    # project unit (METRE); dimensionless singles stay unit=None. fact_id is
+    # unchanged (the unit is not part of the id) → scalar-parity preserved.
+    from canonical import property_fact_id
+
     result = _convert4(tmp_path)
-    assert result.property_facts  # there are facts
-    assert all(f.unit is None for f in result.property_facts)
+    wall_id = element_id("p", B.GID_WALL)
+    by_name = {f.property_name: f for f in result.property_facts if f.element_id == wall_id}
+    assert by_name["Height"].unit == "METRE" and by_name["Width"].unit == "METRE"
+    assert by_name["FireRating"].unit is None  # IfcLabel → no dimension → no project unit
+    assert by_name["Height"].fact_id == property_fact_id("p", wall_id, "qto", "Qto_WallBaseQuantities", "Height", "0")
 
 
 # --------------------------------------------------------------------------- #
@@ -554,6 +576,89 @@ def test_no_public_iterator():
     # iteration exists only as the private method on the internal run object
     assert hasattr(C._Run, "_iter_entity_records")
     assert "convert_ifc_to_canonical" in public and "write_canonical_jsonl" in public
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-012 error contract: internal property errors translate to the public
+# CanonicalExtractionError hierarchy at the boundary (cause preserved, no leaks).
+# --------------------------------------------------------------------------- #
+def _element_ifc(tmp_path, name: str, add_props) -> Path:
+    f = ifcopenshell.file(schema="IFC4")
+    si = f.create_entity("IfcSIUnit", UnitType="LENGTHUNIT", Name="METRE")
+    ua = f.create_entity("IfcUnitAssignment", Units=[si])
+    project = f.create_entity("IfcProject", GlobalId=B.GID_PROJECT, Name="P", UnitsInContext=ua)
+    storey = f.create_entity("IfcBuildingStorey", GlobalId=B.GID_STOREY, Name="St")
+    f.create_entity("IfcRelAggregates", GlobalId=B._gid(900), RelatingObject=project, RelatedObjects=[storey])
+    wall = f.create_entity("IfcWall", GlobalId=B.GID_WALL, Name="W")
+    f.create_entity("IfcRelContainedInSpatialStructure", GlobalId=B._gid(901), RelatingStructure=storey, RelatedElements=[wall])
+    add_props(f, wall)
+    B._set_deterministic_header(f)
+    path = tmp_path / name
+    f.write(str(path))
+    return path
+
+
+def test_same_level_conflict_translated_to_public(tmp_path):
+    def add(f, wall):
+        for seed, value in ((902, "a"), (904, "b")):  # two instance psets, same slot, different value
+            ps = f.create_entity(
+                "IfcPropertySet", GlobalId=B._gid(seed), Name="Pset_Dup",
+                HasProperties=[f.create_entity("IfcPropertySingleValue", Name="P", NominalValue=f.create_entity("IfcLabel", value))],
+            )
+            f.create_entity("IfcRelDefinesByProperties", GlobalId=B._gid(seed + 1), RelatedObjects=[wall], RelatingPropertyDefinition=ps)
+
+    path = _element_ifc(tmp_path, "conflict.ifc", add)
+    with pytest.raises(AmbiguousPropertySlotError) as excinfo:
+        convert_ifc_to_canonical(path, project_id="p", source_id="s")
+    error = excinfo.value
+    assert isinstance(error, CanonicalExtractionError)  # public contract
+    assert not isinstance(error, PropertyFactError)  # never the internal type
+    assert isinstance(error.__cause__, PropertyAmbiguousSlotError)  # cause preserved
+    assert error.ifc_class == "IfcWall" and error.reference == B.GID_WALL
+
+
+def test_fact_id_collision_translated(tmp_path, monkeypatch):
+    def _boom(*_a, **_k):
+        raise PropertyFactIdCollisionError("internal collision")
+
+    monkeypatch.setattr(C, "atomize_element", _boom)
+    path = _build(tmp_path, B.build_valid_ifc4)
+    with pytest.raises(FactIdCollisionError) as excinfo:
+        convert_ifc_to_canonical(path, project_id="p", source_id="s")
+    assert isinstance(excinfo.value, CanonicalExtractionError)
+    assert isinstance(excinfo.value.__cause__, PropertyFactIdCollisionError)
+
+
+def test_facts_per_element_limit_translated_no_output(tmp_path):
+    def add(f, wall):
+        props = [
+            f.create_entity("IfcPropertyListValue", Name=f"L{i}", ListValues=[f.create_entity("IfcInteger", j) for j in range(4000)])
+            for i in range(3)  # 3 × 4000 = 12000 > MAX_FACTS_PER_ELEMENT (10000)
+        ]
+        ps = f.create_entity("IfcPropertySet", GlobalId=B._gid(902), Name="Pset_Big", HasProperties=props)
+        f.create_entity("IfcRelDefinesByProperties", GlobalId=B._gid(903), RelatedObjects=[wall], RelatingPropertyDefinition=ps)
+
+    path = _element_ifc(tmp_path, "big.ifc", add)
+    with pytest.raises(FactsPerElementLimitError):
+        convert_ifc_to_canonical(path, project_id="p", source_id="s")
+    out = tmp_path / "out"
+    with pytest.raises(FactsPerElementLimitError):
+        write_canonical_jsonl(path, project_id="p", source_id="s", output_dir=out)
+    assert not out.exists()  # no partial output published
+    assert not _staging_leftovers(tmp_path)  # staging removed
+
+
+def test_table_structure_error_translated(tmp_path):
+    def add(f, wall):
+        table = f.create_entity("IfcPropertyTableValue", Name="T", DefiningValues=[f.create_entity("IfcReal", 1.0)], DefinedValues=None)
+        ps = f.create_entity("IfcPropertySet", GlobalId=B._gid(902), Name="Pset_T", HasProperties=[table])
+        f.create_entity("IfcRelDefinesByProperties", GlobalId=B._gid(903), RelatedObjects=[wall], RelatingPropertyDefinition=ps)
+
+    path = _element_ifc(tmp_path, "table.ifc", add)
+    with pytest.raises(TableStructureError) as excinfo:
+        convert_ifc_to_canonical(path, project_id="p", source_id="s")
+    assert isinstance(excinfo.value, CanonicalExtractionError)
+    assert isinstance(excinfo.value.__cause__, PropertyTableStructureError)
 
 
 # --------------------------------------------------------------------------- #

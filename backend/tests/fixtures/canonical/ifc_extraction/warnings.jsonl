@@ -1,4 +1,3 @@
-{"code":"COMPLEX_PROPERTY_VALUE","detail_code":"VALUE_LIST","field":"PROPERTY_VALUE","ifc_class":"IfcBuildingElementProxy","occurrences":1,"reference":"000000000000000000000F"}
 {"code":"DOCUMENT_METADATA_CONFLICT","detail_code":"TITLE_CONFLICT","field":"DOCUMENT_URI","ifc_class":"IfcDocumentReference","occurrences":1,"reference":"doc_76680493f158b3c4a2876d9a2b5a9f98"}
 {"code":"INCOMPLETE_CLASSIFICATION","detail_code":"MISSING_CODE","field":null,"ifc_class":"IfcSlab","occurrences":1,"reference":"000000000000000000000B"}
 {"code":"INCOMPLETE_DOCUMENT","detail_code":"MISSING_URI","field":"DOCUMENT_URI","ifc_class":"IfcColumn","occurrences":1,"reference":"000000000000000000000D"}

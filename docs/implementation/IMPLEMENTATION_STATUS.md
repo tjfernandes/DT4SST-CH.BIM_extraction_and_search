@@ -2,55 +2,59 @@
 
 ## Last completed issue
 
-HBIM-011 — IFC → canonical records extraction
-(typed `convert_ifc_to_canonical` / `write_canonical_jsonl`; IFC2X3 + IFC4;
-IfcSpace as ElementRecord without self-reference; two containment regimes;
-scalar PropertyFact; many-to-many DocumentRef with deterministic conflicts;
-name-free warnings + coverage; atomic per-directory publication; synthetic
-golden fixtures; HBIM-005 baseline byte-unchanged; no legacy/indexer/retrieval
-change)
+HBIM-012 — PropertyFact atomisation and deduplication
+(raw IFC traversal replaces `get_psets` as the PropertyFact producer; closed
+`RawOccurrence` union atomised by the pure `property_facts.py`; enum/list/bounded/
+table/complex/physical-complex-quantity atomised; references → coverage; closed
+`occurrence_key` grammar with netstring complex paths; instance>type precedence;
+same-level conflict fails closed; explicit + project units; explosion limits;
+scalar parity — existing single/quantity `fact_id` byte-unchanged; no
+`backend/canonical` change; HBIM-005 baseline byte-unchanged)
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap (HBIM-012: advanced PropertyFact
-atomisation, complex value types, unit resolution and deduplication).
+None — awaiting the next issue in the roadmap.
 
 ## Status
 
-Complete — `backend/ingestion/{canonical_ifc,ifc_spatial,ifc_materials,ifc_values}.py`
-read IFC with IfcOpenShell and emit validated HBIM-010 records plus a structured
-coverage report and aggregated, name-free warnings, serialised as deterministic
-JSONL published atomically (staging dir + single rename; `output_dir` must not
-pre-exist; no `overwrite`). IfcOpenShell logic lives only in `ingestion/`;
-`backend/canonical` stays IfcOpenShell-free. The four modules are in the blocking
-mypy gate and Ruff scope. The legacy `extract_bim.py` / `index_to_opensearch.py`,
-retrieval, API, frontend, mappings and the HBIM-005 evaluation baseline are
-unchanged. Advanced property atomisation/dedup, complex value types and full unit
-resolution remain deferred to HBIM-012.
+Complete — `backend/ingestion/ifc_properties.py` performs a raw traversal of
+instance/type property and quantity sets (no `get_psets` for facts), building a
+closed, typed, cycle-free `RawOccurrence` tree; the pure, IfcOpenShell-free
+`backend/ingestion/property_facts.py` atomises it into canonical `PropertyFact`
+v1.0 records with a closed `occurrence_key` grammar, instance>type precedence,
+deduplication, fail-closed conflicts (`AmbiguousPropertySlotError` /
+`FactIdCollisionError`) and explosion limits (`FactsPerElementLimitError`).
+`canonical_ifc.py` wires them in, mapping typed diagnostics to the closed
+warning vocabulary and integrating coverage; public APIs, the atomic writer,
+`ElementRecord`, spatial, materials, classifications, documents and metrics are
+unchanged. `backend/canonical` is untouched (schema v1.0). Metrics still use
+`get_psets` as an independent heuristic path (never produces PropertyFact).
 
 ## Current branch
 
-`feat/hbim-011-canonical-ifc-extraction`
+`feat/hbim-012-property-fact-atomization`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-011_CANONICAL_IFC_EXTRACTION.md`
+`docs/implementation/issues/HBIM-012_PROPERTY_FACT_ATOMIZATION.md`
 
 ## Last completed validation
 
-- Full backend suite: 242 passed (166 prior + 76 HBIM-011) across seeds
-  77082843/1 and `-p no:randomly`; unit-only 235 passed, 7 deselected
-- Blocking mypy: 18 modules (incl. the four `backend/ingestion` HBIM-011
-  modules) clean; Ruff clean
-- HBIM-011: IFC2X3 + IFC4 synthetic builders; IfcSpace as ElementRecord with
-  `location.space is None`; both containment regimes; scalar PropertyFact
-  (complex values → coverage, never `str()`); many-to-many DocumentRef with
-  deterministic (lexicographic) metadata-conflict resolution; total-ordered,
-  aggregated, name-free warnings; byte-stable golden fixtures; atomic
-  per-directory publication with staging + single rename (no partial output,
-  `output_dir` must not pre-exist); duplicate GlobalId aborts with no output;
-  import-safety proven in fresh subprocesses (no OpenSearch/FastAPI/settings/
-  `.env`/socket; `canonical` stays IfcOpenShell-free)
+- Full backend suite: 288 passed (242 prior + 46 HBIM-012) across seeds
+  77082843/1 and `-p no:randomly`; unit-only 281 passed, 7 deselected
+- Blocking mypy: 20 modules (incl. `ingestion.ifc_properties` and
+  `ingestion.property_facts`) clean; Ruff clean
+- HBIM-012: IFC2X3 + IFC4; enum/list/bounded/table/complex/physical-complex-
+  quantity atomised with a closed `occurrence_key` grammar (netstring complex
+  paths); references → coverage `unsupported_references` (never `str()`);
+  instance>type property-level precedence; same-level conflict → fail-closed;
+  explicit + implicit project units (length quantities gain `METRE`);
+  `IfcQuantityCount` integral→int / non-integral→float; explosion limits;
+  `property_facts.py` pure (no IfcOpenShell) with an offline suite; scalar
+  parity — existing single/quantity `fact_id` byte-unchanged
+- Golden: `elements.jsonl` / `classification_facts.jsonl` / `documents.jsonl`
+  byte-identical; `property_facts.jsonl` / `warnings.jsonl` / `coverage.json`
+  changed intentionally (list atomisation, project units, coverage manifest 1.1)
 - HBIM-005 evaluation integration: 6 passed; baseline `current_system.json`
   byte-unchanged (sha256 prefix `7bf3c8d7200f0512`)
 - `git diff --check`: clean; secret scan: clean; no `.env` tracked; no `.ifc`

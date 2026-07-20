@@ -42,25 +42,32 @@ from canonical import (
     classification_id,
     document_id,
     element_id,
-    property_fact_id,
     to_canonical_json,
 )
 from ingestion.ifc_materials import MaterialIssue, MaterialIssueCode, extract_materials
+from ingestion.ifc_properties import ProjectUnits, read_property_occurrences, resolve_project_units
 from ingestion.ifc_spatial import SpatialCache, SpatialIssue, SpatialIssueCode, build_spatial_location
 from ingestion.ifc_values import (
     NonFiniteValue,
     ScalarValue,
-    UnsupportedKind,
-    UnsupportedValue,
     length_unit_factor,
-    normalize_lexical,
     read_scalar,
-    to_property_value,
     to_si,
-    unit_label,
+)
+from ingestion.property_facts import (
+    PropertyAmbiguousSlotError,
+    PropertyCoverageDelta,
+    PropertyDiagnostic,
+    PropertyDiagnosticCode,
+    PropertyFactIdCollisionError,
+    PropertyFactsPerElementLimitError,
+    PropertyTableStructureError,
+    atomize_element,
+    merge_coverage,
 )
 
 _SCHEMA_VERSION = "1.0"
+_COVERAGE_MANIFEST_VERSION = "1.1"
 _ALLOWED_SCHEMAS = frozenset({"IFC2X3", "IFC4"})
 _DEFAULT_DOCUMENT_TYPE = "ifc_document"
 
@@ -117,6 +124,32 @@ class JsonlWriteError(CanonicalExtractionError):
     pass
 
 
+class _PropertySlotError(CanonicalExtractionError):
+    """Public property-atomisation error: carries only ``ifc_class`` and an opaque
+    reference (never a pset/property name, value, unit or path)."""
+
+    def __init__(self, *, ifc_class: str, reference: str | None) -> None:
+        self.ifc_class = ifc_class
+        self.reference = reference
+        super().__init__(f"{type(self).__name__} for {ifc_class} ({reference or 'n/a'})")
+
+
+class AmbiguousPropertySlotError(_PropertySlotError):
+    pass
+
+
+class FactIdCollisionError(_PropertySlotError):
+    pass
+
+
+class FactsPerElementLimitError(_PropertySlotError):
+    pass
+
+
+class TableStructureError(_PropertySlotError):
+    pass
+
+
 # --------------------------------------------------------------------------- #
 # Closed warning vocabulary (never carries real names)
 # --------------------------------------------------------------------------- #
@@ -133,6 +166,23 @@ class WarningCode(str, Enum):
     EMPTY_NORMALIZED_PROPERTY_NAME = "EMPTY_NORMALIZED_PROPERTY_NAME"
     INVALID_OPTIONAL_FIELD = "INVALID_OPTIONAL_FIELD"
     METRIC_MULTIPLE_CANDIDATES = "METRIC_MULTIPLE_CANDIDATES"
+    # HBIM-012 property atomisation (mapped from PropertyDiagnosticCode)
+    UNSUPPORTED_PROPERTY_KIND = "UNSUPPORTED_PROPERTY_KIND"
+    REFERENCE_UNSUPPORTED_V1 = "REFERENCE_UNSUPPORTED_V1"
+    UNKNOWN_UNIT = "UNKNOWN_UNIT"
+    INCOMPATIBLE_UNIT = "INCOMPATIBLE_UNIT"
+    TYPE_OVERRIDE = "TYPE_OVERRIDE"
+    REDUNDANT_DUPLICATE = "REDUNDANT_DUPLICATE"
+    EMPTY_PROPERTY_NAME = "EMPTY_PROPERTY_NAME"
+    NULL_ITEM = "NULL_ITEM"
+    EMPTY_LIST = "EMPTY_LIST"
+    EMPTY_ENUM = "EMPTY_ENUM"
+    EMPTY_TABLE = "EMPTY_TABLE"
+    TABLE_LENGTH_MISMATCH = "TABLE_LENGTH_MISMATCH"
+    COMPLEX_CYCLE = "COMPLEX_CYCLE"
+    DEPTH_LIMIT_EXCEEDED = "DEPTH_LIMIT_EXCEEDED"
+    LIST_LIMIT_EXCEEDED = "LIST_LIMIT_EXCEEDED"
+    TABLE_LIMIT_EXCEEDED = "TABLE_LIMIT_EXCEEDED"
 
 
 class FieldCode(str, Enum):
@@ -177,7 +227,7 @@ class ExtractionWarning(BaseModel):
 
 class CoverageReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    manifest_version: str = _SCHEMA_VERSION
+    manifest_version: str = _COVERAGE_MANIFEST_VERSION
     ifc_schema: str
     project_id_present: bool
     source_id_present: bool
@@ -187,11 +237,49 @@ class CoverageReport(BaseModel):
     classification_facts: int
     documents: int
     warnings_by_code: dict[str, int]
-    value_categories: dict[str, int]
     inherited_type_attributes: int
     tag_present: int
     metric_multiple_candidates: int
     document_metadata_conflicts: int
+    # HBIM-012 property atomisation coverage (always present, zero included)
+    scalar_facts: int
+    atomized_list_items: int
+    atomized_enum_items: int
+    atomized_bounded_values: int
+    atomized_table_cells: int
+    atomized_complex_leaves: int
+    unsupported_references: int
+    redundant_duplicates: int
+    type_overrides: int
+    non_integral_counts: int
+    null_collection_items: int
+    depth_limit_exceeded: int
+    list_limit_exceeded: int
+    table_limit_exceeded: int
+    non_finite_properties: int
+
+
+# Total mapping of pure property diagnostics → the closed serialized warning
+# vocabulary (never carries names/values; only closed codes).
+_PROPERTY_DIAGNOSTIC_MAP: dict[PropertyDiagnosticCode, tuple["WarningCode", "FieldCode", "DetailCode | None"]] = {
+    PropertyDiagnosticCode.UNSUPPORTED_PROPERTY_KIND: (WarningCode.UNSUPPORTED_PROPERTY_KIND, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.REFERENCE_UNSUPPORTED_V1: (WarningCode.REFERENCE_UNSUPPORTED_V1, FieldCode.PROPERTY_VALUE, DetailCode.VALUE_REFERENCE),
+    PropertyDiagnosticCode.UNKNOWN_UNIT: (WarningCode.UNKNOWN_UNIT, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.INCOMPATIBLE_UNIT: (WarningCode.INCOMPATIBLE_UNIT, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.TYPE_OVERRIDE: (WarningCode.TYPE_OVERRIDE, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.REDUNDANT_DUPLICATE: (WarningCode.REDUNDANT_DUPLICATE, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.EMPTY_PROPERTY_NAME: (WarningCode.EMPTY_PROPERTY_NAME, FieldCode.PROPERTY_NAME, None),
+    PropertyDiagnosticCode.NULL_ITEM: (WarningCode.NULL_ITEM, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.EMPTY_LIST: (WarningCode.EMPTY_LIST, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.EMPTY_ENUM: (WarningCode.EMPTY_ENUM, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.EMPTY_TABLE: (WarningCode.EMPTY_TABLE, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.TABLE_LENGTH_MISMATCH: (WarningCode.TABLE_LENGTH_MISMATCH, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.COMPLEX_CYCLE: (WarningCode.COMPLEX_CYCLE, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.NON_FINITE_VALUE: (WarningCode.NON_FINITE_VALUE, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.DEPTH_LIMIT_EXCEEDED: (WarningCode.DEPTH_LIMIT_EXCEEDED, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.LIST_LIMIT_EXCEEDED: (WarningCode.LIST_LIMIT_EXCEEDED, FieldCode.PROPERTY_VALUE, None),
+    PropertyDiagnosticCode.TABLE_LIMIT_EXCEEDED: (WarningCode.TABLE_LIMIT_EXCEEDED, FieldCode.PROPERTY_VALUE, None),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,12 +320,6 @@ _METRICS: tuple[_MetricSpec, ...] = (
     )),
 )
 
-_VALUE_CATEGORY_KEYS = (
-    "text", "int", "float", "bool", "null",
-    "planned_atomization", "unsupported_v1", "non_finite",
-)
-
-
 # --------------------------------------------------------------------------- #
 # Small pure helpers
 # --------------------------------------------------------------------------- #
@@ -269,44 +351,6 @@ def _checksum(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _unit_map(entity: Any) -> dict[tuple[str, str], str]:
-    """Map ``(container, property_name)`` → unit label for explicitly-declared units.
-
-    ``get_psets`` returns only values, so the ``Unit`` of each
-    ``IfcPropertySingleValue`` and simple quantity is read here from the raw
-    property/quantity sets (instance and its type; instance overrides type, as in
-    ``get_psets``). Only a deterministic, safe label is extracted (via
-    ``unit_label``) — never ``str()`` of an entity, and no unit *resolution*
-    (deferred to HBIM-012). Absent unit → the key is omitted, so the fact keeps
-    ``unit = None``.
-    """
-    resolved: dict[tuple[str, str], str | None] = {}
-    definitions: list[Any] = []
-    type_object = _u.get_type(entity)
-    if type_object is not None:
-        definitions.extend(getattr(type_object, "HasPropertySets", None) or ())
-    for relation in getattr(entity, "IsDefinedBy", None) or ():
-        if relation.is_a("IfcRelDefinesByProperties"):
-            definition = getattr(relation, "RelatingPropertyDefinition", None)
-            if definition is not None:
-                definitions.append(definition)
-
-    for definition in definitions:
-        container = getattr(definition, "Name", None)
-        if not container:
-            continue
-        if definition.is_a("IfcPropertySet"):
-            for prop in getattr(definition, "HasProperties", None) or ():
-                if prop.is_a("IfcPropertySingleValue") and getattr(prop, "Name", None):
-                    resolved[(container, prop.Name)] = unit_label(getattr(prop, "Unit", None))
-        elif definition.is_a("IfcElementQuantity"):
-            for quantity in getattr(definition, "Quantities", None) or ():
-                if getattr(quantity, "Name", None):
-                    resolved[(container, quantity.Name)] = unit_label(getattr(quantity, "Unit", None))
-
-    return {key: label for key, label in resolved.items() if label is not None}
-
-
 # --------------------------------------------------------------------------- #
 # Extraction run
 # --------------------------------------------------------------------------- #
@@ -320,7 +364,7 @@ class _Counters:
     tag_present: int = 0
     metric_multiple_candidates: int = 0
     document_metadata_conflicts: int = 0
-    value_categories: dict[str, int] = field(default_factory=lambda: {k: 0 for k in _VALUE_CATEGORY_KEYS})
+    property_coverage: PropertyCoverageDelta = field(default_factory=PropertyCoverageDelta)
 
 
 @dataclass(slots=True)
@@ -341,6 +385,7 @@ class _Run:
         self.ifc = ifc
         self.schema = schema
         self.length_factor = length_unit_factor(ifc)
+        self._project_units: ProjectUnits = resolve_project_units(ifc)
         self._candidates: list[Any] = []
         self._spatial_cache: SpatialCache = {}
         self._docs: dict[str, _DocAcc] = {}
@@ -381,11 +426,11 @@ class _Run:
             global_id = entity.GlobalId
             eid = element_id(self.project_id, global_id)
             ifc_class = entity.is_a()
-            psets = _u.get_psets(entity, psets_only=True)
+            psets = _u.get_psets(entity, psets_only=True)  # metrics-only heuristic path (HBIM-011)
             qtos = _u.get_psets(entity, qtos_only=True)
 
             yield self._build_element(entity, eid, global_id, ifc_class, psets, qtos)
-            yield from self._property_facts(entity, eid, ifc_class, global_id, psets, qtos)
+            yield from self._property_facts(entity, eid, ifc_class, global_id)
             yield from self._classification_facts(entity, eid, ifc_class, global_id)
             self._accumulate_documents(entity, eid)
 
@@ -479,72 +524,34 @@ class _Run:
             self._cov.metric_multiple_candidates += 1
         return chosen
 
-    # -- property facts -------------------------------------------------- #
-    def _property_facts(
-        self, entity: Any, eid: str, ifc_class: str, global_id: str, psets: dict[str, Any], qtos: dict[str, Any]
-    ) -> Iterator[PropertyFact]:
-        units = _unit_map(entity)
-        facts: list[PropertyFact] = []
-        for source, collection in (("pset", psets), ("qto", qtos)):
-            for container in sorted(collection):
-                data = collection[container]
-                if not isinstance(data, dict):
-                    continue
-                for prop in sorted(data):
-                    if prop == "id":
-                        continue
-                    unit = units.get((container, prop))
-                    fact = self._one_property_fact(source, container, prop, data[prop], eid, ifc_class, global_id, unit)
-                    if fact is not None:
-                        facts.append(fact)
-        facts.sort(key=lambda f: (f.container, f.property_name, f.occurrence_key, f.source))
-        self._cov.property_facts += len(facts)
-        yield from facts
+    # -- property facts (raw traversal → pure atomisation, HBIM-012) ----- #
+    def _property_facts(self, entity: Any, eid: str, ifc_class: str, global_id: str) -> Iterator[PropertyFact]:
+        # Boundary: translate the pure module's internal errors into the public
+        # CanonicalExtractionError hierarchy, preserving the cause and leaking no
+        # names/values (only ifc_class + opaque GlobalId).
+        try:
+            raw = read_property_occurrences(entity, project_units=self._project_units)
+        except PropertyTableStructureError as exc:
+            raise TableStructureError(ifc_class=ifc_class, reference=global_id) from exc
+        for diagnostic in raw.diagnostics:
+            self._map_property_diagnostic(diagnostic, ifc_class, global_id)
+        try:
+            atomized = atomize_element(raw.occurrences, project_id=self.project_id, element_id=eid)
+        except PropertyAmbiguousSlotError as exc:
+            raise AmbiguousPropertySlotError(ifc_class=ifc_class, reference=global_id) from exc
+        except PropertyFactIdCollisionError as exc:
+            raise FactIdCollisionError(ifc_class=ifc_class, reference=global_id) from exc
+        except PropertyFactsPerElementLimitError as exc:
+            raise FactsPerElementLimitError(ifc_class=ifc_class, reference=global_id) from exc
+        for diagnostic in atomized.diagnostics:
+            self._map_property_diagnostic(diagnostic, ifc_class, global_id)
+        self._cov.property_coverage = merge_coverage(self._cov.property_coverage, atomized.coverage)
+        self._cov.property_facts += len(atomized.facts)
+        yield from atomized.facts
 
-    def _one_property_fact(
-        self, source: str, container: str, prop: str, raw: Any, eid: str, ifc_class: str, global_id: str,
-        unit: str | None,
-    ) -> PropertyFact | None:
-        result = read_scalar(raw)
-        if isinstance(result, UnsupportedValue):
-            if result.kind is UnsupportedKind.LIST:
-                self._cov.value_categories["planned_atomization"] += 1
-                detail = DetailCode.VALUE_LIST
-            elif result.kind is UnsupportedKind.REFERENCE:
-                self._cov.value_categories["unsupported_v1"] += 1
-                detail = DetailCode.VALUE_REFERENCE
-            else:
-                self._cov.value_categories["unsupported_v1"] += 1
-                detail = DetailCode.VALUE_UNKNOWN
-            self._warn(WarningCode.COMPLEX_PROPERTY_VALUE, ifc_class, global_id, FieldCode.PROPERTY_VALUE, detail)
-            return None
-        if isinstance(result, NonFiniteValue):
-            self._cov.value_categories["non_finite"] += 1
-            self._warn(
-                WarningCode.NON_FINITE_VALUE, ifc_class, global_id, FieldCode.PROPERTY_VALUE,
-                DetailCode.NAN if result.is_nan else DetailCode.INF,
-            )
-            return None
-
-        normalized = normalize_lexical(prop)
-        if not normalized:
-            self._warn(WarningCode.EMPTY_NORMALIZED_PROPERTY_NAME, ifc_class, global_id, FieldCode.PROPERTY_NAME)
-            return None
-
-        self._cov.value_categories[result.kind.value] += 1
-        return PropertyFact(
-            schema_version=_SCHEMA_VERSION,
-            fact_id=property_fact_id(self.project_id, eid, source, container, prop, "0"),
-            project_id=self.project_id,
-            element_id=eid,
-            source=source,  # "pset" | "qto"
-            container=container,
-            property_name=prop,
-            property_name_norm=normalized,
-            occurrence_key="0",
-            unit=unit,
-            value=to_property_value(result),
-        )
+    def _map_property_diagnostic(self, diagnostic: PropertyDiagnostic, ifc_class: str, global_id: str) -> None:
+        code, field_code, detail = _PROPERTY_DIAGNOSTIC_MAP[diagnostic.code]
+        self._warn(code, ifc_class, global_id, field_code, detail)
 
     # -- classification facts -------------------------------------------- #
     def _classification_facts(
@@ -701,6 +708,7 @@ class _Run:
         warnings_by_code = {code.value: 0 for code in WarningCode}
         for (code, *_rest), count in self._warnings.items():
             warnings_by_code[code.value] += count
+        pc = self._cov.property_coverage
         return CoverageReport(
             ifc_schema=self.schema,
             project_id_present=bool(self.project_id),
@@ -711,11 +719,25 @@ class _Run:
             classification_facts=self._cov.classification_facts,
             documents=document_count,
             warnings_by_code=warnings_by_code,
-            value_categories=dict(self._cov.value_categories),
             inherited_type_attributes=self._cov.inherited_type_attributes,
             tag_present=self._cov.tag_present,
             metric_multiple_candidates=self._cov.metric_multiple_candidates,
             document_metadata_conflicts=self._cov.document_metadata_conflicts,
+            scalar_facts=pc.scalar_facts,
+            atomized_list_items=pc.atomized_list_items,
+            atomized_enum_items=pc.atomized_enum_items,
+            atomized_bounded_values=pc.atomized_bounded_values,
+            atomized_table_cells=pc.atomized_table_cells,
+            atomized_complex_leaves=pc.atomized_complex_leaves,
+            unsupported_references=pc.unsupported_references,
+            redundant_duplicates=pc.redundant_duplicates,
+            type_overrides=pc.type_overrides,
+            non_integral_counts=pc.non_integral_counts,
+            null_collection_items=pc.null_collection_items,
+            depth_limit_exceeded=pc.depth_limit_exceeded,
+            list_limit_exceeded=pc.list_limit_exceeded,
+            table_limit_exceeded=pc.table_limit_exceeded,
+            non_finite_properties=pc.non_finite_properties,
         )
 
 
@@ -832,6 +854,8 @@ def write_canonical_jsonl(
         _fsync_dir(staging)
         os.rename(str(staging), str(out))
     except CanonicalExtractionError:
+        # includes the translated property errors (Ambiguous/Collision/Limit/Table);
+        # abort with no partial output; propagate the precise public type.
         _remove_staging(staging)
         raise
     except Exception as exc:  # noqa: BLE001 — never leave a partial staging behind
