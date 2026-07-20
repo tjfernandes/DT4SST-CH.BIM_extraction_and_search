@@ -172,6 +172,28 @@ As fixtures canónicas de extração (`backend/tests/fixtures/canonical/ifc_extr
 são golden **sintéticos** gerados pelos builders válidos (`ifc_builder.py`,
 `build_valid_ifc4`); **nenhum `.ifc` é committed**.
 
+## Atomização de PropertyFact (HBIM-012)
+
+O produtor de `PropertyFact` deixou de usar `get_psets`: `ingestion/ifc_properties.py`
+faz o **traversal raw** dos property/quantity sets (instância + tipo) e constrói uma
+união tipada fechada de ocorrências; `ingestion/property_facts.py` é **puro (sem
+IfcOpenShell)** e atomiza-a em `PropertyFact` v1.0 (enum/list/bounded/table/complex/
+physical-complex-quantity), com gramática fechada de `occurrence_key` (caminhos
+complexos por netstring), precedência instância>tipo, deduplicação, conflitos
+fail-closed e limites de explosão. As **métricas** mantêm o caminho `get_psets`
+(heurístico, nunca produz `PropertyFact`). O `backend/canonical` (schema v1.0) não é
+alterado.
+
+```bash
+# Suite pura de atomização (sem IfcOpenShell) + traversal + integração
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_property_facts.py backend/tests/test_ifc_properties.py \
+  backend/tests/test_canonical_ifc.py -q -o addopts=""
+
+~/miniconda3/bin/conda run -n hbim-rag python -m mypy \
+  backend/ingestion/ifc_properties.py backend/ingestion/property_facts.py
+```
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.

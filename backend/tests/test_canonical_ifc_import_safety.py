@@ -16,11 +16,16 @@ from pathlib import Path
 
 import ingestion.canonical_ifc
 import ingestion.ifc_materials  # noqa: F401 — imported to prove it loads cleanly
+import ingestion.ifc_properties  # noqa: F401
 import ingestion.ifc_spatial  # noqa: F401
 import ingestion.ifc_values  # noqa: F401
+import ingestion.property_facts  # noqa: F401
 
 BACKEND = Path(__file__).resolve().parents[1]
-_NEW_MODULES = "ingestion.canonical_ifc, ingestion.ifc_spatial, ingestion.ifc_materials, ingestion.ifc_values"
+_NEW_MODULES = (
+    "ingestion.canonical_ifc, ingestion.ifc_properties, ingestion.property_facts, "
+    "ingestion.ifc_spatial, ingestion.ifc_materials, ingestion.ifc_values"
+)
 FORBIDDEN = (
     "opensearchpy", "fastapi", "shared.config", "shared", "openai",
     "pydantic_settings", "dotenv", "api", "eval",
@@ -81,5 +86,12 @@ def test_import_without_opensearch_env():
 
 def test_canonical_stays_ifcopenshell_free():
     result = _run("import sys; import canonical; print('DIRTY' if 'ifcopenshell' in sys.modules else 'CLEAN')")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "CLEAN", result.stdout
+
+
+def test_property_facts_is_ifcopenshell_free():
+    # The pure atomisation module must be importable/testable without IfcOpenShell.
+    result = _run("import sys; import ingestion.property_facts; print('DIRTY' if 'ifcopenshell' in sys.modules else 'CLEAN')")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "CLEAN", result.stdout

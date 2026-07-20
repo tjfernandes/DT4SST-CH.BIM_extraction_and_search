@@ -68,6 +68,8 @@ module = [
     "ingestion.ifc_spatial",
     "ingestion.ifc_materials",
     "ingestion.ifc_values",
+    "ingestion.ifc_properties",
+    "ingestion.property_facts",
 ]
 disallow_untyped_defs = true
 

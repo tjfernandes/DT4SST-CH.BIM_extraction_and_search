@@ -89,6 +89,8 @@ jobs:
           backend/ingestion/ifc_spatial.py
           backend/ingestion/ifc_materials.py
           backend/ingestion/ifc_values.py
+          backend/ingestion/ifc_properties.py
+          backend/ingestion/property_facts.py
 
   frontend:
     runs-on: ubuntu-latest
