@@ -68,7 +68,7 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - name: Install dependencies (runtime + dev; sem requirements-ml.txt)
         run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-      - name: mypy (blocking gate — typed modules + backend/eval)
+      - name: mypy (blocking gate — typed modules + backend/eval + backend/canonical)
         run: >-
           python -m mypy
           backend/shared/config.py
@@ -82,6 +82,9 @@ jobs:
           backend/eval/dataset.py
           backend/eval/metrics.py
           backend/eval/run_eval.py
+          backend/canonical/schema.py
+          backend/canonical/ids.py
+          backend/canonical/serialization.py
 
   frontend:
     runs-on: ubuntu-latest
