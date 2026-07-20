@@ -2,35 +2,45 @@
 
 ## Last completed issue
 
-HBIM-005 — Evaluation baseline for the current retrieval behaviour
-(17/17 acceptance criteria; full suite 100 passed across seeds and
-`-p no:randomly`; live baseline generated and committed)
+HBIM-010 — Canonical Pydantic schema (intermediate representation)
+(16/16 acceptance criteria; full suite 166 passed across seeds and
+`-p no:randomly`; contract-only, no functional change; HBIM-005 baseline
+byte-unchanged)
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap.
+None — awaiting the next issue in the roadmap (HBIM-011: extractor refactor
+to emit canonical records).
 
 ## Status
 
-Complete — evaluation harness, versioned synthetic dataset, deterministic
-runner, unit + Testcontainers integration tests, CI job and the reviewed
-`backend/eval/baselines/current_system.json` baseline are all in place. No
-functional change to retrieval, API, ingestion, mappings or frontend.
+Complete — `backend/canonical` defines the strict, versioned, deterministic,
+infrastructure-independent data contract (`schema.py`, `ids.py`,
+`serialization.py`), with synthetic golden fixtures, a coverage manifest, and a
+full offline test suite. `backend/canonical` is in the blocking mypy gate and
+Ruff scope. No IFC→canonical conversion (HBIM-011), no extractor refactor, no
+mappings/indexers, and no change to retrieval, API, ingestion, frontend or the
+HBIM-005 evaluation baseline.
 
 ## Current branch
 
-`feat/hbim-005-evaluation-baseline`
+`feat/hbim-010-canonical-schema`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-005_EVALUATION_BASELINE.md`
+`docs/implementation/issues/HBIM-010_CANONICAL_SCHEMA.md`
 
 ## Last completed validation
 
-- Full backend suite: 100 passed (seeds 77082843/1/2/3/4 and `-p no:randomly`)
-- Evaluation integration (Testcontainers OpenSearch 2.19.1): 6 passed
-- Live baseline: all absolute correctness gates 1.0; `semantic_vector`
-  recall@10 = 1.0 with fixed 40-dim vectors and zero model inference
+- Full backend suite: 166 passed (100 prior + 66 canonical) across seeds
+  77082843/1 and `-p no:randomly`; unit-only 159 passed, 7 deselected
+- Blocking mypy: 14 modules (incl. `backend/canonical`) clean; Ruff clean
+- Canonical: strict `PropertyValue` union (int rejected as float via a
+  `mode="before"` validator; bool ≠ int), deterministic IDs (known vector
+  `element_id("p1","GID") == "el_99d9f5f0ef2b7cb5fa2a2d39994a0642"`),
+  byte-stable golden JSONL, complete coverage manifest, import-safety proven
+- HBIM-005 evaluation integration: 6 passed; baseline `current_system.json`
+  byte-unchanged (sha256 prefix `7bf3c8d7200f0512`)
 - Ruff: PASS; blocking mypy (11 modules incl. `backend/eval`): PASS
 - `git diff --check`: clean; secret scan: clean; no `.env` tracked
 

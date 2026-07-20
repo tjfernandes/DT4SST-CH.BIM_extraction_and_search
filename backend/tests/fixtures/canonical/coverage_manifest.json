@@ -1,0 +1,123 @@
+{
+  "entries": [
+    {
+      "category": "ifc_schema:IFC2X3",
+      "kind": "source",
+      "status": "supported"
+    },
+    {
+      "category": "ifc_schema:IFC4",
+      "kind": "source",
+      "status": "supported"
+    },
+    {
+      "category": "entity:IfcProject",
+      "kind": "spatial",
+      "status": "supported"
+    },
+    {
+      "category": "entity:IfcSite",
+      "kind": "spatial",
+      "status": "supported"
+    },
+    {
+      "category": "entity:IfcBuilding",
+      "kind": "spatial",
+      "status": "supported"
+    },
+    {
+      "category": "entity:IfcBuildingStorey",
+      "kind": "spatial",
+      "status": "supported"
+    },
+    {
+      "category": "entity:IfcSpace",
+      "kind": "spatial",
+      "status": "supported"
+    },
+    {
+      "category": "entity:physical_element",
+      "kind": "element",
+      "status": "supported"
+    },
+    {
+      "category": "value_type:text",
+      "kind": "property_value",
+      "status": "supported"
+    },
+    {
+      "category": "value_type:int",
+      "kind": "property_value",
+      "status": "supported"
+    },
+    {
+      "category": "value_type:float",
+      "kind": "property_value",
+      "status": "supported"
+    },
+    {
+      "category": "value_type:bool",
+      "kind": "property_value",
+      "status": "supported"
+    },
+    {
+      "category": "value_type:null",
+      "kind": "property_value",
+      "status": "supported"
+    },
+    {
+      "category": "property_set",
+      "kind": "property_fact",
+      "status": "supported"
+    },
+    {
+      "category": "quantity_set",
+      "kind": "property_fact",
+      "status": "supported"
+    },
+    {
+      "category": "unit",
+      "kind": "property_fact",
+      "status": "supported"
+    },
+    {
+      "category": "material",
+      "kind": "material",
+      "status": "supported"
+    },
+    {
+      "category": "classification",
+      "kind": "classification",
+      "status": "supported"
+    },
+    {
+      "category": "element_type:predefined_type",
+      "kind": "element",
+      "status": "supported"
+    },
+    {
+      "category": "document",
+      "kind": "document",
+      "status": "supported"
+    },
+    {
+      "category": "value:list",
+      "kind": "property_value",
+      "reason": "IFC list/enumerated property values are atomised into multiple PropertyFacts via occurrence_key in HBIM-011/012",
+      "status": "planned_atomization"
+    },
+    {
+      "category": "value:bounded_or_table",
+      "kind": "property_value",
+      "reason": "bounded values / property tables have no scalar representation in v1; rejected by the scalar constructor, never str()-serialised",
+      "status": "unsupported_v1"
+    },
+    {
+      "category": "value:reference_or_complex",
+      "kind": "property_value",
+      "reason": "IfcObjectReferenceSelect and complex nested objects are not scalar; deferred to a later schema version",
+      "status": "unsupported_v1"
+    }
+  ],
+  "manifest_version": "1.0"
+}

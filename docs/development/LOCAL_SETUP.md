@@ -95,6 +95,44 @@ baseline atualizada. Os relatórios de execução (`backend/eval/reports/`,
 `report.json` + `report.md`) são git-ignored; apenas o dataset e a baseline
 aprovada são versionados.
 
+## Schema canónico (HBIM-010)
+
+`backend/canonical/` define o contrato de dados HBIM — a representação
+intermédia (IR) tipada, versionada e determinística entre a extração IFC e os
+consumidores futuros (indexers, grafo, documentos, retrieval). É **apenas o
+contrato**: `schema.py` (modelos Pydantic v2 estritos), `ids.py` (IDs
+determinísticos SHA-256+netstring), `serialization.py` (JSON/JSONL canónico
+byte-stable). Não importa OpenSearch, FastAPI, settings nem lê `.env`; a
+conversão IFC→canónico pertence à HBIM-011/012.
+
+```bash
+# Testes canonical (offline, sem Docker)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_canonical_schema.py backend/tests/test_canonical_ids.py \
+  backend/tests/test_canonical_serialization.py backend/tests/test_canonical_import_safety.py \
+  -q -o addopts=""
+
+# Qualidade (canonical está no gate bloqueante do mypy e no Ruff)
+~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend/canonical
+~/miniconda3/bin/conda run -n hbim-rag python -m mypy \
+  backend/canonical/schema.py backend/canonical/ids.py backend/canonical/serialization.py
+```
+
+Fixtures e cobertura: `backend/tests/fixtures/canonical/*.jsonl` são golden files
+**sintéticos e anónimos**, serializados pela forma canónica (byte-stable, newline
+final, sem timestamps); `coverage_manifest.json` classifica cada categoria de
+entidade/valor observada na auditoria como `supported`/`planned_atomization`/
+`unsupported_v1`. Os testes de serialização validam que os golden files coincidem
+byte-a-byte com a re-serialização canónica.
+
+### Política de IFCs (`local_data/`)
+
+IFCs reais, grandes ou potencialmente confidenciais vivem em `local_data/ifc/`,
+que está **git-ignored** (`.gitignore`). Estes ficheiros **nunca** são
+committed, copiados para fixtures nem incluídos em patches, relatórios ou
+documentação. As fixtures canónicas são exclusivamente sintéticas; **é proibido
+committar qualquer IFC real** (o CI não depende de `local_data/`).
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.
