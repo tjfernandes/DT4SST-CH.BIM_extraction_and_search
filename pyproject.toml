@@ -70,6 +70,8 @@ module = [
     "ingestion.ifc_values",
     "ingestion.ifc_properties",
     "ingestion.property_facts",
+    "ingestion.index_lifecycle",
+    "ingestion.migrate",
 ]
 disallow_untyped_defs = true
 

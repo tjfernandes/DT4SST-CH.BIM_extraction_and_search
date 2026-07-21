@@ -91,6 +91,8 @@ jobs:
           backend/ingestion/ifc_values.py
           backend/ingestion/ifc_properties.py
           backend/ingestion/property_facts.py
+          backend/ingestion/index_lifecycle.py
+          backend/ingestion/migrate.py
 
   frontend:
     runs-on: ubuntu-latest
