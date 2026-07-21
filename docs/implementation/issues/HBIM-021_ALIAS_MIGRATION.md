@@ -157,23 +157,25 @@ Resultados **tipados** (enum): `CREATED`, `ALREADY_EXISTS_COMPATIBLE`, `DRY_RUN`
 **Não** usar igualdade byte-a-byte. **Não** comparar apenas nomes top-level. A verificação compara o **contrato semântico** entre o **mapping local** (JSON carregado) e o **mapping efetivo** devolvido por `client.indices.get_mapping(index=<físico>)`.
 
 ### 9.1 O que é comparado
-Recursivamente, sobre:
+A comparação é **recursiva e sobre TODAS as chaves** semanticamente relevantes de cada campo/objeto — **não** existe um allowlist estreito que silencie opções. **Qualquer** chave presente **apenas num dos lados** torna o mapping **incompatível** (ex.: `normalizer`, `analyzer`/`search_analyzer`, `doc_values`, `null_value`, `format`, `similarity`, `norms`, `store`, `term_vector`, `copy_to`, …).
+
+Comparam-se, recursivamente:
 - `_meta` (igualdade exata — o OpenSearch preserva `_meta` verbatim; inclui `record_type`, `mapping_version`, `canonical_schema_versions`, `created_by`);
 - `dynamic`;
 - `_source` (`enabled`);
-- `properties` e, para **cada** campo: `type`, `fields` (multifield), `enabled`, `index`, `coerce`, `ignore_above`, `dynamic`, e a subárvore `properties` de objetos/nested.
+- `properties` e, para **cada** campo, **todas** as suas chaves e a subárvore `properties`/`fields` de objetos/nested. Os atributos `type`, `fields` (multifield), `enabled`, `index`, `coerce`, `ignore_above`, `dynamic` são apenas **exemplos** dos comparados — **não** uma lista fechada.
 
-### 9.2 Normalização (ignorar apenas defaults do servidor)
-Só se ignoram representações/omissões que **provadamente não alteram o contrato**:
-- `_source` ausente ⟺ `{"enabled": true}`;
-- `index` ausente ⟺ `true`;
-- `coerce` ausente ⟺ `true` (campos numéricos);
-- `enabled` ausente ⟺ `true`;
-- `ignore_above` ausente ⟺ sem limite;
-- `type` ausente num nó **com `properties`** ⟺ `object`.
+### 9.2 Normalização (apenas defaults comprovados do OpenSearch 2.19.1)
+Normalizam-se **apenas** os defaults **comprovados** (probe do próprio lifecycle contra OpenSearch 2.19.1) que **não alteram o contrato** — **nada** mais é silenciado:
+- `_source.enabled` **omitido** ⟺ `true` (o servidor omite o `_source` default);
+- `type: object` **implícito** num nó **com `properties`** ⟺ `object` (o servidor omite `type` em objetos);
+- `enabled` ausente ⟺ `true` (quando aplicável);
+- `index` ausente ⟺ `true` (quando aplicável);
+- `coerce` ausente ⟺ `true` (campos numéricos, quando aplicável);
+- `ignore_above` ausente ⟺ sem limite.
 
 ### 9.3 Fail-closed
-**Qualquer** divergência de **tipo**, **object↔nested**, **strictness** (`dynamic`), **multifield** (`fields`), **`enabled`**, **`index`** ou **`coerce`** → `IncompatibleIndexError`. A comparação é uma função **pura** `is_mapping_compatible(local, effective) -> bool` (ou que levanta), testável offline com pares sintéticos (§13).
+**Qualquer** divergência — de **tipo**, **object↔nested**, **strictness** (`dynamic`), **multifield** (`fields`), **`enabled`**/**`index`**/**`coerce`**, **ou de qualquer outra chave** não normalizada em §9.2 (`normalizer`, `analyzer`, `doc_values`, `null_value`, …) — resulta em `IncompatibleIndexError`. A comparação é uma função **pura** `is_mapping_compatible(local, effective) -> bool` (ou que levanta), testável offline com pares sintéticos (§13).
 
 ---
 
@@ -187,7 +189,8 @@ Só se ignoram representações/omissões que **provadamente não alteram o cont
 - `_meta.record_type` do target **corresponde** ao record type → senão `RecordTypeMismatchError`.
 - Mapping do target **compatível** (§9) → senão `IncompatibleIndexError`.
 - Alias **ausente** (0 targets) **ou** com **exatamente 1** target. **> 1 target** → `AliasConflictError` (§12); **não reparar silenciosamente**.
-- Target atual **igual** ao pedido → **no-op idempotente** (resultado `ALREADY_CURRENT`).
+- Target atual **igual** ao pedido **e** `is_write_index is True` → **no-op idempotente** (resultado `ALREADY_CURRENT`).
+- Target atual **igual** ao pedido mas `is_write_index` **ausente ou `false`** → **reparação atómica**: `remove` + `add` do **mesmo** índice na **mesma** chamada `update_aliases`, com `is_write_index: true` → resultado **`PROMOTED`** (não é no-op).
 
 ### 10.2 Operação
 Uma **única** chamada `client.indices.update_aliases(body={"actions": [...]})`. **Nunca** `delete_alias` seguido de `put_alias` (janela sem alias proibida).
