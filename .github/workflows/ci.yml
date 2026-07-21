@@ -68,9 +68,11 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - name: Install dependencies (runtime + dev; sem requirements-ml.txt)
         run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-      - name: mypy (blocking gate — typed modules + backend/eval + backend/canonical + HBIM-011 ingestion)
+      - name: mypy (blocking gate — typed modules + backend/eval + backend/canonical + HBIM-011 ingestion + HBIM-040 retrieval)
         run: >-
           python -m mypy
+          backend/retrieval/__init__.py
+          backend/retrieval/router.py
           backend/shared/config.py
           backend/shared/opensearch.py
           backend/shared/security.py

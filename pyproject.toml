@@ -35,7 +35,7 @@ select = ["E4", "E7", "E9", "F", "I", "B"]
 [tool.ruff.lint.isort]
 # Pacotes do backend (rootdir é a raiz do repo; sem isto a classificação
 # first-party seria inconsistente entre módulos).
-known-first-party = ["api", "ingestion", "shared", "tests", "eval", "canonical"]
+known-first-party = ["api", "ingestion", "shared", "tests", "eval", "canonical", "retrieval"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -46,10 +46,12 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 # Gate bloqueante: os módulos tipados de HBIM-002/003, todo o backend/eval de
-# HBIM-005 e todo o backend/canonical de HBIM-010 (código novo totalmente
-# tipado — sem dívida de tipagem nova).
+# HBIM-005, todo o backend/canonical de HBIM-010 e o router determinístico de
+# HBIM-040 (código novo totalmente tipado — sem dívida de tipagem nova).
 [[tool.mypy.overrides]]
 module = [
+    "retrieval",
+    "retrieval.router",
     "shared.config",
     "shared.opensearch",
     "shared.security",

@@ -64,6 +64,10 @@ class ExtractedEmbeddingQuery(BaseModel):
 
 class SearchPlan(BaseModel):
     search_strategy: str = "structured"
+    # HBIM-040: routing provenance. Optional with defaults so pagination plans
+    # serialized before HBIM-040 still deserialize unchanged.
+    route: Optional[str] = None
+    route_degraded: bool = False
     ifc_class: Optional[str] = None
     name: Optional[str] = None
     material: Optional[List[str]] = None

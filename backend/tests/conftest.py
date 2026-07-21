@@ -196,7 +196,11 @@ def fake_llm(monkeypatch):
     """Guia o /chat pela rota 'chat' com respostas determinísticas, sem LLM."""
     import api.main as api_main
 
-    responses = ['{"search_strategy": "chat"}', "resposta final"]
+    # HBIM-040: o routing deixou de ser feito por LLM, por isso o /chat já não
+    # emite a chamada CLASSIFY_INTENT que consumia a primeira resposta desta
+    # lista. No caminho "chat" a primeira (e única) chamada ao LLM é a resposta
+    # final ao utilizador.
+    responses = ["resposta final"]
     state = {"index": 0}
 
     def _fake_get_response(prompt, history=None, response_format=None):

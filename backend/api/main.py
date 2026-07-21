@@ -3,7 +3,8 @@ import logging
 import re
 import unicodedata
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from types import MappingProxyType
+from typing import List, Mapping, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +17,6 @@ from api.metrics import MetricsMiddleware, create_metrics, make_metrics_endpoint
 from api.middleware import RequestIdMiddleware
 from api.prompts import (
     AGGREGATION_RESPONSE_FORMAT,
-    CLASSIFY_INTENT,
     DETAIL_RESPONSE_FORMAT,
     EXTRACT_AGGREGATION,
     EXTRACT_CONDITIONS,
@@ -30,7 +30,6 @@ from api.prompts import (
     REWRITE_QUERY,
 )
 from api.search import (
-    ClassifyResult,
     DetailRef,
     ExtractedAggregation,
     ExtractedConditions,
@@ -50,6 +49,7 @@ from api.search import (
     get_query_embedding,
     get_response,
 )
+from retrieval.router import Route, RouterContext, RoutingDecision, route
 from shared.config import (
     LOG_LEVEL,
     PREPROCESS_LOG_JSONS,
@@ -61,6 +61,52 @@ from shared.logging import setup_logging
 from shared.security import redact_mapping, verify_api_key
 
 logger = logging.getLogger(__name__)
+
+# --------------------------------------------------------------------------- #
+# HBIM-040 §10.3 — capability map: Route -> legacy execution strategy.
+# Policy of the endpoint, never of the router. Total over Route, so adding a
+# member without mapping it fails the test suite.
+# --------------------------------------------------------------------------- #
+BASE_STRATEGY: Mapping[Route, str] = MappingProxyType(
+    {
+        Route.CHAT: "chat",
+        Route.AGGREGATION: "aggregation",
+        Route.EXACT_LOOKUP: "detail",
+        Route.STRUCTURED: "structured",
+        Route.HYBRID_SEMANTIC: "semantic",
+        # No backend yet (spec §C3) — degraded on purpose:
+        Route.GRAPH: "structured",
+        Route.MULTIMODAL: "semantic",
+        Route.DOCUMENT_HYBRID: "semantic",
+    }
+)
+
+#: Routes whose backend does not exist yet (Neo4j, media, chunks).
+UNIMPLEMENTED_ROUTES: frozenset[Route] = frozenset(
+    {Route.GRAPH, Route.MULTIMODAL, Route.DOCUMENT_HYBRID}
+)
+
+
+def execution_strategy(
+    decision: RoutingDecision, context: RouterContext
+) -> tuple[str, bool]:
+    """Map a route to the legacy strategy, degrading where there is no backend.
+
+    Degrades in exactly two cases (spec §10.3), and ``degraded`` is True iff one
+    of them applies:
+
+    * **D1** the route has no backend yet (``UNIMPLEMENTED_ROUTES``);
+    * **D2** ``EXACT_LOOKUP`` without previous results — the legacy ``detail``
+      path reads ``request.result_ids`` and would return nothing.
+
+    ``decision.route`` and ``decision.reason`` are never rewritten, so the gold
+    always asserts the true route.
+    """
+    if decision.route in UNIMPLEMENTED_ROUTES:
+        return BASE_STRATEGY[decision.route], True
+    if decision.route is Route.EXACT_LOOKUP and not context.has_previous_results:
+        return "structured", True
+    return BASE_STRATEGY[decision.route], False
 
 
 def _json_log_payload(value):
@@ -268,14 +314,30 @@ async def chat_endpoint(request: ChatRequest):
 
             log_preprocess_json("effective_query", {"query": effective_query})
 
-            classify_prompt = CLASSIFY_INTENT.format(user_input=effective_query)
-            classify_message = get_response(classify_prompt, history, {"type": "json_object"})
-            logger.debug("Raw classify response: %s", classify_message.content)
-            classify_result = ClassifyResult.model_validate_json(classify_message.content)
-            log_preprocess_json("classify_intent", classify_result)
-            needs_search = classify_result.search_strategy not in ("chat", "aggregation", "detail")
-            is_aggregation = classify_result.search_strategy == "aggregation"
-            is_detail = classify_result.search_strategy == "detail"
+            # HBIM-040: deterministic routing. The router sees request.message
+            # verbatim, never the LLM-rewritten effective_query (spec §C6), so
+            # the decision is reproducible for the same request.
+            router_context = RouterContext(
+                has_previous_results=bool(request.result_ids),
+                has_image_input=False,
+            )
+            routing_decision = route(user_input, router_context)
+            strategy, route_degraded = execution_strategy(routing_decision, router_context)
+            # Emitted before any branching, so it covers all eight return paths.
+            log_preprocess_json(
+                "router_decision",
+                {
+                    "route": routing_decision.route.value,
+                    "strategy": strategy,
+                    "degraded": route_degraded,
+                    "reason": routing_decision.reason,
+                    "signals": routing_decision.signals.to_dict(),
+                    "matched_terms": list(routing_decision.matched_terms),
+                },
+            )
+            needs_search = strategy not in ("chat", "aggregation", "detail")
+            is_aggregation = strategy == "aggregation"
+            is_detail = strategy == "detail"
             query_embedding = None
 
             if needs_search:
@@ -309,7 +371,7 @@ async def chat_endpoint(request: ChatRequest):
                 )
 
                 embedding_query = None
-                if classify_result.search_strategy == "semantic":
+                if strategy == "semantic":
                     embedding_query = extract_embedding_query(
                         effective_query,
                         ifc_result,
@@ -320,7 +382,9 @@ async def chat_endpoint(request: ChatRequest):
                     query_embedding = get_query_embedding(embedding_query)
 
                 search_plan = SearchPlan(
-                    search_strategy=classify_result.search_strategy,
+                    search_strategy=strategy,
+                    route=routing_decision.route.value,
+                    route_degraded=route_degraded,
                     ifc_class=ifc_result.ifc_class,
                     name=filters_result.name,
                     material=filters_result.material,
@@ -368,7 +432,12 @@ async def chat_endpoint(request: ChatRequest):
             response_message = get_response(detail_prompt, history)
             return ChatResponse(
                 response=response_message.content,
-                plan={"search_strategy": "detail", "element_id": target_id},
+                plan={
+                    "search_strategy": "detail",
+                    "element_id": target_id,
+                    "route": routing_decision.route.value,
+                    "route_degraded": route_degraded,
+                },
                 result_ids=detail_ids,
             )
 
@@ -435,6 +504,8 @@ async def chat_endpoint(request: ChatRequest):
                     "search_strategy": "aggregation",
                     "agg_field": agg_params.agg_field,
                     "filter_ifc_class": filter_class,
+                    "route": routing_decision.route.value,
+                    "route_degraded": route_degraded,
                 },
             )
 
