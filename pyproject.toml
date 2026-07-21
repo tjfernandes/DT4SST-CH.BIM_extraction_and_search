@@ -72,6 +72,14 @@ module = [
     "ingestion.property_facts",
     "ingestion.index_lifecycle",
     "ingestion.migrate",
+    "ingestion.indexers",
+    "ingestion.indexers.common",
+    "ingestion.indexers.registry",
+    "ingestion.indexers.elements_indexer",
+    "ingestion.indexers.property_facts_indexer",
+    "ingestion.indexers.classification_facts_indexer",
+    "ingestion.indexers.documents_indexer",
+    "ingestion.indexers.cli",
 ]
 disallow_untyped_defs = true
 

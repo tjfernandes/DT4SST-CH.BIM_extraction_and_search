@@ -93,6 +93,15 @@ jobs:
           backend/ingestion/property_facts.py
           backend/ingestion/index_lifecycle.py
           backend/ingestion/migrate.py
+          backend/ingestion/indexers/__init__.py
+          backend/ingestion/indexers/__main__.py
+          backend/ingestion/indexers/common.py
+          backend/ingestion/indexers/registry.py
+          backend/ingestion/indexers/elements_indexer.py
+          backend/ingestion/indexers/property_facts_indexer.py
+          backend/ingestion/indexers/classification_facts_indexer.py
+          backend/ingestion/indexers/documents_indexer.py
+          backend/ingestion/indexers/cli.py
 
   frontend:
     runs-on: ubuntu-latest
