@@ -18,19 +18,13 @@ from api.middleware import RequestIdMiddleware
 from api.prompts import (
     AGGREGATION_RESPONSE_FORMAT,
     DETAIL_RESPONSE_FORMAT,
-    EXTRACT_AGGREGATION,
-    EXTRACT_CONDITIONS,
-    EXTRACT_DETAIL_REF,
     EXTRACT_EMBEDDING_QUERY,
-    EXTRACT_FILTERS,
-    EXTRACT_IFC_CLASS,
     FILTER_RESULTS_BATCH,
     FINAL_RESPONSE_FORMAT,
-    IFC_CLASS_TABLE,
     REWRITE_QUERY,
 )
 from api.search import (
-    DetailRef,
+    Condition,
     ExtractedAggregation,
     ExtractedConditions,
     ExtractedEmbeddingQuery,
@@ -49,6 +43,7 @@ from api.search import (
     get_query_embedding,
     get_response,
 )
+from retrieval.query_parser import PARSER_TERMS_VERSION, ParsedQuery, parse_detail_ref, parse_query
 from retrieval.router import Route, RouterContext, RoutingDecision, route
 from shared.config import (
     LOG_LEVEL,
@@ -335,30 +330,58 @@ async def chat_endpoint(request: ChatRequest):
                     "matched_terms": list(routing_decision.matched_terms),
                 },
             )
+            # HBIM-041: deterministic parsing on the same string the legacy LLM
+            # extractors received (spec §C6/§22). One parse, shared by every
+            # path; the event never carries the raw query nor the GlobalIds.
+            parsed: ParsedQuery = parse_query(effective_query)
+            log_preprocess_json(
+                "query_parser",
+                {
+                    "ifc_class": parsed.ifc_class,
+                    "materials": list(parsed.materials),
+                    "storey": parsed.storey,
+                    "conditions": [
+                        {"field": c.field, "op": c.op, "value": c.value}
+                        for c in parsed.conditions
+                    ],
+                    "global_ids_count": len(parsed.global_ids),
+                    "agg_field": parsed.agg_field,
+                    "name_present": parsed.name is not None,
+                    "project_id_present": parsed.project_id is not None,
+                    "project_name_present": parsed.project_name is not None,
+                    "refers_previous": parsed.refers_previous,
+                    "terms_version": PARSER_TERMS_VERSION,
+                },
+            )
             needs_search = strategy not in ("chat", "aggregation", "detail")
             is_aggregation = strategy == "aggregation"
             is_detail = strategy == "detail"
             query_embedding = None
 
             if needs_search:
-                ifc_prompt = EXTRACT_IFC_CLASS.format(user_input=effective_query, ifc_table=IFC_CLASS_TABLE)
-                ifc_message = get_response(ifc_prompt, [], {"type": "json_object"})
-                logger.debug("Raw ifc_class response: %s", ifc_message.content)
-                ifc_result = ExtractedIfcClass.model_validate_json(ifc_message.content)
+                # HBIM-041 bridge (spec §22): the pydantic DTOs keep their
+                # shape but are now filled from the deterministic parser. The
+                # parser never infers project_id (spec §21.1), which is the
+                # exact condition the old clear_inferred_project_id guard
+                # enforced on LLM output.
+                ifc_result = ExtractedIfcClass(ifc_class=parsed.ifc_class)
                 log_preprocess_json("extract_ifc_class", ifc_result)
 
-                filters_prompt = EXTRACT_FILTERS.format(user_input=effective_query)
-                filters_message = get_response(filters_prompt, history, {"type": "json_object"})
-                logger.debug("Raw filters response: %s", filters_message.content)
-                filters_result = ExtractedFilters.model_validate_json(filters_message.content)
-                log_preprocess_json("extract_filters_llm", filters_result)
-                filters_result = clear_inferred_project_id(filters_result, effective_query, "extract_filters")
+                filters_result = ExtractedFilters(
+                    name=parsed.name,
+                    material=list(parsed.materials) or None,
+                    storey=parsed.storey,
+                    project_id=parsed.project_id,
+                    project_name=parsed.project_name,
+                )
                 log_preprocess_json("extract_filters", filters_result)
 
-                conditions_prompt = EXTRACT_CONDITIONS.format(user_input=effective_query)
-                conditions_message = get_response(conditions_prompt, history, {"type": "json_object"})
-                logger.debug("Raw conditions response: %s", conditions_message.content)
-                conditions_result = ExtractedConditions.model_validate_json(conditions_message.content)
+                conditions_result = ExtractedConditions(
+                    conditions=[
+                        Condition(field=c.field, op=c.op, value=c.value)
+                        for c in parsed.conditions
+                    ]
+                )
                 log_preprocess_json("extract_conditions", conditions_result)
 
                 logger.debug(
@@ -411,13 +434,10 @@ async def chat_endpoint(request: ChatRequest):
                 response_text = "Não tenho resultados anteriores para detalhar. Faça primeiro uma pesquisa."
                 return ChatResponse(response=response_text, plan=None)
 
-            ref_prompt = EXTRACT_DETAIL_REF.format(user_input=effective_query, num_results=len(detail_ids))
-            ref_message = get_response(ref_prompt, history, {"type": "json_object"})
-            logger.debug("Detail reference response: %s", ref_message.content)
-            detail_ref = DetailRef.model_validate_json(ref_message.content)
-            log_preprocess_json("extract_detail_ref", detail_ref)
-
-            idx = max(1, min(detail_ref.index, len(detail_ids)))
+            # HBIM-041: deterministic ordinal resolution, already clamped to
+            # [1, len(detail_ids)] by the parser (spec §22).
+            idx = parse_detail_ref(effective_query, len(detail_ids))
+            log_preprocess_json("detail_ref", {"index": idx})
             target_id = detail_ids[idx - 1]
             logger.debug("Detail fetch for id=%s index=%s", target_id, idx)
             log_preprocess_json("detail_target", {"index": idx, "element_id": target_id})
@@ -442,26 +462,22 @@ async def chat_endpoint(request: ChatRequest):
             )
 
         if is_aggregation:
-            agg_prompt = EXTRACT_AGGREGATION.format(user_input=effective_query)
-            agg_message = get_response(agg_prompt, [], {"type": "json_object"})
-            logger.debug("Raw aggregation response: %s", agg_message.content)
-            agg_params = ExtractedAggregation.model_validate_json(agg_message.content)
-            log_preprocess_json("extract_aggregation_llm", agg_params)
-            agg_params = clear_inferred_project_id_aggregation(agg_params, effective_query, "extract_aggregation")
-            log_preprocess_json("extract_aggregation", agg_params)
+            # HBIM-041: agg_field comes from the parser; when the router chose
+            # the aggregation strategy without an explicit grouping signal, the
+            # deterministic default is a global count (spec §C7/§20).
+            agg_field = parsed.agg_field or "count"
+            log_preprocess_json("extract_aggregation", {"agg_field": agg_field})
 
-            ifc_prompt = EXTRACT_IFC_CLASS.format(user_input=effective_query, ifc_table=IFC_CLASS_TABLE)
-            ifc_message = get_response(ifc_prompt, [], {"type": "json_object"})
-            logger.debug("Raw ifc_class response for aggregation: %s", ifc_message.content)
-            ifc_result = ExtractedIfcClass.model_validate_json(ifc_message.content)
+            ifc_result = ExtractedIfcClass(ifc_class=parsed.ifc_class)
             log_preprocess_json("extract_ifc_class_aggregation", ifc_result)
 
-            filters_prompt = EXTRACT_FILTERS.format(user_input=effective_query)
-            filters_message = get_response(filters_prompt, history, {"type": "json_object"})
-            logger.debug("Raw filters response for aggregation: %s", filters_message.content)
-            filters_result = ExtractedFilters.model_validate_json(filters_message.content)
-            log_preprocess_json("extract_filters_aggregation_llm", filters_result)
-            filters_result = clear_inferred_project_id(filters_result, effective_query, "extract_filters_aggregation")
+            filters_result = ExtractedFilters(
+                name=parsed.name,
+                material=list(parsed.materials) or None,
+                storey=parsed.storey,
+                project_id=parsed.project_id,
+                project_name=parsed.project_name,
+            )
             log_preprocess_json("extract_filters_aggregation", filters_result)
             logger.debug(
                 "Aggregation filters: name=%r material=%r storey=%r project_id=%r project_name=%r",
@@ -484,17 +500,17 @@ async def chat_endpoint(request: ChatRequest):
             )
             log_preprocess_json("aggregation_search_plan", search_plan)
 
-            agg_query = build_aggregation_query(agg_params.agg_field, filter_class, search_plan)
+            agg_query = build_aggregation_query(agg_field, filter_class, search_plan)
             logger.debug("Aggregation query: %s", json.dumps(agg_query, ensure_ascii=False))
             log_preprocess_json("aggregation_opensearch_query", agg_query)
             buckets, total = execute_aggregation(agg_query)
             logger.debug("Aggregation buckets=%s total=%s", buckets, total)
             log_preprocess_json("aggregation_result", {"total": total, "buckets": buckets})
 
-            results_str = format_aggregation_for_prompt(buckets, agg_params.agg_field, total)
+            results_str = format_aggregation_for_prompt(buckets, agg_field, total)
             agg_rag_prompt = AGGREGATION_RESPONSE_FORMAT.format(
                 user_input=effective_query,
-                agg_field=agg_params.agg_field,
+                agg_field=agg_field,
                 results=results_str,
             )
             response_message = get_response(agg_rag_prompt, history)
@@ -502,7 +518,7 @@ async def chat_endpoint(request: ChatRequest):
                 response=response_message.content,
                 plan={
                     "search_strategy": "aggregation",
-                    "agg_field": agg_params.agg_field,
+                    "agg_field": agg_field,
                     "filter_ifc_class": filter_class,
                     "route": routing_decision.route.value,
                     "route_degraded": route_degraded,

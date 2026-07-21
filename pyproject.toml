@@ -51,6 +51,7 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = [
     "retrieval",
+    "retrieval.query_parser",
     "retrieval.router",
     "shared.config",
     "shared.opensearch",

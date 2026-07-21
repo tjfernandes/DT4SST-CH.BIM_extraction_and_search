@@ -1,0 +1,361 @@
+{
+  "provenance": {
+    "detail_ref_num_results": 5,
+    "method": "transcricao verbatim dos exemplares few-shot dos 5 prompts de extracao legacy (EXTRACT_IFC_CLASS, EXTRACT_FILTERS, EXTRACT_CONDITIONS, EXTRACT_AGGREGATION, EXTRACT_DETAIL_REF)",
+    "source": "backend/api/prompts.py",
+    "source_commit": "2ff0315628b3bf2f756c8a1c5a9b7c0a4e53b76c"
+  },
+  "records": [
+    {
+      "fields": {
+        "ifc_class": "IfcDoor"
+      },
+      "id": "leg-ifc-001",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "mostra-me as portas do piso 1"
+    },
+    {
+      "fields": {
+        "ifc_class": "IfcWall"
+      },
+      "id": "leg-ifc-002",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "paredes de betão com mais de 3 metros"
+    },
+    {
+      "fields": {
+        "ifc_class": null
+      },
+      "id": "leg-ifc-003",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "mostra-me todos os elementos do piso 2"
+    },
+    {
+      "fields": {
+        "ifc_class": "IfcBuildingElementProxy"
+      },
+      "id": "leg-ifc-004",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "artefactos de calcário"
+    },
+    {
+      "fields": {
+        "ifc_class": "IfcBeam"
+      },
+      "id": "leg-ifc-005",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "vigas com mais de 5 metros"
+    },
+    {
+      "fields": {
+        "ifc_class": null
+      },
+      "id": "leg-ifc-006",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "elementos estruturais do edifício"
+    },
+    {
+      "fields": {
+        "ifc_class": null
+      },
+      "id": "leg-ifc-007",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "tudo relacionado com a fachada"
+    },
+    {
+      "fields": {
+        "ifc_class": "IfcStair"
+      },
+      "id": "leg-ifc-008",
+      "prompt": "EXTRACT_IFC_CLASS",
+      "query": "as escadas do rés-do-chão"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": null,
+        "project_name": null
+      },
+      "id": "leg-fil-001",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "portas de madeira do piso 1"
+    },
+    {
+      "fields": {
+        "name": "Artifact_0",
+        "project_id": null,
+        "project_name": null
+      },
+      "id": "leg-fil-002",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "mostra-me o Artifact_0"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": null,
+        "project_name": null
+      },
+      "id": "leg-fil-003",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "elementos de calcário do nível L0"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": null,
+        "project_name": null
+      },
+      "id": "leg-fil-004",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "paredes com mais de 3 metros"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": null,
+        "project_name": null
+      },
+      "id": "leg-fil-005",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "artefactos de granito"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": null,
+        "project_name": "Mosteiro de Santa Clara a Velha"
+      },
+      "id": "leg-fil-006",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "elementos do projeto Mosteiro de Santa Clara a Velha"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": null,
+        "project_name": "SCV_2024"
+      },
+      "id": "leg-fil-007",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "elementos do projeto SCV_2024"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": "SCV_2024",
+        "project_name": null
+      },
+      "id": "leg-fil-008",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "elementos com project_id SCV_2024"
+    },
+    {
+      "fields": {
+        "name": null,
+        "project_id": "SCV_2024",
+        "project_name": null
+      },
+      "id": "leg-fil-009",
+      "prompt": "EXTRACT_FILTERS",
+      "query": "elementos com id do projeto SCV_2024"
+    },
+    {
+      "fields": {
+        "conditions": [
+          {
+            "field": "height",
+            "op": "gt",
+            "value": 2.0
+          }
+        ]
+      },
+      "id": "leg-con-001",
+      "prompt": "EXTRACT_CONDITIONS",
+      "query": "portas de madeira com mais de 2 metros"
+    },
+    {
+      "fields": {
+        "conditions": [
+          {
+            "field": "height",
+            "op": "eq",
+            "value": 1.5
+          }
+        ]
+      },
+      "id": "leg-con-002",
+      "prompt": "EXTRACT_CONDITIONS",
+      "query": "janelas com exatamente 1.5 metros de altura"
+    },
+    {
+      "fields": {
+        "conditions": [
+          {
+            "field": "area",
+            "op": "gt",
+            "value": 10.0
+          }
+        ]
+      },
+      "id": "leg-con-003",
+      "prompt": "EXTRACT_CONDITIONS",
+      "query": "paredes com área superior a 10 m²"
+    },
+    {
+      "fields": {
+        "conditions": []
+      },
+      "id": "leg-con-004",
+      "prompt": "EXTRACT_CONDITIONS",
+      "query": "elementos do piso 1"
+    },
+    {
+      "fields": {
+        "conditions": []
+      },
+      "id": "leg-con-005",
+      "prompt": "EXTRACT_CONDITIONS",
+      "query": "mostra-me todos os artefactos de calcário"
+    },
+    {
+      "fields": {
+        "conditions": [
+          {
+            "field": "height",
+            "op": "gt",
+            "value": 5.0
+          },
+          {
+            "field": "thickness",
+            "op": "lt",
+            "value": 0.3
+          }
+        ]
+      },
+      "id": "leg-con-006",
+      "prompt": "EXTRACT_CONDITIONS",
+      "query": "vigas de betão com mais de 5 metros e espessura inferior a 0.3"
+    },
+    {
+      "fields": {
+        "agg_field": "count"
+      },
+      "id": "leg-agg-001",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quantas paredes existem?"
+    },
+    {
+      "fields": {
+        "agg_field": "count"
+      },
+      "id": "leg-agg-002",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "número de IfcBuildingElementProxy"
+    },
+    {
+      "fields": {
+        "agg_field": "material"
+      },
+      "id": "leg-agg-003",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "lista todos os materiais das paredes"
+    },
+    {
+      "fields": {
+        "agg_field": "storey"
+      },
+      "id": "leg-agg-004",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quais são os pisos do edifício?"
+    },
+    {
+      "fields": {
+        "agg_field": "ifc_class"
+      },
+      "id": "leg-agg-005",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "que tipos de elementos existem?"
+    },
+    {
+      "fields": {
+        "agg_field": "storey"
+      },
+      "id": "leg-agg-006",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quantas portas existem por piso?"
+    },
+    {
+      "fields": {
+        "agg_field": "material"
+      },
+      "id": "leg-agg-007",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "materiais dos pilares"
+    },
+    {
+      "fields": {
+        "agg_field": "classification"
+      },
+      "id": "leg-agg-008",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "classificações das vigas"
+    },
+    {
+      "fields": {
+        "agg_field": "project"
+      },
+      "id": "leg-agg-009",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quantos projetos HBIM tenho?"
+    },
+    {
+      "fields": {
+        "agg_field": "project"
+      },
+      "id": "leg-agg-010",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quais são os meus projetos?"
+    },
+    {
+      "fields": {
+        "agg_field": "project"
+      },
+      "id": "leg-agg-011",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quantos modelos existem?"
+    },
+    {
+      "fields": {
+        "agg_field": "project_id"
+      },
+      "id": "leg-agg-012",
+      "prompt": "EXTRACT_AGGREGATION",
+      "query": "quantos project_id distintos existem?"
+    },
+    {
+      "fields": {
+        "detail_index": 1
+      },
+      "id": "leg-det-001",
+      "prompt": "EXTRACT_DETAIL_REF",
+      "query": "fala-me mais sobre esse"
+    },
+    {
+      "fields": {
+        "detail_index": 2
+      },
+      "id": "leg-det-002",
+      "prompt": "EXTRACT_DETAIL_REF",
+      "query": "que propriedades tem o segundo?"
+    },
+    {
+      "fields": {
+        "detail_index": 5
+      },
+      "id": "leg-det-003",
+      "prompt": "EXTRACT_DETAIL_REF",
+      "query": "detalha o último"
+    }
+  ]
+}

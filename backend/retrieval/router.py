@@ -24,12 +24,14 @@ from types import MappingProxyType
 from typing import Mapping
 
 __all__ = [
+    "GLOBAL_ID_RE",
     "ROUTE_PRECEDENCE",
     "TERMS_VERSION",
     "Route",
     "RouteSignals",
     "RouterContext",
     "RoutingDecision",
+    "fold_text",
     "normalize_query",
     "route",
 ]
@@ -204,6 +206,12 @@ def normalize_query(text: str) -> str:
     folded = _fold(text)
     cleaned = "".join(ch if (ch.isascii() and (ch.isalnum() or ch == "_")) else " " for ch in folded)
     return " ".join(cleaned.split())
+
+
+#: HBIM-041 — public aliases so ``retrieval.query_parser`` reuses the exact
+#: same objects (single GlobalId contract, single normalisation), never a copy.
+GLOBAL_ID_RE = _GLOBAL_ID_RE
+fold_text = _fold
 
 
 def _matches(normalized: str, terms: frozenset[str]) -> tuple[str, ...]:

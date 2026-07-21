@@ -640,14 +640,15 @@ def test_plan_round_trips_the_new_fields() -> None:
 
 
 # =========================================================================== #
-# §16 — CLASSIFY_INTENT is gone from the routing path but stays in prompts.py
+# §16 — CLASSIFY_INTENT is gone from the routing path; HBIM-041 §23 removed it
+# (and the extraction prompts) from prompts.py as well.
 # =========================================================================== #
 def test_classify_intent_is_not_used_by_the_endpoint() -> None:
     source = (BACKEND / "api" / "main.py").read_text(encoding="utf-8")
     assert "CLASSIFY_INTENT" not in source
     assert "ClassifyResult" not in source
     prompts = (BACKEND / "api" / "prompts.py").read_text(encoding="utf-8")
-    assert "CLASSIFY_INTENT" in prompts  # removal is HBIM-041
+    assert "CLASSIFY_INTENT" not in prompts  # removed by HBIM-041 (spec §23)
 
 
 # =========================================================================== #
