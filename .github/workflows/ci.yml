@@ -72,6 +72,7 @@ jobs:
         run: >-
           python -m mypy
           backend/retrieval/__init__.py
+          backend/retrieval/lexical.py
           backend/retrieval/query_parser.py
           backend/retrieval/router.py
           backend/shared/config.py

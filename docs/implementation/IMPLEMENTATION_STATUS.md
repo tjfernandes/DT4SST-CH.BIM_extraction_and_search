@@ -2,6 +2,115 @@
 
 ## Last completed issue
 
+HBIM-042 — Lexical filters and classification aggregation
+(a pure, stdlib-only `backend/retrieval/lexical.py` whose clauses
+`api/search.py` now attaches: material/storey/name are actually applied —
+AND across dimensions, OR within materials, closed deterministic storey-label
+expansion, exact case-insensitive name — on the structured path, the semantic
+kNN pre-filter, pagination replay and the aggregations; classification
+aggregation is corrected from the invalid flat terms over nested text to
+`nested` + `terms(classifications.code)` + `reverse_nested` with **element**
+counts; all proven against a real ephemeral OpenSearch with exact expected
+sets and buckets)
+
+## Status of HBIM-042
+
+Complete — the active retrieval contract is the **legacy `bim_elements`**
+index (`OPENSEARCH_INDEX` default; the HBIM-023 canonical-alias gap stays
+open, untouched). Field paths are the active mapping's: `material`
+(keyword+`lc`), `spatial_hierarchy.storey_name` (keyword+`lc`),
+`name.keyword` (keyword+`lc`), `classifications` (nested; `code` keyword,
+`name` text without keyword). `classification_codes` exists only in the
+decisions-doc future sketch and in no committed mapping — the roadmap's
+literal instruction was implemented as the intended outcome (correct buckets)
+on the authoritative active contract (spec conflict M2).
+
+**Semantics.** Material: `terms` with the parser canonicals verbatim (no
+re-normalisation; the index `lc` normalizer covers case), OR within the
+dimension, AND with everything else, filter context (no scoring). Storey: the
+parser canonical expands through a closed vocabulary
+(`LEXICAL_TERMS_VERSION="1"`): `"1"` → `1 | piso/andar/nivel/nível/level/
+storey/floor 1 | 01`; `"0"` adds `r/c`, `res-do-chao`, `rés-do-chão`,
+`terreo`, `térreo`; `"-1"` adds `cave`; `"L0"` → the lowercase token forms;
+anything else falls back to its lowercase self (stored legacy plans degrade
+gracefully). Name: exact full-name equality, case-insensitive, via
+`name.keyword` — a literal `term` value, so `* ? " \` have no query syntax.
+Only `term`/`terms` are ever emitted (AST-verified): no `query_string`,
+`wildcard`, `regexp` or `script` can carry user input.
+
+**Classification aggregation.** `build_aggregation_query("classification")`
+emits `nested(classifications)` → `terms(classifications.code, size=200)` →
+`reverse_nested`; `execute_aggregation` detects the nested response and
+returns **element counts** (an element with a duplicated code counts once —
+proven with a two-fact fixture element), sorted `(-count, key)` client-side;
+a malformed response raises `ValueError` instead of being read as "no
+buckets". `AGG_FIELD_MAP["classification"]` now documents
+`classifications.code`; the flat aggregations (`material`, `storey`,
+`ifc_class`, `project*`, `count`) build byte-identical queries to before.
+Aggregations now respect the plan's lexical filters ("quantas paredes de
+pedra existem?" counts only stone walls); the global count without filters is
+untouched.
+
+**Real-OpenSearch proof** (Testcontainers `opensearchproject/opensearch:2.19.1`,
+ephemeral, loopback-only; dedicated index `hbim_lexical_test_v1` created with
+the **production** `create_index` under the run_eval fresh-import pattern;
+six synthetic elements): the acceptance query equivalent to
+`"paredes de pedra no piso 1"` (`ifc_class=IfcWall`, `material=["pedra"]`,
+`storey="1"`) returned **exactly** `{lex-wall-stone-p1, lex-wall-multi-p1}`
+against hand-declared expectations — with the realistic label `"Piso 1"`
+matched through the canonical expansion; material-only, storey-only,
+name-only (three case variants) and multi-material sets were exact; the kNN
+pre-filter returned the same acceptance set; pagination replay preserved the
+filters page by page; classification buckets were exactly
+`[{ss_25: 3}, {ss_30: 2}]` with the duplicate-code element counted once and
+the beam-only filter yielding `[]`; and both historical wrong shapes were
+proven to fail on the real cluster (flat terms over `classifications.name` →
+`RequestError`; flat terms over `classifications.code` without `nested` →
+zero buckets despite five classified elements). Anti-tautology: removing the
+storey clause or the material clause produced strict supersets, and a mutated
+expected bucket failed the exact comparison.
+
+**HBIM-005.** `queries.jsonl`, `dataset.json`, corpus and qrels are
+byte-identical. `current_system.json` changed in **exactly one key**
+(programmatic one-key proof; `correctness_metrics`, `config`, `dataset` and
+the material snapshot identical): the compatibility snapshot
+`q-rs-classification-agg` — which had frozen the crash of the broken
+aggregation as `{"error": "RequestError"}` — was surgically updated through
+the harness's own serialisation to the corrected behaviour
+`{"agg_total": 28, "buckets": {"ss_25": 28}}`, hand-derived from the corpus
+(28 documents, each with exactly one `ss_25` classification) **before**
+running the gate. The snapshot section is by design "gated separately, not
+ground truth": it exists to make this change deliberate and visible.
+`q-rs-material-ignored` was verified invariant by construction (all four
+corpus beams are steel; filters run in filter context) and its snapshot is
+untouched. `test_eval_baseline`: **6 passed** against the updated baseline.
+The `informational_metrics.known_gaps` prose inside `run_eval.py` (protected
+here) still names both defects as open; it is never gated nor part of the
+baseline and should be refreshed whenever HBIM-005's files are next opened.
+
+## Known v1 boundaries of the lexical layer (pinned by tests)
+
+- Storey labels outside the closed expansion do not match (`"Mezanino"` only
+  by exact lowercase); composite material names (`"pedra calcária"`) do not
+  match the canonical `pedra`; partial names do not match (`name` is exact
+  full-name equality). Widening any of these requires a
+  `LEXICAL_TERMS_VERSION` bump and new expectations.
+- Classification buckets truncate at `size=200` like the legacy flat
+  aggregation.
+
+## Out of scope for HBIM-042 (proof HBIM-050 was not implemented)
+
+- No BM25 candidate generation, dense retrieval, RRF, hybrid ranking,
+  reranking, EvidencePack or answer-generation code anywhere in the diff;
+  `retrieval/lexical.py` emits only `term`/`terms` clauses and two nested
+  aggregation wrappers (AST-checked in its unit suite).
+- No embedding/model service, no ML import, no LLM call; the integration
+  fixture uses literal 40-dim vectors.
+- No mapping edited (legacy or canonical); no alias migration (HBIM-023 gap
+  documented and open); no new dependency; no new CI job.
+
+## Previous issue
+
 HBIM-041 — Deterministic query parser
 (a pure `backend/retrieval/query_parser.py` — stdlib + `retrieval.router`
 only — that replaces the five LLM extraction prompts with regexes and closed
@@ -174,10 +283,25 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-041 unblocks **HBIM-042**
-(apply the parsed `material`/`storey`/`name` filters in
-`build_opensearch_query`/`retrieval/lexical.py` and fix the classification
-aggregation over `classification_codes`), then HBIM-050.
+None — awaiting the next issue in the roadmap. HBIM-042 unblocks **HBIM-050**
+(BM25/dense/RRF hybrid retrieval and EvidencePack), per the roadmap ordering.
+
+## Scope of HBIM-042
+
+- `backend/retrieval/lexical.py` (stdlib-only; clauses + classification
+  aggregation + response parser) consumed directly by `api/search.py`
+  (deliberately not re-exported from the `retrieval` package, whose surface
+  the HBIM-041 tests pin).
+- `backend/api/search.py`: lexical clauses appended in
+  `build_opensearch_query` and `build_aggregation_query`; the nested
+  classification branch; nested-response dispatch in `execute_aggregation`;
+  the documental `AGG_FIELD_MAP` entry. `api/main.py` untouched.
+- Suites `test_lexical.py` (33) and
+  `integration/test_lexical_filters_apply.py` (18, real OpenSearch).
+- The single authorised surgical key update in
+  `backend/eval/baselines/current_system.json` (see Status).
+- mypy strict gate extended to `retrieval.lexical` in `pyproject.toml` and
+  `.github/workflows/ci.yml` (no new CI job).
 
 ## Scope of HBIM-041
 
@@ -349,7 +473,60 @@ aliases are populated and verified but not yet consumed — see "Next gap" below
 `docs/implementation/issues/HBIM-041_DETERMINISTIC_QUERY_PARSER.md`
 (previous: `docs/implementation/issues/HBIM-040_DETERMINISTIC_ROUTER.md`)
 
-## Last completed validation (HBIM-041, this session)
+## Last completed validation (HBIM-042, this session)
+
+Environment: WSL, conda `hbim-rag` (Python 3.10), CPU-only; Docker used only
+for the local ephemeral Testcontainers OpenSearch
+(`opensearchproject/opensearch:2.19.1`, loopback); no ML model, no live LLM,
+no operational service at any point.
+
+- HBIM-042 lexical suite (`test_lexical.py`): **33 passed** — exact clause
+  dicts per dimension with type errors that never echo values, the complete
+  storey-expansion table (zero-pad, ground/basement extras, letter tokens,
+  fallback, dedup), fixed clause order, the exact §18 acceptance query, the
+  pre-042 golden query byte-identical for plans without lexical values, the
+  six-dimension AND composition, kNN pre-filter inheritance, pagination
+  replay, input non-mutation, the exact nested classification aggregation
+  body, byte-identical flat aggregations, lexical filters in aggregations,
+  element-count bucket parsing with deterministic `(-count, key)` ordering
+  and `ValueError` on malformed responses, nested-vs-flat dispatch through a
+  fake client, only-`term`/`terms` emission (AST + structural walk over the
+  built dicts), fresh-subprocess import-safety + socket bomb, 1000-repeat and
+  `PYTHONHASHSEED` 0/1/7/4242 determinism, and the exact public surface with
+  the `retrieval` package surface unchanged
+- HBIM-042 integration suite (`test_lexical_filters_apply.py`): **18 passed**
+  against a real ephemeral cluster — every exact-set and exact-bucket proof,
+  wrong-shape failures and anti-tautology supersets listed in the Status
+  section, on the dedicated index `hbim_lexical_test_v1` created with the
+  production mapping and torn down under a name guard
+- Focused lexical suite reproduced in **seven orders**: default,
+  `--randomly-seed=1/2/3/7/99`, `-p no:randomly` — 33 passed each
+- HBIM-040 + HBIM-041 regression (router, routing gold, parser, parser gold):
+  **354 passed** with zero modifications to those suites
+- Unit-only suite: **994 passed, 72 deselected** (961 before HBIM-042 + 33
+  new), reproduced with seeds 1 and 12345
+- Complete integration suite: **72 passed** (54 before + 18 new)
+- Complete suite: **1066 passed** with `-p no:randomly`
+- HBIM-005 evaluation gate: **6 passed** against the surgically updated
+  baseline; the one-key structural proof ran green (only
+  `compatibility_metrics.snapshots["q-rs-classification-agg"]` differs;
+  `correctness_metrics`, `config`, `dataset` and the material snapshot
+  byte-identical); `queries.jsonl`, `dataset.json`, corpus and qrels
+  byte-identical by SHA-256
+- Ruff clean over `backend`; blocking mypy **35 modules clean** (added
+  `retrieval.lexical` to the strict override and the explicit CI list; no new
+  CI job); `git diff --check` clean
+- Protected files: **30/32 SHA-256 identical**; the two deviations are
+  exactly the authorised ones (`current_system.json` single key; the spec
+  amended through two recorded repair loops)
+- Adversarial findings this session: **L1** (module-restore leak in the
+  integration fixture — the fresh-imported `api.search` stayed bound to the
+  parent package attribute after teardown; fixed by restoring parent
+  attributes, covered by the full-suite mixed run) plus probe confirmations
+  (stored legacy plans degrade gracefully; no shared mutable state between
+  clause calls; strict-but-tolerant nested parsing)
+
+## Previous validation (HBIM-041)
 
 Environment: WSL, conda `hbim-rag` (Python 3.10), CPU-only; Docker used only
 for the local ephemeral integration containers; no ML model loaded, no live

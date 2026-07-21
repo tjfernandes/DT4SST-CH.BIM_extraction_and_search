@@ -1,12 +1,12 @@
-"""HBIM-040/041 — deterministic retrieval routing and query parsing.
+"""HBIM-040/041/042 — deterministic routing, query parsing and lexical layer.
 
 Importing this package pulls in only ``retrieval.router`` and
 ``retrieval.query_parser``, which depend on the standard library alone: no
 settings, no OpenSearch client, no OpenAI client, no FastAPI, no pydantic, no
-ML and no socket.
-
-``retrieval.lexical`` (HBIM-042) is deliberately absent — filters are parsed
-here but only applied to OpenSearch in that issue.
+ML and no socket. ``retrieval.lexical`` (HBIM-042, stdlib-only as well) builds
+the filter clauses and the classification aggregation as plain dicts and is
+consumed directly by ``api.search`` — deliberately not re-exported here, so
+the package surface pinned by the HBIM-041 tests stays unchanged.
 """
 
 from __future__ import annotations

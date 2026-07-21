@@ -2,7 +2,10 @@
   "compatibility_metrics": {
     "snapshots": {
       "q-rs-classification-agg": {
-        "error": "RequestError"
+        "agg_total": 28,
+        "buckets": {
+          "ss_25": 28
+        }
       },
       "q-rs-material-ignored": {
         "tie_groups": [

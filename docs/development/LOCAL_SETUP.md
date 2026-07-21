@@ -504,7 +504,67 @@ git show 2ff0315:backend/api/prompts.py | less
 Os filtros extraídos (`material`/`storey`/`name`/`project_name`) **ainda não
 são aplicados** ao OpenSearch — `build_opensearch_query` continua a usar apenas
 `ifc_class`, `project_id` e `conditions`. Aplicá-los é HBIM-042
-(`retrieval/lexical.py`), tal como a correção da agregação de classificação.
+(`retrieval/lexical.py`), tal como a correção da agregação de classificação
+*(feito — ver secção seguinte)*.
+
+## Filtros lexicais e agregação de classificação (HBIM-042)
+
+`backend/retrieval/lexical.py` (stdlib-only, puro, sem clientes) constrói as
+cláusulas que aplicam os valores do parser HBIM-041 ao índice ativo
+`bim_elements`, e `api/search.py` anexa-as em `build_opensearch_query` e
+`build_aggregation_query`:
+
+- **material** — `terms` sobre o keyword `material` (OR dentro da dimensão,
+  AND com as restantes; valores canónicos do parser verbatim, caso coberto
+  pelo normalizer `lc` do índice);
+- **storey** — `terms` sobre `spatial_hierarchy.storey_name` com a expansão
+  determinística fechada do canónico (`"1"` → `piso 1`, `andar 1`, `nivel 1`,
+  `nível 1`, `level 1`, `storey 1`, `floor 1`, `01`, …; `"0"` inclui `r/c`,
+  `rés-do-chão`, `térreo`; `"-1"` inclui `cave`; `LEXICAL_TERMS_VERSION`
+  versiona o vocabulário);
+- **name** — `term` exato case-insensitive sobre `name.keyword`;
+- os filtros entram em **contexto `filter`** (sem scoring), aplicam-se também
+  ao prefiltro kNN semântico e à reexecução de paginação, e as agregações
+  passam a respeitá-los ("quantas paredes de pedra existem?" conta só paredes
+  de pedra). Apenas `term`/`terms` — nunca `query_string`, `wildcard`,
+  `regexp` ou `script`.
+
+**Agregação de classificação corrigida.** `classifications` é `nested` e
+`classifications.name` é `text` sem keyword — a `terms` plana histórica
+rebentava com `RequestError` (e, mesmo no caminho keyword, devolvia zero
+buckets sem o wrapper `nested`). A agregação válida é `nested` sobre
+`classifications` + `terms` em `classifications.code` (keyword) +
+`reverse_nested`, e os buckets contam **elementos** (um elemento com o mesmo
+código repetido conta uma vez), ordenados por `(-count, key)`.
+
+O snapshot de compatibilidade HBIM-005 `q-rs-classification-agg`, que
+congelava a falha (`{"error": "RequestError"}`), foi atualizado
+cirurgicamente para o comportamento correto
+(`{"agg_total": 28, "buckets": {"ss_25": 28}}`, derivado à mão do corpus) —
+única chave alterada em `current_system.json`; `correctness_metrics` e o
+snapshot de material ficaram byte-idênticos. O snapshot
+`q-rs-material-ignored` é invariante por construção (os quatro beams do
+corpus são todos de aço).
+
+```bash
+# Testes offline (builders e parsing, sem Docker)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_lexical.py -q -o addopts=""
+
+# Prova em OpenSearch real efémero (Docker local, loopback):
+# "paredes de pedra no piso 1" devolve o conjunto exato; buckets exatos;
+# as formas históricas erradas falham
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_lexical_filters_apply.py -m integration -q -o addopts=""
+
+# Qualidade (retrieval.lexical está no gate bloqueante do mypy e no Ruff)
+~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend
+```
+
+Fronteiras v1 documentadas: labels de piso fora da expansão fechada, materiais
+compostos (`"pedra calcária"` não casa com `pedra`) e nomes parciais não são
+cobertos — evoluir exige bump de `LEXICAL_TERMS_VERSION`. BM25, dense, RRF,
+reranking e EvidencePack são HBIM-050.
 
 ## Serviços locais de desenvolvimento (Docker Compose)
 
