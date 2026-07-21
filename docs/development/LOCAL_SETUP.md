@@ -268,6 +268,122 @@ PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
   backend/tests/integration/test_index_lifecycle_apply.py -m integration -q -o addopts=""
 ```
 
+## Indexers canónicos e projeção de PropertyFact (HBIM-022)
+
+`backend/ingestion/indexers/` lê os quatro JSONL canónicos produzidos pela
+HBIM-011/012 (`elements.jsonl`, `property_facts.jsonl`,
+`classification_facts.jsonl`, `documents.jsonl`) **em streaming**, valida cada
+linha com o modelo canónico, projeta-a para o mapping HBIM-020 e indexa-a
+**diretamente no índice físico** composto pelo registry HBIM-021. O `_id` é o
+campo de identidade do próprio record, **verbatim** (`element_id`/`fact_id`/
+`classification_id`/`document_id`) — nunca recomputado nem concatenado com
+`project_id`.
+
+O `PropertyFact.value` polimórfico **nunca** chega ao OpenSearch: é projetado na
+forma tipada e disjunta da HBIM-020 §5 (`value_type` e `value_is_null` sempre
+presentes; exatamente um de `value_text`/`value_integer`/`value_number`/
+`value_boolean` para valores não-null; zero payloads para `null`).
+
+**Zero ML.** Nenhum modelo, embedding, vetor ou kNN é carregado — importar
+qualquer módulo do pacote não puxa `shared.config`, `shared.opensearch`,
+`dotenv`, `ifcopenshell`, `torch` nem `sentence_transformers`; o cliente
+OpenSearch é construído **apenas** no caminho runtime da CLI.
+
+### Fluxo operacional: create → index → promote
+
+A indexação acontece **sempre** num índice físico ainda não promovido; a
+promoção é um ato separado e explícito da CLI HBIM-021.
+
+```bash
+# 1. criar os quatro índices físicos (HBIM-021)
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.migrate create-all --physical-version 1
+
+# 2. validar o input localmente (nunca constrói cliente, nunca lê settings)
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.indexers validate --input-dir <dir-canónico> --json
+
+# 3. plano local, sem tocar no estado remoto
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.indexers index --input-dir <dir-canónico> \
+  --physical-version 1 --dry-run
+
+# 4. indexar os quatro record types
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.indexers index --input-dir <dir-canónico> --physical-version 1
+
+# 4b. (alternativa) indexar um único record type
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.indexers index-one --input-dir <dir-canónico> \
+  --record-type property_fact --physical-version 1
+
+# 5. só depois de a verificação passar, promover os aliases (HBIM-021)
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.migrate promote-all --physical-version 1 --yes
+```
+
+Opções de `index`/`index-one`: `--batch-size` (default 500), `--request-timeout`
+(default 60), `--require-empty` (exige o target vazio no preflight),
+`--dry-run`, `--json`. **Não existem** `--max-failures`, `--allow-duplicate-ids`
+nem `--index-name`: o nome físico é sempre composto por
+`index_lifecycle.physical_index_name(record_type, physical_version)`.
+
+### ⚠ Target live
+
+Por defeito, o indexer **recusa** escrever num índice físico que seja, nesse
+momento, alvo do alias correspondente (`LiveTargetError`, exit 1) — escrever aí
+é imediatamente visível para os consumidores do alias. Para uma correção
+deliberada são exigidos **os dois** flags juntos:
+
+```bash
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.indexers index --input-dir <dir> --physical-version 1 \
+  --allow-live-target --yes
+```
+
+Um flag sem o outro é erro de utilização (**exit 2**), detetado antes de
+qualquer cliente. Qualquer **conflito de alias** (múltiplos targets, colisão
+alias/índice concreto) é recusado fail-closed com `TargetIndexError` e **zero
+escrita em qualquer target** — `alias_missing` (alias ainda não promovido) não é
+conflito.
+
+### Garantias operacionais
+
+- **Duas passagens com digest**: a validação local dos quatro inputs e os
+  preflights remotos dos quatro targets acontecem **antes** da primeira ação
+  bulk; os digests SHA-256 são reconfirmados antes da primeira escrita, antes do
+  bulk de cada record type e no fim de cada leitura. Um input inválido — ou
+  alterado entre a validação e a escrita — produz **zero escrita remota**.
+- **Idempotência**: `_op_type=index` com `_id` canónico ⇒ um rerun substitui os
+  mesmos documentos e converge; uma execução interrompida é recuperável.
+- **Nunca destrutivo**: o indexer não cria, apaga nem promove índices ou
+  aliases. Documentos extra no target são **detetados** (`VerificationError`),
+  nunca apagados; a remediação é criar uma nova versão física e reindexar.
+- **Exit codes**: `0` sucesso; `1` falha operacional (input, validação,
+  projeção, duplicados, target, alias, live target, bulk, interrupção,
+  verificação, OpenSearch); `2` argparse/configuração/flags inválidos.
+- **`--json`**: stdout contém exatamente um documento JSON
+  (`{"reports": [...], "error": ...}`) em qualquer caminho; o texto humano vai
+  para stderr e nunca há traceback.
+
+```bash
+# Testes offline (sem Docker, sem rede, sem ML, sem sleeps reais)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_canonical_indexers.py -q -o addopts=""
+
+# Integração real (exige Docker; OpenSearch efémero 2.19.1, loopback)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_canonical_indexers_apply.py \
+  -m integration -q -o addopts=""
+
+# Qualidade (os sete módulos novos estão no gate bloqueante do mypy e no Ruff)
+~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend
+```
+
+**Docker é necessário apenas para a integração.** As fixtures sintéticas de
+indexação vivem em `backend/tests/fixtures/canonical/indexing/`; os goldens
+canónicos da HBIM-010 não são alterados.
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.
