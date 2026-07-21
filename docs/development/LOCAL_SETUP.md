@@ -445,7 +445,66 @@ grep -n "CLASSIFY_INTENT" backend/api/main.py
 ```
 
 `CLASSIFY_INTENT` permanece definido em `backend/api/prompts.py` mas deixa de ser
-importado e chamado; removê-lo é HBIM-041.
+importado e chamado; removê-lo é HBIM-041 *(feito — ver secção seguinte)*.
+
+## Query parser determinístico (HBIM-041)
+
+`backend/retrieval/query_parser.py` substitui os cinco prompts LLM de extração
+(`EXTRACT_IFC_CLASS`, `EXTRACT_FILTERS`, `EXTRACT_CONDITIONS`,
+`EXTRACT_AGGREGATION`, `EXTRACT_DETAIL_REF`) por regex e dicionários fechados.
+`parse_query(text) -> ParsedQuery` é **pura, total e determinística** e importa
+apenas a stdlib e `retrieval.router` — reutiliza `normalize_query`, `fold_text`
+e `GLOBAL_ID_RE` do router (mesmos objetos; nunca uma cópia), pelo que parser e
+router não podem divergir em normalização nem em GlobalId.
+
+- **Campos extraídos:** `ifc_class` (dicionário legacy `IFC_CLASS_TABLE`
+  migrado sem perdas: 100 pares → 93 chaves normalizadas + 21 nomes literais),
+  `materials` (canónicos, ordenados), `storey` (forma canónica; `piso N`,
+  ordinais, `1.º`, `R/C`, `rés-do-chão`, `térreo`, `cave`, `nível L0`),
+  condições numéricas (`eq/approx/gt/gte/lt/lte` × `height/area/volume/
+  thickness`, vírgula decimal, `m²`/`m³` por NFKD, conversão `cm`/`mm` por
+  divisão exata, intervalos `entre N e M` normalizados), `global_ids` (ordem
+  de aparição, caso preservado), `agg_field` (vocabulário =
+  `AGG_FIELD_MAP` ∪ `{count}`), `name`/`project_id`/`project_name`
+  (`project_id` **só** com marcador explícito — a mesma condição do guard do
+  endpoint) e `refers_previous`; `parse_detail_ref(text, num_results)` resolve
+  ordinais de detalhe já clamped.
+- **Zero LLM no parsing.** O `/chat` faz agora, por pedido (primeiro turno):
+  chat 1, structured 2, aggregation 1, detail 1, semantic 3 chamadas LLM —
+  todas de resposta/relevância (`REWRITE_QUERY`, `EXTRACT_EMBEDDING_QUERY` e
+  `FILTER_RESULTS_BATCH` mantêm-se). Uma fixture-bomba falha qualquer chamada
+  JSON que não seja dos dois prompts mantidos.
+- **Prompts removidos** de `prompts.py`: os cinco de extração,
+  `CLASSIFY_INTENT` e `IFC_CLASS_TABLE` (migrada para o parser com teste
+  golden). O diff de `prompts.py` é só remoções.
+- **Gold e baseline congelada:** `backend/eval/dataset/parser_gold.jsonl`
+  (96 casos curados à mão) e `backend/eval/baselines/legacy_extraction.json`
+  (38 exemplares few-shot transcritos verbatim dos prompts legacy @ `2ff0315`,
+  SHA-256 fixado no teste). Gates offline: paridade `parser ≥ legacy` nos 56
+  pares cobertos, full-record ≥ 0.95, por-campo ≥ 0.90, com provas de que os
+  gates conseguem falhar.
+
+```bash
+# Testes offline (sem Docker, sem rede, sem ML, sem relógio)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_query_parser.py backend/tests/test_parser_gold.py \
+  -q -o addopts=""
+
+# Prova de que o LLM saiu do parsing (deve devolver zero linhas)
+grep -n "EXTRACT_IFC_CLASS\|EXTRACT_FILTERS\|EXTRACT_CONDITIONS\|EXTRACT_AGGREGATION\|EXTRACT_DETAIL_REF\|CLASSIFY_INTENT\|IFC_CLASS_TABLE" \
+  backend/api/main.py backend/api/prompts.py
+
+# Auditoria manual da baseline legacy (fora de CI)
+git show 2ff0315:backend/api/prompts.py | less
+
+# Qualidade (retrieval.query_parser está no gate bloqueante do mypy e no Ruff)
+~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend
+```
+
+Os filtros extraídos (`material`/`storey`/`name`/`project_name`) **ainda não
+são aplicados** ao OpenSearch — `build_opensearch_query` continua a usar apenas
+`ifc_class`, `project_id` e `conditions`. Aplicá-los é HBIM-042
+(`retrieval/lexical.py`), tal como a correção da agregação de classificação.
 
 ## Serviços locais de desenvolvimento (Docker Compose)
 

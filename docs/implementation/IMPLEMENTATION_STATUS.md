@@ -2,6 +2,112 @@
 
 ## Last completed issue
 
+HBIM-041 — Deterministic query parser
+(a pure `backend/retrieval/query_parser.py` — stdlib + `retrieval.router`
+only — that replaces the five LLM extraction prompts with regexes and closed
+dictionaries: `parse_query(text) -> ParsedQuery` extracts `ifc_class`,
+`materials`, `storey`, numeric conditions, `global_ids`, `agg_field`, `name`,
+`project_id`, `project_name` and `refers_previous`; `parse_detail_ref` resolves
+detail ordinals; the endpoint's seven parsing LLM call sites are gone, the
+prompts and `IFC_CLASS_TABLE` are removed from `prompts.py`, and a committed
+parser gold plus a frozen legacy baseline gate parity offline)
+
+## Status of HBIM-041
+
+Complete — `parse_query` is **pure, total and deterministic**: the same text
+always yields an equal `ParsedQuery`; `TypeError` for non-`str` without echoing
+the input; never raises for any `str`; byte-identical output under
+`PYTHONHASHSEED` 0/1/7/4242. The module imports only `re`, `dataclasses`,
+`types`, `typing` and `retrieval.router`, reusing the router's
+`normalize_query`, `fold_text` and `GLOBAL_ID_RE` **as the same objects**
+(asserted with `is` and by AST: no second `{22}` regex, no own `unicodedata`
+use), so parser and router cannot diverge on normalisation or GlobalId. The
+parser has no route field and never re-routes; the router decides, the parser
+extracts (roadmap-sketch conflict C1 resolved in the spec).
+
+**Parser contract.** IFC dictionary = the legacy `IFC_CLASS_TABLE` migrated
+without loss (100 pairs → 93 normalised keys + 21 literal class names; golden
+test pins every pair); earliest-position wins, longest term at a position tie.
+Materials: 7 canonical substances + plurals, sorted, deduplicated. Storey
+canonical forms: `piso N`/`storey N` → `"N"` (signed), `1.º/1º/2o piso` → the
+ordinal digit (NFKD folds `º` to `o`; bare `"1 piso"` deliberately does not
+fire), ordinal words 1–10, `nível L0` → `"L0"`, `r/c`/`rés-do-chão`/`térreo` →
+`"0"`, `cave` → `"-1"`. Conditions grammar G1/G6/G2/G4/G5 in fixed order over
+the punctuation-preserving fold view: operators `eq/approx/gt/gte/lt/lte`,
+fields `height/area/volume/thickness`, decimal comma, `m²`/`m³` via NFKD,
+`cm`/`mm` converted **by division** (`30 cm` == `0.3` exactly), ranges
+`entre N e M` normalised to `gte min`/`lte max`, dimensional mismatches and
+the closed unsupported-metric set (`comprimento`, `peso`, …) discarded, values
+always finite floats (an overflowing 400-digit literal yields no condition —
+adversarial finding I1, fixed with a regression test). `agg_field` vocabulary
+is exactly `api.search.AGG_FIELD_MAP` keys ∪ `{count}`; `project_id` is
+extracted **only** with the explicit marker vocabulary of the endpoint guard
+and only for code-like values (`SCV_2024` yes, `distintos` no), proven
+consistent with `user_explicitly_mentions_project_id` over the whole gold.
+
+**Endpoint integration.** `api/main.py` parses once per non-pagination request
+(`parse_query(effective_query)` — the exact string the legacy extractors
+received; the router still sees `request.message`, HBIM-040 §C6 unchanged) and
+bridges into the existing pydantic DTOs (`ExtractedIfcClass`,
+`ExtractedFilters`, `ExtractedConditions`) without changing `api/search.py`,
+which is byte-identical. `get_response` call sites went from 14 to **7**
+(AST-counted): rewrite, embedding-query, chat answer, detail answer,
+aggregation answer, relevance filter, final answer. LLM calls per first-turn
+request: chat 1, structured 2, aggregation 1, detail 1, semantic 3 — a
+fixture bomb fails any JSON-mode call that is not the relevance filter or the
+embedding-query builder, on every path including the degraded routes. The
+three project-id guard call sites in the replaced blocks disappeared (the
+parser guarantees their condition by construction); the guard definitions and
+the pagination guard remain. One `query_parser` log event per request with
+exactly the §27 keys — never the raw query, never the GlobalId values. The
+pagination branch never calls the parser (exploding-spy test).
+
+**Prompts.** `prompts.py` lost `CLASSIFY_INTENT`, `EXTRACT_IFC_CLASS`,
+`EXTRACT_FILTERS`, `EXTRACT_CONDITIONS`, `EXTRACT_AGGREGATION`,
+`EXTRACT_DETAIL_REF` and `IFC_CLASS_TABLE` — the diff is 455 deleted lines and
+**zero added lines**, so the six kept prompts (`REWRITE_QUERY`,
+`EXTRACT_EMBEDDING_QUERY`, `FILTER_RESULTS_BATCH`, three response formats) are
+byte-identical.
+
+**Gold and frozen legacy baseline.** `backend/eval/dataset/parser_gold.jsonl`:
+96 hand-curated cases (canonical serialisation, sorted by id, byte-stable),
+including all 38 legacy exemplars, ≥ 17 distinct IFC classes, every operator,
+every `agg_field` value, every storey pattern, and 10+ adversarial boundary
+cases. `backend/eval/baselines/legacy_extraction.json`: the 38 few-shot
+exemplars of the five legacy prompts transcribed **verbatim** with provenance
+(`backend/api/prompts.py` @ `2ff0315`, `detail_ref` frozen at `num_results=5`),
+byte-stable and pinned by SHA-256
+`36b69ee66a358f38568ef37a7bba325b2c9dd4dc4f9c8c90ca0e1d9b2d5e1525` inside the
+test — regenerating it by any code fails the suite. HBIM-005 stays isolated:
+`load_and_validate` passes with both artifacts present and `dataset.json`
+never references them.
+
+**Evaluation (fresh, offline, this session).** 56 covered (input, field)
+pairs; `legacy_covered = 1.000000`; `parser_covered = 1.000000`; **delta
++0.000000 — parity gate G1 green** (`parser ≥ legacy`); `parser_full_record =
+1.000000` over all 96 records × 11 fields (gate G2 ≥ 0.95 green); every
+per-field accuracy 1.0 (gate G3 ≥ 0.90 green); zero misses. Anti-tautology
+proven: corrupting one covered prediction drives `parser_covered` below
+`legacy_covered`, corrupting any record drives the full-record score below the
+gate, and the scorer itself is unit-tested to penalise wrong, extra and
+unordered values.
+
+## Known v1 boundaries (pinned by named tests, not discovered in production)
+
+- `"entre 2 e 4 pisos"` and `"volume entre 1 e 2"` produce a default-height
+  range (G6's unit is optional by spec §18); narrowing needs a spec change and
+  a `PARSER_TERMS_VERSION` bump.
+- `"1.000 metros"` reads 1.0 (no thousands separators in v1).
+- Free-text names without quotes are not extracted (`name` = quoted spans or
+  underscore identifiers, the only committed legacy exemplar being
+  `Artifact_0`).
+- `project_name` capture stops at `no/na/nos/nas/com/sem` or a comma; project
+  names containing those words are out of vocabulary v1.
+- The unsupported-metric guard checks only the word immediately before an
+  operator, per spec.
+
+## Previous issue
+
 HBIM-040 — Deterministic router
 (a pure-stdlib `backend/retrieval/router.py` that replaces the LLM
 `CLASSIFY_INTENT` classification in `/chat`: eight routes, a fixed ten-branch
@@ -68,9 +174,37 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-040 unblocks **HBIM-041**
-(deterministic query parser, which also removes `CLASSIFY_INTENT` and the
-extraction prompts), HBIM-042 and HBIM-050.
+None — awaiting the next issue in the roadmap. HBIM-041 unblocks **HBIM-042**
+(apply the parsed `material`/`storey`/`name` filters in
+`build_opensearch_query`/`retrieval/lexical.py` and fix the classification
+aggregation over `classification_codes`), then HBIM-050.
+
+## Scope of HBIM-041
+
+- `backend/retrieval/query_parser.py` (stdlib + `retrieval.router` only) and
+  its re-exports in `backend/retrieval/__init__.py`; two additive public
+  aliases in `router.py` (`GLOBAL_ID_RE`, `fold_text`) with zero behaviour
+  change.
+- `backend/api/main.py`: the seven parsing LLM call sites replaced by one
+  `parse_query` + `parse_detail_ref`; `query_parser`/`detail_ref` log events.
+- `backend/api/prompts.py`: removals only (C4).
+- `backend/eval/dataset/parser_gold.jsonl` (96 cases) and
+  `backend/eval/baselines/legacy_extraction.json` (38 records, SHA-pinned);
+  offline gates G1–G4.
+- Suites `test_query_parser.py` (166) and `test_parser_gold.py` (22); one
+  authorised assertion flip in `test_router.py` (spec §6).
+- mypy strict gate extended to `retrieval.query_parser` in `pyproject.toml`
+  **and** `.github/workflows/ci.yml` (no new CI job).
+
+## Out of scope for HBIM-041 (proof HBIM-042 was not implemented)
+
+- `api/search.py` is **byte-identical** (SHA-256 verified):
+  `build_opensearch_query` still applies only `ifc_class`, `project_id` and
+  `conditions`; no material/storey/name filtering, no `classification_codes`
+  fix, no `retrieval/lexical.py`, no BM25/dense/RRF/rerank/EvidencePack.
+- No index mapping, indexer, embedding or ML change; no new dependency.
+- `ClassifyResult`/`DetailRef`/`Extracted*` cleanup in `api/search.py` stays
+  deferred (protected file here; HBIM-042 edits it anyway).
 
 ## Scope of HBIM-040
 
@@ -208,14 +342,84 @@ aliases are populated and verified but not yet consumed — see "Next gap" below
 
 ## Current branch
 
-`feat/hbim-040-deterministic-router`
+`feat/hbim-041-deterministic-query-parser`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-040_DETERMINISTIC_ROUTER.md`
-(previous: `docs/implementation/issues/HBIM-022_CANONICAL_INDEXERS.md`)
+`docs/implementation/issues/HBIM-041_DETERMINISTIC_QUERY_PARSER.md`
+(previous: `docs/implementation/issues/HBIM-040_DETERMINISTIC_ROUTER.md`)
 
-## Last completed validation
+## Last completed validation (HBIM-041, this session)
+
+Environment: WSL, conda `hbim-rag` (Python 3.10), CPU-only; Docker used only
+for the local ephemeral integration containers; no ML model loaded, no live
+LLM contacted at any point.
+
+- HBIM-041 parser suite (`test_query_parser.py`): **166 passed** — the golden
+  migration of the 100 legacy table pairs (93 normalised keys + 21 literal
+  class names, map size 114), first-position/longest-tie matching, materials
+  canonicalisation and boundaries (`madeirense` never fires), the six storey
+  patterns incl. `1.º`→NFKD→`1o` and the mandatory-ordinal rule (`"1 piso"`
+  never fires), the full condition grammar (all six operators, decimal comma,
+  `m²`/`m³`, `cm`/`mm` by exact division, ranges with reversed endpoints,
+  dimensional mismatch and unsupported-metric discards, appearance order,
+  dedup, float-never-bool, the I1 infinity regression), GlobalId reuse
+  (`is` the router object; order/dedup/case), the nine `agg_field` rules with
+  all twelve legacy exemplars, name/project extraction with the code-like
+  value rule and guard consistency, `refers_previous` consistency with the
+  router over the whole gold, `parse_detail_ref` (ordinals, `o N`, `2º`,
+  `último`, clamps, `TypeError` incl. `bool`, `ValueError`), totality on
+  degenerate inputs, frozen dataclasses, exact public surface, fresh-subprocess
+  import-safety + socket bomb + AST purity, `PYTHONHASHSEED` invariance, the
+  pydantic bridge, prompt deprecation (`hasattr` + AST count 7), and the
+  endpoint wiring: per-path LLM call counts (chat 1 / structured 2 /
+  aggregation 1 / detail 1 / semantic 3; +1 with history), the parsing bomb on
+  every path including the three degraded routes and D2 exact-lookup, the
+  `query_parser` event with exactly the §27 keys and no query/ids, the
+  aggregation `count` default, parsed fields reaching the `SearchPlan`, and
+  the pagination branch proven parser-free with an exploding spy
+- HBIM-041 gold suite (`test_parser_gold.py`): **22 passed** — gold schema
+  (exact keys, id regex/order, canonical byte-stability, no CRLF/BOM),
+  baseline schema (38 records, 56 pairs, per-prompt counts 8/9/6/12/3,
+  bijection with the gold, provenance commit `2ff0315`, byte-stability and
+  SHA-256 pin `36b69ee6…`), coverage minima asserted numerically, gates
+  **G1 parity delta +0.000000 (1.000000 vs 1.000000, 56/56)**, **G2
+  full-record 1.000000 ≥ 0.95**, **G3 min per-field 1.000000 ≥ 0.90** with
+  zero misses over 96 records × 11 fields, both G4 anti-tautology proofs,
+  scorer self-tests (wrong/extra/unordered/bool-vs-int penalised),
+  deterministic scoring, HBIM-005 isolation (`load_and_validate` green with
+  both artifacts present; `dataset.json` never references them), and the
+  no-sensitive-data scan
+- Focused parser+gold suite reproduced in **seven orders**: default,
+  `--randomly-seed=1/2/3/7/99` and `-p no:randomly` — 188 passed each
+- HBIM-040 regression: `test_router.py` + `test_routing_gold.py` **166
+  passed** with only the single spec-§6-authorised assertion flip
+  (`CLASSIFY_INTENT` now absent from `prompts.py`); routing behaviour,
+  `routing_gold.jsonl` and `conftest.py` untouched
+- Unit-only suite: **961 passed, 54 deselected** (773 before HBIM-041 + 188
+  new), reproduced with seeds 1 and 12345
+- Integration suite: **54 passed** (Testcontainers
+  `opensearchproject/opensearch:2.19.1`, ephemeral, loopback-only)
+- Complete suite: **1015 passed** with `-p no:randomly`
+- HBIM-005 evaluation baseline: **6 passed**; `current_system.json`
+  byte-unchanged (sha256 prefix `7bf3c8d7200f0512`)
+- Ruff clean over `backend`; blocking mypy **34 modules clean** (added
+  `retrieval.query_parser` to the strict override and to the explicit CI file
+  list; no new CI job)
+- Zero-LLM parsing proof: the grep over `main.py` + `prompts.py` for the seven
+  removed identifiers returns zero lines; AST counts exactly 7 `get_response`
+  call sites (were 14)
+- Protected files byte-unchanged (**27 verified by SHA-256** against the spec
+  commit): `api/search.py`, `eval/{metrics,run_eval,dataset}.py`, the HBIM-005
+  dataset + `routing_gold.jsonl` + `current_system.json`, `tests/conftest.py`,
+  `tests/test_routing_gold.py`, `tests/test_auth.py`, canonical/shared/
+  ingestion cores, `requirements*.txt`, `.gitignore` and the committed
+  HBIM-041 spec itself; `git status` shows no change under `backend/shared/`,
+  `backend/tests/fixtures/` or `frontend/`
+- `git diff --check` clean; no `.env` tracked; no secret, host or real datum
+  in code, tests, gold, baseline or docs
+
+## Previous validation (HBIM-040)
 
 - HBIM-040 offline router suite (`test_router.py`): **144 passed** — the eight
   enum members and their exact values, `TERMS_VERSION` pinned, one test per
