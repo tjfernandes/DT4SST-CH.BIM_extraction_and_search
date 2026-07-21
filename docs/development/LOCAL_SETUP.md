@@ -384,6 +384,69 @@ conflito.
 indexação vivem em `backend/tests/fixtures/canonical/indexing/`; os goldens
 canónicos da HBIM-010 não são alterados.
 
+## Router determinístico (HBIM-040)
+
+`backend/retrieval/router.py` substitui a classificação `CLASSIFY_INTENT` feita
+por LLM no `/chat`. É uma função **pura, total e determinística**
+(`route(query, context) -> RoutingDecision`) que importa **apenas a biblioteca
+padrão**: importá-la não puxa `shared.config`, `shared.opensearch`, `dotenv`,
+`openai`, `opensearchpy`, `fastapi`, `pydantic`, `torch` nem
+`sentence_transformers`, não lê o relógio nem uma fonte aleatória, não abre
+ficheiros e não cria sockets.
+
+- **Oito rotas** (`Route`): `exact_lookup`, `aggregation`, `structured`,
+  `graph`, `multimodal`, `document_hybrid`, `hybrid_semantic`, `chat`.
+- **Precedência fixa de 10 ramos** com `reason` estável (vocabulários fechados,
+  versionados por `TERMS_VERSION`). Alterar um vocabulário obriga a rever o gold.
+- **Normalização** NFKD + remoção de diacríticos + `casefold`, com comparação em
+  fronteira de palavra: `betão ≡ betao`, mas `portanto` não dispara `porta`.
+- O router recebe `request.message` **verbatim**, nunca a query reescrita pelo
+  LLM, para que a decisão seja reproduzível a partir do pedido.
+
+**A degradação é do endpoint, nunca do router.** `backend/api/main.py` expõe
+`BASE_STRATEGY` (total sobre `Route`) e `execution_strategy(decision, context)`,
+que devolve `(estratégia legacy, route_degraded)`. Degrada em exatamente dois
+casos: **D1** rotas ainda sem backend (`graph`, `multimodal`, `document_hybrid`)
+e **D2** `exact_lookup` sem resultados anteriores. `decision.route` e
+`decision.reason` nunca são reescritos — o plano e o log guardam sempre a rota
+verdadeira, pelo que HBIM-070/082/090 só terão de mudar a capability map.
+
+**Observabilidade.** Um único evento `router_decision` por pedido, emitido antes
+de qualquer ramificação (cobre os oito pontos de retorno, incluindo o caminho
+`chat`, onde `plan is None`), com exatamente as chaves `route`, `strategy`,
+`degraded`, `reason`, `signals`, `matched_terms`. **A query do utilizador nunca
+entra neste payload**: `matched_terms` contém só constantes do vocabulário e
+`reason` só identificadores fechados. Os planos que já existiam ganham
+`route`/`route_degraded` (opcionais, com default — planos de paginação
+serializados antes desta issue continuam a desserializar).
+
+O gold de routing vive em `backend/eval/dataset/routing_gold.jsonl` (86 casos,
+uma linha JSON canónica por caso, ordenado por `id`). O gate
+`routing_accuracy ≥ 0.95` corre **offline**, sem Docker e sem marker
+`integration`. O ficheiro fica ao lado do dataset da HBIM-005 sem interferir com
+ele: `_validate_checksums` usa uma allowlist explícita e não varre o diretório.
+
+```bash
+# Testes offline (sem Docker, sem rede, sem ML, sem relógio)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_router.py backend/tests/test_routing_gold.py -q -o addopts=""
+
+# Determinismo sob ordens diferentes
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_router.py -q -o addopts="" --randomly-seed=1
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_router.py -q -o addopts="" -p no:randomly
+
+# Prova de que o LLM saiu do routing (deve devolver zero linhas)
+grep -n "CLASSIFY_INTENT" backend/api/main.py
+
+# Qualidade (retrieval está no gate bloqueante do mypy e no Ruff)
+~/miniconda3/bin/conda run -n hbim-rag python -m ruff check backend
+```
+
+`CLASSIFY_INTENT` permanece definido em `backend/api/prompts.py` mas deixa de ser
+importado e chamado; removê-lo é HBIM-041.
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.
@@ -419,7 +482,8 @@ falha dura.
 
 Workflow único em `.github/workflows/ci.yml` (push + pull_request), com
 `permissions: contents: read`, sem `secrets.*` e sem `.env`: jobs
-`backend-unit`, `ruff`, `mypy` (gate dos módulos tipados + `backend/eval`),
+`backend-unit`, `ruff`, `mypy` (gate dos módulos tipados + `backend/eval` +
+`backend/retrieval`),
 `frontend` (`npm ci` + lint + build, Node 22), `integration-opensearch`
 (`needs: backend-unit`, `HBIM_REQUIRE_DOCKER=1`) e `evaluation-opensearch`
 (`needs: backend-unit`, gate contra a baseline committed + upload do relatório

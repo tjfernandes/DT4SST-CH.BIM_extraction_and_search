@@ -1,0 +1,86 @@
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-001","query":"quantas paredes existem?"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-002","query":"quantas portas ha no piso 1?"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-003","query":"quais materiais existem?"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-004","query":"lista de materiais do projeto"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-005","query":"distribuição por piso"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-006","query":"contar elementos do modelo"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-007","query":"que tipos existem no modelo"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-008","query":"valores distintos de material"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-009","query":"quantidade de vigas"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-010","query":"olá, quantas paredes há?"}
+{"expected_route":"aggregation","has_image_input":false,"has_previous_results":false,"id":"agg-011","query":"quais pisos tem o edificio"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-001","query":"olá"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-002","query":"bom dia"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-003","query":"boa tarde"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-004","query":"obrigado"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-005","query":"adeus"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-006","query":"como estás?"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-007","query":"tudo bem?"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-008","query":"quem és tu?"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-009","query":"o que podes fazer?"}
+{"expected_route":"chat","has_image_input":false,"has_previous_results":false,"id":"chat-010","query":"ajuda"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"degen-001","query":"   "}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"degen-002","query":"!!!???"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"degen-003","query":"12345"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"degen-004","query":"..."}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-001","query":"o que diz o relatório"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-002","query":"procura no documento"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-003","query":"que página menciona a capela"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-004","query":"história do edifício"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-005","query":"século XVIII"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-006","query":"época da construção"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-007","query":"abre o pdf"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-008","query":"que fonte descreve isto"}
+{"expected_route":"document_hybrid","has_image_input":false,"has_previous_results":false,"id":"doc-009","query":"os documentos da obra"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":false,"id":"exact-001","query":"mostra o elemento 0AInvalidWALL0000000a1"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":false,"id":"exact-002","query":"detalha 0BInvalidWALL0000000b1"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":false,"id":"exact-003","query":"propriedades de 0AInvalidSLAB0000000a2"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":false,"id":"exact-004","query":"quantas propriedades tem 0AInvalidBEAM0000000a3?"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":true,"id":"exact-005","query":"fala-me mais sobre esse"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":true,"id":"exact-006","query":"detalha o primeiro"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":true,"id":"exact-007","query":"que propriedades tem o segundo?"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":true,"id":"exact-008","query":"e essa?"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":true,"id":"exact-009","query":"mais sobre este elemento"}
+{"expected_route":"exact_lookup","has_image_input":false,"has_previous_results":true,"id":"exact-010","query":"o ultimo tem que material?"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-001","query":"o que suporta o telhado?"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-002","query":"o que e adjacente ao corredor"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-003","query":"o que fica perto da entrada"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-004","query":"o que contem a sala principal"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-005","query":"o que abre para o exterior"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-006","query":"o que comunica com a nave"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-007","query":"o que pertence a ala norte"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-008","query":"o que fica acima"}
+{"expected_route":"graph","has_image_input":false,"has_previous_results":false,"id":"graph-009","query":"o que esta dentro da capela"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-001","query":"o que é o IFC?"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-002","query":"elementos decorativos antigos"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-003","query":"estruturas antigas"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-004","query":"descreve o edificio"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-005","query":"caracteristicas construtivas"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-006","query":"zonas degradadas"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-007","query":"portanto mostra tudo"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-008","query":"lajedo antigo"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-009","query":"detalha o primeiro"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-010","query":"contemplar o conjunto"}
+{"expected_route":"hybrid_semantic","has_image_input":false,"has_previous_results":false,"id":"hybrid-011","query":"elementos adjacentes ao corredor"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-001","query":"mostra uma fotografia"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-002","query":"peças do museu"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-003","query":"elementos do acervo"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-004","query":"escultura da capela"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-005","query":"capitel românico"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-006","query":"decoração da fachada"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-007","query":"algo parecido com isto"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-008","query":"visualmente semelhante ao original"}
+{"expected_route":"multimodal","has_image_input":false,"has_previous_results":false,"id":"mm-009","query":"imagem da entrada"}
+{"expected_route":"multimodal","has_image_input":true,"has_previous_results":false,"id":"mm-010","query":"algo assim"}
+{"expected_route":"multimodal","has_image_input":true,"has_previous_results":false,"id":"mm-011","query":"o que e isto"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-001","query":"mostra-me as portas"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-002","query":"paredes de betão"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-003","query":"elementos do piso 2"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-004","query":"vigas com mais de 5 metros"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-005","query":"paredes de pedra no piso 1"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-006","query":"lajes de madeira"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-007","query":"elementos acima de 3 metros"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-008","query":"pilares do andar 2"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-009","query":"elementos com 2,5 m de altura"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-010","query":"janelas de calcário"}
+{"expected_route":"structured","has_image_input":false,"has_previous_results":false,"id":"struct-011","query":"escadas do storey tecnico"}

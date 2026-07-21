@@ -84,6 +84,23 @@ def mrr_at_k(retrieved: Sequence[str], relevant: Iterable[str], k: int) -> float
     return 0.0
 
 
+def routing_accuracy(predicted: Sequence[str], expected: Sequence[str]) -> float:
+    """Fraction of exactly-correct routes (HBIM-040 §18.3).
+
+    Pure and offline: no OpenSearch, no network, no model. Raises on a length
+    mismatch and on an empty sequence, so a truncated or empty gold can never be
+    reported as perfect accuracy.
+    """
+    if len(predicted) != len(expected):
+        raise ValueError("predicted and expected must have the same length")
+    if not expected:
+        raise ValueError("routing_accuracy requires a non-empty sequence")
+    hits = sum(
+        1 for actual, wanted in zip(predicted, expected, strict=True) if actual == wanted
+    )
+    return round_metric(hits / len(expected))
+
+
 def no_false_positives(retrieved: Iterable[str], relevant: Iterable[str]) -> bool:
     """True when every retrieved id satisfies the query predicate (⊆ relevant).
 
