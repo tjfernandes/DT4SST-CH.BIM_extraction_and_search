@@ -219,10 +219,54 @@ pertence à HBIM-022.
   backend/tests/integration/test_index_mappings_apply.py -m integration -q -o addopts=""
 ```
 
+**`--dry-run`:** `create` e `create-all --dry-run` produzem um plano **puramente
+local** (record type, alias, índice físico, versão, mapping, settings) — **não**
+constroem cliente nem exigem `OPENSEARCH_PASSWORD`, e imprimem que o estado
+remoto **não foi consultado**. Já `promote`/`rollback`/`promote-all`/`rollback-all`
+com `--dry-run` **constroem cliente** e fazem um preflight **read-only** (sem
+mutação), porque o plano de alias depende do estado atual dos aliases/índices.
+
 Pré-requisito do teste de integração: **Docker local** (mesma deteção WSL da
 secção "Nota WSL + Docker Desktop"); sem Docker faz **skip** com razão explícita,
 e em CI (`HBIM_REQUIRE_DOCKER=1`) é falha dura. Reutiliza o job existente
 `integration-opensearch` — sem job novo.
+
+## Lifecycle de índices e migração por alias (HBIM-021)
+
+`backend/ingestion/index_lifecycle.py` implementa o lifecycle **não destrutivo**
+dos quatro índices HBIM-020 (registry fixo `element`/`property_fact`/
+`classification_fact`/`document` → aliases `hbim_elements`/`hbim_property_facts`/
+`hbim_classification_facts`/`hbim_documents`): loader dos mappings (só `json`+
+`pathlib`), settings operacionais mínimos (1 shard, 0 réplicas,
+`mapping.total_fields.limit=1000`, **sem vetores**), comparação **recursiva** de
+compatibilidade, criação **idempotente** (nunca apaga), promoção/rollback
+**atómicos** (uma só chamada `update_aliases`) e status determinístico. Recebe
+sempre um cliente OpenSearch **injetado**; nada é criado no import. A CLI fina
+`backend/ingestion/migrate.py` constrói o cliente em runtime.
+
+O `create_index` legacy (`index_to_opensearch.py`) passou a ser
+**create-if-absent**: se o índice já existir, retorna sem apagar nem recriar
+(nenhum `indices.delete` automático). A API/retrieval continuam a usar
+`bim_elements`; os novos aliases ainda **não** são consumidos (HBIM-022).
+
+```bash
+# CLI: status; create nao exige confirmacao; promote/rollback exigem --yes
+# (--dry-run mostra o plano sem mutar)
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.migrate status --json
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.migrate create-all --physical-version 1
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag \
+  python -m ingestion.migrate promote-all --physical-version 1 --yes
+
+# Testes offline dos lifecycle (sem Docker; cliente OpenSearch em memoria)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_index_lifecycle.py -q -o addopts=""
+
+# Integracao real (exige Docker; OpenSearch efemero 2.19.1, loopback)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_index_lifecycle_apply.py -m integration -q -o addopts=""
+```
 
 ## Serviços locais de desenvolvimento (Docker Compose)
 

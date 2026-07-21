@@ -818,7 +818,7 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Descrição.** Correr o benchmark 1024/2048/4096 por índice usando o harness de HBIM-005 (nDCG/Recall × tamanho × latência); **selecionar e aplicar a dimensão por índice** (correção 9); reindexar `elements`/`chunks` com a dimensão vencedora.
 - **Ficheiros.** `eval/dim_benchmark.py`, `ingestion/migrate.py`, `canonical/mappings/*.json`.
 - **Dependências.** HBIM-030, HBIM-005.
-- **Aceitação.** kNN funcional; **dimensão documentada e aplicada por índice** com números; Recall@10 ≥ baseline (HBIM-005).
+- **Aceitação.** kNN funcional; **dimensão documentada e aplicada por índice** com números; Recall@10 ≥ baseline (HBIM-005). 
 
 ### HBIM-032 — Gestor de residência de VRAM + perfis de GPU — **P2 / L**
 - **Descrição.** `models/residency.py` + endpoint de ops. Registo de modelos carregados com VRAM medida; invariante `Σ ≤ VRAM_BUDGET_GB`; `ensure_profile()` com load/evict/`sleep`/`wake` (vLLM sleep mode); lock para a janela exclusiva do VLM-32B. Perfis `P-Online-Text`, `P-Online-MM`, `P-Verify-Hard`, `P-Ingest-Docs`, `P-Ingest-Visual` (§5.3). Router pede o perfil antes de despachar. **O gestor completo só faz sentido depois de o reranker estar servido** (perfil `P-Online-Text` = embedder+reranker), pelo que depende de HBIM-051 (correção 6). Até lá, HBIM-030 já garante serviços isolados suficientes para o caminho denso.

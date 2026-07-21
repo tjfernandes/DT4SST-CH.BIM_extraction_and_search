@@ -89,6 +89,13 @@ def ensure_semantic_text(element):
 
 
 def create_index(client):
+    # HBIM-021: criacao nao destrutiva e idempotente. Se o indice legacy ja
+    # existir, retorna imediatamente (antes de validar a dimensao) — nunca
+    # chama indices.delete e nunca recria.
+    if client.indices.exists(index=INDEX_NAME):
+        print(f"Indice '{INDEX_NAME}' ja existe; nada a fazer (criacao nao destrutiva).")
+        return
+
     _validate_embedding_dim()
 
     mapping = {
@@ -167,10 +174,6 @@ def create_index(client):
             },
         },
     }
-
-    if client.indices.exists(index=INDEX_NAME):
-        print(f"A remover indice antigo '{INDEX_NAME}'...")
-        client.indices.delete(index=INDEX_NAME)
 
     client.indices.create(index=INDEX_NAME, body=mapping)
     print(f"Indice '{INDEX_NAME}' criado com semantic_text e semantic_embedding.")

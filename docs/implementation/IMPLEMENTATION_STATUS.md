@@ -2,14 +2,14 @@
 
 ## Last completed issue
 
-HBIM-020 — Static OpenSearch index mappings
-(four static, versioned, `dynamic: strict` mappings for the canonical records —
-`elements_v1` / `property_facts_v1` / `classification_facts_v1` / `documents_v1`;
-`ClassificationFact` has its own mapping; `chunks` deferred to HBIM-070; no
-vectors, no aliases, no index creation, no operational settings; recursive
-strictness on every object/nested; `PropertyValue` mapped as a typed disjoint
-projection whose projection code is HBIM-022; mappings are JSON data with no
-loader; `backend/canonical` schema and the HBIM-005 baseline byte-unchanged)
+HBIM-021 — Alias migration and non-destructive index lifecycle
+(a pure `ingestion/index_lifecycle.py` over the four HBIM-020 mappings — fixed
+record-type registry, `<alias>_v<version>` naming, `json`+`pathlib` loader, typed
+vector-free settings, recursive semantic mapping compatibility, non-destructive
+idempotent create, single- and multi-alias atomic promotion, explicit rollback
+and deterministic status; a thin `ingestion/migrate.py` CLI; the legacy
+`create_index` made create-if-absent with no `indices.delete`; the four mappings,
+`backend/canonical`, retrieval and the HBIM-005 baseline byte-unchanged)
 
 ## Active issue
 
@@ -17,61 +17,84 @@ None — awaiting the next issue in the roadmap.
 
 ## Status
 
-Complete — `backend/canonical/mappings/{elements,property_facts,classification_facts,documents}_v1.json`
-are static, versioned OpenSearch mappings: `dynamic: "strict"` at the root and
-recursively on every `object`/`nested` (`materials`, `location`, the five spatial
-refs, `metrics`, `source`), `_source.enabled: true`, and a fixed `_meta`
-(`canonical_schema_versions: ["1.0"]`, `mapping_version: "1"`, `record_type`,
-`created_by: "HBIM-020"`). Identity fields are `keyword` with **no** normalizer
-(case-sensitive `global_id`); checksums are indexable `keyword`; `materials` is
-`nested`; `coerce: false` guards `materials.ordinal`, `metrics.*`,
-`value_integer`, `value_number`. The polymorphic `PropertyFact.value` is **not**
-mapped: `property_facts_v1` declares the typed, disjoint projection
-(`value_type`/`value_is_null`/`value_text`/`value_integer`/`value_number`/`value_boolean`).
-The mappings are **data** — no loader, no `__init__.py`, no `opensearchpy` import
-in `backend/canonical`; the first consumer is HBIM-021. **The projection code and
-its invariants (required presence, payload XOR, `value_type`→payload coherence)
-are HBIM-022 and are NOT implemented here.** No vectors/`knn`; operational
-settings and physical indices/aliases are HBIM-021. `backend/canonical`
-(schema/ids/serialization), `index_to_opensearch.py`, the API, retrieval and the
-HBIM-005 baseline are unchanged.
+Complete — `backend/ingestion/index_lifecycle.py` implements the non-destructive
+lifecycle for the four HBIM-020 indices (`element`/`property_fact`/
+`classification_fact`/`document` → aliases `hbim_elements`/`hbim_property_facts`/
+`hbim_classification_facts`/`hbim_documents`): an immutable registry, safe
+`<alias>_v<version>` naming from an explicit positive integer, a `json`+`pathlib`
+loader (filename from the registry, `_meta.record_type` validated, no traversal),
+a frozen `IndexSettings` (1 shard / 0 replicas / `total_fields.limit` 1000; no
+knn/analysis/normalizer), recursive **semantic** mapping compatibility that
+compares **every** field option (type, nested↔object, strictness, multifield,
+`enabled`/`index`/`coerce`, and `normalizer`/`analyzer`/`doc_values`/`null_value`/
+… — nothing silenced by an allowlist) and fails closed on any drift, tolerating
+only the proven OpenSearch 2.19.1 defaults (`_source` omitted, implicit
+`type:object`), idempotent create (never deletes, never overwrites a mapping,
+never auto-promotes; fails closed if creation is not `acknowledged`), atomic
+promotion/rollback via a single `update_aliases` call that also **repairs** a
+wrong/absent `is_write_index` (remove+add in one call → `PROMOTED`, never a silent
+no-op) with post-op verification of both the sole target **and** its write flag
+(`promote-all`/`rollback-all` all-or-nothing), and a deterministic secret-free
+status (physical versions ordered numerically). Every operation takes an
+**injected** client; nothing is created at import. `backend/ingestion/migrate.py`
+is a thin CLI (`main(argv)->int`, exit 0/1/2, `--yes`; `create`/`create-all`
+`--dry-run` plan locally with no client; OpenSearch transport errors are
+sanitised, never leaking host/URL/body) that builds the client at runtime. The legacy
+`index_to_opensearch.create_index` is now create-if-absent (returns before
+dimension validation when the index exists; the destructive `indices.delete` is
+removed). **No JSONL, projection, bulk indexing, separate indexers, final `_id`
+policy, embeddings, vectors, chunks, legacy conversion or API/retrieval alias
+consumption — those are HBIM-022+.** The four mapping JSON, `backend/canonical`
+(schema/ids/serialization), the API, retrieval and the HBIM-005 baseline are
+unchanged; the API still uses `bim_elements`.
 
 ## Current branch
 
-`feat/hbim-020-static-index-mappings`
+`feat/hbim-021-alias-migration`
 
 ## Specification
 
-`docs/implementation/issues/HBIM-020_STATIC_INDEX_MAPPINGS.md`
+`docs/implementation/issues/HBIM-021_ALIAS_MIGRATION.md`
 
 ## Last completed validation
 
-- Full backend suite: 368 passed across seeds 77082843/1 and `-p no:randomly`;
-  unit-only 346 passed, 22 deselected
-- Offline mapping suite (`test_index_mappings.py`): 61 passed — mappings-only
-  shape, exact `_meta`, recursive strictness, field coverage driven by Pydantic
-  `model_fields` (with the `PropertyValue` projection), ids `keyword` without
-  normalizer, checksums indexable `keyword`, `materials` nested, `coerce:false`,
-  no vectors, no legacy fields, byte-stable golden JSON
+- Full backend suite: 451 passed across seeds 77082843/1 and `-p no:randomly`;
+  unit-only 417 passed, 34 deselected
+- Offline lifecycle suite (`test_index_lifecycle.py`): 71 passed — exact registry
+  and aliases (no chunks, `bim_elements` not reused), physical naming and invalid
+  versions (positive int only, no upper bound), deterministic non-mutating loader,
+  no path traversal, `_meta.record_type` validation, vector-free settings,
+  compare-**all**-keys compatibility (keyword→text / nested→object / dynamic /
+  coerce / multifield / `_meta` / `normalizer` / `doc_values` / `analyzer` /
+  `null_value` all incompatible; server-omitted `_source` and implicit object
+  `type` compatible), idempotent create, unacknowledged create → `IndexCreationError`,
+  `is_write_index` repair (`PROMOTED`, single call) vs writable no-op,
+  numeric version ordering (v1/v2/v10), promote/rollback plans, multi-target
+  `AliasConflictError`, `promote-all` single `update_aliases`, deterministic
+  status, CLI confirmation refusing on EOF/Ctrl+C without a client, sanitised
+  OpenSearch transport errors, local `create --dry-run`, and import-safety (a
+  fresh interpreter pulls no `shared.config`/`shared.opensearch`/`canonical.schema`/
+  `torch`/`sentence_transformers`); legacy create_index does no destructive delete
+  and loads no model
 - Integration (Testcontainers `opensearchproject/opensearch:2.19.1`, ephemeral,
-  loopback-only): 22 passed = 15 `test_index_mappings_apply` + 1 smoke + 6 eval
-  baseline. Applying each mapping proves index/get round-trip, term / full-text /
-  range / nested (per-material correlation) / classification aggregation, and
-  rejection of unknown top-level, object and nested fields plus string→number
-  coercion (`materials.ordinal`, `metrics.area`, `value_integer`,
-  `value_number`); anti-mapping-explosion — many distinct `property_name` values
-  never grow `total_fields`
-- Reload-robust offline tests: models resolved by name at call time (the
-  import-safety suite reloads `canonical.schema` in-process); passes in all
-  three orders
-- Blocking mypy: same 20 modules clean (no new module — mappings are JSON data);
-  Ruff clean
+  loopback-only): 12 tests — create four v1 (mappings, settings, `_meta`),
+  idempotent re-create, first promotion + write/read through the alias with
+  `is_write_index`, v2 create + atomic `promote-all` (each alias exclusively v2) +
+  `rollback-all` to v1 with every physical index preserved, fail-closed promotion
+  (missing target, wrong record type, incompatible mapping, multiple targets,
+  alias/concrete-index collision), `is_write_index` repair on a tampered alias,
+  and a namespace-restricted cleanup that preserves `hbim_smoke_test` /
+  `hbim_eval_baseline_v1`; legacy `bim_elements` neither deleted nor altered
+- Blocking mypy: 22 modules clean (added `ingestion.index_lifecycle` and
+  `ingestion.migrate` to the strict override in `pyproject.toml` and the CI mypy
+  file list); Ruff clean
 - HBIM-005 evaluation integration: 6 passed; baseline `current_system.json`
   byte-unchanged (sha256 prefix `7bf3c8d7200f0512`)
-- Protected files byte-unchanged: `backend/canonical/{schema,ids,serialization}.py`,
-  `backend/ingestion/index_to_opensearch.py`
+- Protected files byte-unchanged: `backend/canonical/{schema,ids,serialization}.py`
+  and the four `backend/canonical/mappings/*.json`
 - `git diff --check`: clean; secret scan: clean; no `.env` tracked; no `.ifc`
-  tracked or staged; `local_data/` still git-ignored
+  tracked or staged; `local_data/` still git-ignored; the lifecycle deletes no
+  index in production (only Testcontainers teardown)
 
 ## Environment
 
