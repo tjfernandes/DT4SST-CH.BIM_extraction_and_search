@@ -466,7 +466,11 @@ def test_source_has_no_forbidden_constructs() -> None:
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-    assert imported <= {"re", "typing", "__future__"}, sorted(imported)
+    # HBIM-050 §5: the canonical BM25 section adds four stdlib-only imports
+    # (frozen stop-token policy). Still stdlib-pure — no OpenSearch, no model.
+    assert imported <= {
+        "re", "typing", "__future__", "json", "unicodedata", "functools", "pathlib"
+    }, sorted(imported)
     called = {
         node.func.id
         for node in ast.walk(tree)

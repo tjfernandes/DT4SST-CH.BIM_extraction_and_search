@@ -2,6 +2,78 @@
 
 ## Last completed issue
 
+HBIM-050 — BM25, dense retrieval and deterministic RRF hybrid fusion
+(deterministic candidate generation: canonical BM25 top-200 + dense Qwen3
+top-200 on the HBIM-031 contract, fused by exact unweighted RRF k=60 into a
+complete preserved candidate union; correctness gates only — final relevance
+quality is HBIM-051's after reranking)
+
+## Status of HBIM-050
+
+**Complete** (candidate generation; quality gate deferred to HBIM-051).
+
+- **Common target / ID space.** Both sources query one canonical index (alias
+  `hbim_elements` → v2 physical; in eval a test-owned `hbim_elements_v2`);
+  `_id = element_id` on both; no legacy/canonical or zembed/Qwen mixing possible.
+- **Dense contract.** Exactly the HBIM-031 selection read at runtime from
+  `dimension_decision.json` (sha `353b115e…`): field `embedding_qwen3`,
+  **dimension 4096**, space
+  `Qwen/Qwen3-Embedding-8B@1d8ad4ca…/d4096`, projection `v1`; one embedding call
+  per query through the HBIM-030 client; a per-instance space/projection
+  preflight fails closed on any mismatch.
+- **BM25 contract (fixed before results).** `multi_match(best_fields,
+  tie_breaker 0.3)` over `name^3.0, semantic_label^2.0, object_type^1.5,
+  description^1.0, location.{site,building,storey,space}.name^1.0` **plus** a
+  `nested` `materials.name^1.5` clause; a-priori stop-token policy from the
+  frozen HBIM-005B `stopwords.json`; `multi_match`/`match`/`nested` only —
+  never `query_string`/`wildcard`/`regexp`/script; `_source:false`; top-200.
+- **Shared canonical filters.** One pure builder feeds both sources, byte-equal
+  clauses (proven live) — a filter can never apply to one branch only.
+- **RRF.** Pure, exact `fractions.Fraction`, `RRF_K = 60`, 1-based, unweighted,
+  one contribution per source per id; tie-break fused-score → source-count →
+  ascending id; input-order invariant; **candidate-union preservation**
+  `set(fused) == set(bm25) ∪ set(dense)` proven against an independent oracle
+  (unit + live). The whole union is the ranked set HBIM-051 reranks.
+- **Strict failure.** Any source error aborts with a typed `HybridSourceError`;
+  no hidden dense-only/bm25-only fallback; an empty successful source fuses
+  validly.
+
+### Measured retrieval evaluation (frozen gold, 57 rank-evaluated queries, k=10)
+
+| system | nDCG@10 | Recall@10 | MRR@10 |
+|---|---|---|---|
+| BM25-only (diagnostic) | 0.401182 | 0.412719 | 0.436571 |
+| dense-only | 0.803681 | 0.904929 | 0.787135 |
+| **raw RRF (pre-rerank, DIAGNOSTIC)** | **0.681347** | 0.785359 | 0.669298 |
+
+- **Raw unweighted RRF did NOT beat dense-only** (0.681347 < 0.803681);
+  per-query hybrid-vs-dense wins/ties/losses = **9 / 11 / 37**. This is a
+  **diagnostic**, never phrased as an improvement; it is **not** an HBIM-050
+  gate.
+- **Saturation diagnostic (§13a).** corpus_size 122 < source_k 200 → both pools
+  saturated (`bm25_pool_saturated = dense_pool_saturated = True`); mean union
+  size 122 (the whole corpus), mean BM25∩dense overlap 9.82. With `k ≥ corpus`
+  every BM25 hit is also a dense hit, so absence-from-a-source — the signal RRF
+  exploits at scale — cannot occur and unweighted RRF acts as rank-averaging
+  between two unequal sources. RRF output is never altered by this flag.
+- **Reproducible.** Fresh two-run masked comparison identical (only wall
+  seconds differ); the run matches the earlier blocked measurement exactly.
+- **No post-hoc tuning.** No qrel, boost, `RRF_K`, top-200, tie-break, stop
+  policy or query-set change after seeing results; frozen gold/qrels/baselines/
+  `dimension_decision.json` byte-unchanged.
+- **Production activation deferred/closed.** `Route.HYBRID_SEMANTIC` keeps its
+  fail-closed semantic degradation; `/chat` is not hybrid; no `api/**` change;
+  `FILTER_RESULTS_BATCH` intact. Activating raw RRF as the answer ranking would
+  be a known quality regression — **HBIM-051** owns activation after its
+  reranker passes the blocking `reranked nDCG@10 ≥ dense-only` (+ recall
+  non-regression) gate. HBIM-050 ships the internal seam
+  `retrieval.hybrid.HybridRetriever.retrieve(top_n=None)` (whole union) for it.
+- **Not done here (deliberate).** No Qwen3 reranker / `FILTER_RESULTS_BATCH`
+  removal / thresholds (HBIM-051); no residency (HBIM-032); no EvidencePack
+  (HBIM-052); no grounded answers (HBIM-053); no graph/document/multimodal.
+
+## Previous issue
+
 HBIM-031 — Dimension benchmark per eligible canonical index and dense reindex
 (Qwen3 1024/2048/4096 benchmarked on the immutable HBIM-005B gold; **4096
 selected for `element`** by the precommitted selector; `elements_v2.json`
@@ -235,14 +307,17 @@ git-ignored `backend/eval/reports/`.
 
 ## Next issue
 
-Per the roadmap ordering, the next open P2 retrieval work is **HBIM-050**
-(BM25 + dense + RRF hybrid), which now has everything it needs from this
-milestone: the promoted-alias dense contract (`hbim_elements` → v2, field
-`embedding_qwen3`, 4096, space id in `_meta`), the dense indexing CLI, and the
-fail-closed `_qwen3_target_space` seam in `api/search.py`. **HBIM-032**
-(residency) additionally depends on HBIM-051 (served reranker). The unowned
-**HBIM-023 gap** (API over canonical aliases) remains open and is a natural
-companion to HBIM-050.
+Per the roadmap sequence (HBIM-050 → **HBIM-051** → HBIM-032 → HBIM-052 →
+HBIM-053) the next work is **HBIM-051** — Qwen3-Reranker-8B over the HBIM-050
+candidate union, removing `FILTER_RESULTS_BATCH`. It carries the **blocking**
+quality gate this milestone deferred: `reranked hybrid nDCG@10 ≥ dense-only` on
+the gold (ΔnDCG@10 positive) with recall non-regression versus the LLM-filter
+baseline, and it owns production activation of the hybrid route. HBIM-051
+consumes `retrieval.hybrid.HybridRetriever.retrieve(top_n=None)` (the complete
+preserved union), the shared canonical filter builder and the diagnostic
+`eval.hybrid_eval` harness. **HBIM-032** (residency) additionally depends on
+HBIM-051 (served reranker). The unowned **HBIM-023 gap** (API over canonical
+aliases) remains open.
 
 ## Previous issue
 
