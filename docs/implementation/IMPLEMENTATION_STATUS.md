@@ -2,6 +2,89 @@
 
 ## Last completed issue
 
+HBIM-031 — Dimension benchmark per eligible canonical index and dense reindex
+(Qwen3 1024/2048/4096 benchmarked on the immutable HBIM-005B gold; **4096
+selected for `element`** by the precommitted selector; `elements_v2.json`
+materialised from the decision; version-aware lifecycle; dense indexing through
+the isolated HBIM-030 service; kNN, atomic alias promotion and rollback proven
+on ephemeral OpenSearch)
+
+## Status of HBIM-031
+
+**Complete.**
+
+- **Provenance (verified before any model call).** All five HBIM-005B gold
+  hashes, `projection v1` (`10e4f7ef…`), baseline artifact
+  `semantic_model_quality.json` sha256 `9016ca0c…` — zembed@640 floor
+  Recall@10 **0.143713** (n=57), read from the artifact at runtime, never
+  hard-coded. The HBIM-005 `semantic_vector` plumbing score is never used.
+- **Eligible targets.** `element` only (the sole record type with relevance
+  judgments). `property_fact`/`classification_fact`/`document`: INELIGIBLE (no
+  gold; documents also have no text field until HBIM-070). `chunks`:
+  **NOT_APPLICABLE_UNTIL_HBIM-070**. No fabricated result for any of them.
+- **Fairness.** Identical model/revision/instruction/projection/qrels/metric
+  code (`evaluate_backend` — the exact HBIM-005B implementation), identical
+  HNSW (`lucene`/`cosinesimil`/m16/ef100), shards/replicas/force-merge, corpus
+  and query order; documents one-per-request; two-pass ranking-stability per
+  candidate; ascending candidate order; zero failed requests.
+
+### Measured candidates (frozen gold, k=10, n=57; storage/latency on the
+### 122-doc corpus — relative evidence, monotone in dimension)
+
+| dim | Recall@10 | nDCG@10 | MRR@10 | store bytes | kNN p50/p95 ms | e2e p50/p95 ms | parity |
+|---|---|---|---|---|---|---|---|
+| 1024 | 0.901713 | 0.785433 | 0.748705 | 2 163 406 | 3.583 / 6.194 | 26.141 / 32.081 | 0.985 |
+| 2048 | 0.902297 | 0.800450 | 0.772222 | 4 193 931 | 3.372 / 4.408 | 26.080 / 31.441 | 0.985 |
+| 4096 | 0.904929 | 0.803681 | 0.787134 | 8 255 086 | 5.371 / 6.010 | 29.472 / 36.609 | 0.989 |
+
+- **Selection (selector `hbim-031-1`, run exactly once).** All three eligible
+  (every gate true; all ≥ 6× the zembed floor). Quality leader 4096;
+  ε = 0.008772 (half of one query flip at n=57); 2048 falls outside the
+  equivalence class on MRR (Δ 0.014912 > ε), 1024 on nDCG (Δ 0.018248 > ε) →
+  **E = {4096}**, tie-break path `single_member_equivalence_class`,
+  **selected_dimension = 4096**. Full machine-readable trace committed in
+  `backend/eval/baselines/dimension_decision.json` (sha256 `353b115e…`), and a
+  test re-runs the selector on the committed candidate rows and asserts the
+  trace is its pure output — a hand-edited decision cannot survive.
+- **Determinism.** Run B (live suite, shared ephemeral cluster) equals run A
+  (committed artifact) under the masked comparator: quality, eligibility, ε,
+  trace and selected dimension byte-equal; storage ordering identical
+  (1024 < 2048 < 4096). The 4096 quality triple equals the HBIM-005B reference
+  exactly — a cross-session determinism witness.
+- **Mapping.** `canonical/mappings/elements_v2.json` == generator(4096)
+  byte-for-byte (anti-hand-edit test); v1 bytes untouched; exactly one
+  `knn_vector` (`embedding_qwen3`, dimension 4096); `_meta` carries model id +
+  revision, `embedding_space_id
+  Qwen/Qwen3-Embedding-8B@1d8ad4ca…/d4096`, projection v1 and the baseline
+  artifact sha. Lifecycle is version-aware **additively**: `load_mapping(rt,
+  version)`, `create_physical_index(..., mapping_version)` (auto-enables
+  `index.knn` for vector mappings), `_assert_compatible` resolves the version
+  from the effective `_meta`; `migrate create --mapping-version` added. All
+  HBIM-021/022 suites pass unmodified except two authorized package-shape pins.
+- **Dense reindex (live, real TEI).** 122/122 gold elements indexed into the
+  v2 physical; count + 5-sample byte round-trip verified; space preflight
+  refuses a zembed-shaped space id before any embedding call; input-mutation
+  digest gate; rerun idempotent. kNN acceptance through the promoted alias
+  (first rank-evaluated query retrieves relevant elements; ANN/exact overlap ≥
+  0.8); atomic promotion, single-target + write-index semantics, failure
+  injection before and after promotion, rollback to v1 verified; the dense
+  physical survives rollback intact (non-destructive).
+- **API boundary (closed).** The semantic route stays fail-closed —
+  `_qwen3_target_space` still returns `None` (comment now points to HBIM-050);
+  activating it against the legacy zembed index is impossible. HBIM-050
+  consumes the delivered contract: alias `hbim_elements` → v2, field
+  `embedding_qwen3`, space id in `_meta`.
+- **Specification repair (guarded).** One normative defect found during
+  implementation: §13 omitted `backend/tests/test_canonical_indexers.py`,
+  whose package-shape guard (scanned == 9) any new indexer module necessarily
+  moves. Safety branch `safety/hbim-031-spec-1acacb5` preserves the original
+  spec commit `1acacb5…`; the amended spec is the single spec commit.
+- **Not done here (deliberate).** No residency manager (HBIM-032); no
+  dense/hybrid retrieval, no reranker (HBIM-050/051); no chunking (HBIM-070);
+  no operational cluster or alias touched; no HBIM-005B byte changed.
+
+## Previous issue
+
 HBIM-005B — Preregistered semantic retrieval gold and model-quality baseline
 (the evaluation prerequisite HBIM-031 was blocked on: a frozen natural-language
 gold set over canonical elements, authored before any model ran, plus the first
@@ -152,13 +235,14 @@ git-ignored `backend/eval/reports/`.
 
 ## Next issue
 
-**HBIM-031** — dimension benchmark per index, production dimension selection,
-vector field in a new mapping version, dense reindex and alias promotion.
-Its Recall@10 gate is now the **measured** zembed baseline in
-`backend/eval/baselines/semantic_model_quality.json` (0.143713), not the
-nonexistent HBIM-005 model-quality number. The Qwen@4096 reference (0.904929)
-bounds what is achievable, and the frozen HBIM-005B gold plus the versioned
-`v1` text projection are reusable verbatim for the 1024/2048/4096 sweep.
+Per the roadmap ordering, the next open P2 retrieval work is **HBIM-050**
+(BM25 + dense + RRF hybrid), which now has everything it needs from this
+milestone: the promoted-alias dense contract (`hbim_elements` → v2, field
+`embedding_qwen3`, 4096, space id in `_meta`), the dense indexing CLI, and the
+fail-closed `_qwen3_target_space` seam in `api/search.py`. **HBIM-032**
+(residency) additionally depends on HBIM-051 (served reranker). The unowned
+**HBIM-023 gap** (API over canonical aliases) remains open and is a natural
+companion to HBIM-050.
 
 ## Previous issue
 

@@ -114,6 +114,9 @@ jobs:
           backend/eval/models/__init__.py
           backend/eval/models/zembed_adapter.py
           backend/eval/models/qwen_adapter.py
+          backend/eval/dim_selector.py
+          backend/eval/dim_benchmark.py
+          backend/ingestion/indexers/elements_dense.py
 
   frontend:
     runs-on: ubuntu-latest

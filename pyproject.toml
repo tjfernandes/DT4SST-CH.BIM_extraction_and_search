@@ -94,6 +94,9 @@ module = [
     "eval.models",
     "eval.models.zembed_adapter",
     "eval.models.qwen_adapter",
+    "eval.dim_selector",
+    "eval.dim_benchmark",
+    "ingestion.indexers.elements_dense",
 ]
 disallow_untyped_defs = true
 

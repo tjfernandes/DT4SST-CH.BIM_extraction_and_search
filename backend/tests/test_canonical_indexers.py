@@ -303,7 +303,9 @@ def test_no_chunks_anywhere_in_the_package() -> None:
         for token in FORBIDDEN_CHUNK_TOKENS:
             assert token not in text, (module.name, token)
         scanned += 1
-    assert scanned == 9  # the whole package really was scanned
+    # 10 since HBIM-031 added elements_dense.py; the new module is scanned by
+    # this guard (and by the alias-literal guard below) like every other.
+    assert scanned == 10  # the whole package really was scanned
 
 
 def test_forbidden_chunk_token_scan_can_actually_fail() -> None:

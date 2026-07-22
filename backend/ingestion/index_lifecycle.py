@@ -158,15 +158,42 @@ def _physical_name_pattern(alias: str) -> re.Pattern[str]:
 # --------------------------------------------------------------------------- #
 # Mapping loader (json + pathlib only; filename from the registry)
 # --------------------------------------------------------------------------- #
-def load_mapping(record_type: str) -> dict[str, Any]:
+#: Closed table of known mapping versions per record type (HBIM-031 §10).
+#: Version "1" is always the registry default file; only ``element`` has a v2
+#: (the Qwen3 vector mapping selected by the HBIM-031 benchmark).
+_MAPPING_VERSIONS: Mapping[str, Mapping[str, str]] = MappingProxyType(
+    {
+        "element": MappingProxyType(
+            {"1": "elements_v1.json", "2": "elements_v2.json"}
+        ),
+        "property_fact": MappingProxyType({"1": "property_facts_v1.json"}),
+        "classification_fact": MappingProxyType({"1": "classification_facts_v1.json"}),
+        "document": MappingProxyType({"1": "documents_v1.json"}),
+    }
+)
+
+
+def load_mapping(record_type: str, mapping_version: str | None = None) -> dict[str, Any]:
     """Load the committed mapping for ``record_type`` as data (never mutated).
 
-    The filename comes exclusively from the fixed registry, so no user path and
-    no path traversal is possible. Validates the top-level keys and that the
-    embedded ``_meta.record_type`` matches.
+    ``mapping_version=None`` keeps the pre-HBIM-031 behaviour (the registry
+    default file). An explicit version resolves through the closed
+    ``_MAPPING_VERSIONS`` table and additionally requires the loaded
+    ``_meta.mapping_version`` to equal the requested version. Filenames never
+    come from user input, so no path traversal is possible.
     """
     spec = get_spec(record_type)
-    path = MAPPINGS_DIR / spec.mapping_filename
+    if mapping_version is None:
+        filename = spec.mapping_filename
+    else:
+        versions = _MAPPING_VERSIONS[record_type]
+        if mapping_version not in versions:
+            raise MappingLoadError(
+                f"unknown mapping_version {mapping_version!r} for record_type "
+                f"{record_type!r}; known: {sorted(versions)}"
+            )
+        filename = versions[mapping_version]
+    path = MAPPINGS_DIR / filename
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -184,7 +211,30 @@ def load_mapping(record_type: str) -> dict[str, Any]:
         raise MappingLoadError(
             f"_meta.record_type mismatch in mapping for record_type {record_type!r}"
         )
+    if mapping_version is not None and meta.get("mapping_version") != mapping_version:
+        raise MappingLoadError(
+            f"mapping file {filename!r} declares _meta.mapping_version "
+            f"{meta.get('mapping_version')!r}, expected {mapping_version!r}"
+        )
     return mapping
+
+
+def _mapping_has_knn_vector(mapping: Mapping[str, Any]) -> bool:
+    """True when any (nested) property is a ``knn_vector`` field."""
+
+    def _walk(properties: Mapping[str, Any]) -> bool:
+        for node in properties.values():
+            if not isinstance(node, Mapping):
+                continue
+            if node.get("type") == "knn_vector":
+                return True
+            child = node.get("properties")
+            if isinstance(child, Mapping) and _walk(child):
+                return True
+        return False
+
+    properties = mapping.get("properties")
+    return isinstance(properties, Mapping) and _walk(properties)
 
 
 # --------------------------------------------------------------------------- #
@@ -192,21 +242,29 @@ def load_mapping(record_type: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class IndexSettings:
-    """Minimal, vector-free operational settings, applied only at create-time."""
+    """Minimal operational settings, applied only at create-time.
+
+    ``knn`` stays ``False`` for every vector-free mapping; it is auto-enabled
+    by :func:`create_physical_index` when the loaded mapping carries a
+    ``knn_vector`` field (HBIM-031 §10) so a dense index can never be created
+    unsearchable by accident.
+    """
 
     number_of_shards: int = 1
     number_of_replicas: int = 0
     mapping_total_fields_limit: int = 1000
+    knn: bool = False
 
-    def to_body(self) -> dict[str, dict[str, int]]:
-        """Render the OpenSearch ``settings.index`` body (no knn/analysis/normalizer)."""
-        return {
-            "index": {
-                "number_of_shards": self.number_of_shards,
-                "number_of_replicas": self.number_of_replicas,
-                "mapping.total_fields.limit": self.mapping_total_fields_limit,
-            }
+    def to_body(self) -> dict[str, dict[str, Any]]:
+        """Render the OpenSearch ``settings.index`` body."""
+        index: dict[str, Any] = {
+            "number_of_shards": self.number_of_shards,
+            "number_of_replicas": self.number_of_replicas,
+            "mapping.total_fields.limit": self.mapping_total_fields_limit,
         }
+        if self.knn:
+            index["knn"] = True
+        return {"index": index}
 
 
 # --------------------------------------------------------------------------- #
@@ -370,11 +428,28 @@ def _assert_record_type(effective: Mapping[str, Any], record_type: str, physical
 def _assert_compatible(
     client: OpenSearch, record_type: str, physical_index: str
 ) -> dict[str, Any]:
+    """Compare the effective mapping against the committed version it declares.
+
+    HBIM-031: the version to validate against comes from the **effective**
+    ``_meta.mapping_version``, so a v1 physical is checked against the v1 file
+    and a v2 physical against the v2 file. A missing or unknown declared
+    version fails closed — an index of unidentifiable contract is never
+    accepted, promoted or rolled back to.
+    """
     effective = _effective_mapping(client, physical_index)
     _assert_record_type(effective, record_type, physical_index)
-    if not is_mapping_compatible(load_mapping(record_type), effective):
+    meta = effective.get("_meta")
+    declared = meta.get("mapping_version") if isinstance(meta, dict) else None
+    known = _MAPPING_VERSIONS[record_type]
+    if not isinstance(declared, str) or declared not in known:
         raise IncompatibleIndexError(
-            f"index {physical_index!r} mapping is incompatible with the {record_type!r} contract"
+            f"index {physical_index!r} declares mapping_version {declared!r}; "
+            f"known versions for {record_type!r}: {sorted(known)}"
+        )
+    if not is_mapping_compatible(load_mapping(record_type, declared), effective):
+        raise IncompatibleIndexError(
+            f"index {physical_index!r} mapping is incompatible with the {record_type!r} "
+            f"v{declared} contract"
         )
     return effective
 
@@ -402,14 +477,25 @@ def create_physical_index(
     settings: IndexSettings | None = None,
     *,
     dry_run: bool = False,
+    mapping_version: str | None = None,
 ) -> CreateResult:
     """Create ``<alias>_v<version>`` if absent; idempotent if compatible; else fail.
 
     Never deletes, never overwrites an existing mapping, never promotes.
+    ``mapping_version=None`` keeps the pre-HBIM-031 behaviour; an explicit
+    version selects that committed mapping. A mapping carrying a ``knn_vector``
+    field auto-enables ``index.knn`` so the index is kNN-searchable.
     """
     physical = physical_index_name(record_type, physical_version)  # validates rt + version
-    mapping = load_mapping(record_type)
+    mapping = load_mapping(record_type, mapping_version)
     settings = settings or IndexSettings()
+    if _mapping_has_knn_vector(mapping) and not settings.knn:
+        settings = IndexSettings(
+            number_of_shards=settings.number_of_shards,
+            number_of_replicas=settings.number_of_replicas,
+            mapping_total_fields_limit=settings.mapping_total_fields_limit,
+            knn=True,
+        )
     if dry_run:
         return CreateResult(record_type, physical, CreateOutcome.DRY_RUN)
     _assert_no_alias_collision(client, get_spec(record_type).alias)
