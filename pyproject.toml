@@ -87,6 +87,8 @@ module = [
     "ingestion.indexers.cli",
     "models.embeddings_qwen3",
     "eval.bench.embedding_latency",
+    "eval.text_projection",
+    "eval.semantic_gold_dataset",
 ]
 disallow_untyped_defs = true
 
