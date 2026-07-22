@@ -566,6 +566,51 @@ compostos (`"pedra calcária"` não casa com `pedra`) e nomes parciais não são
 cobertos — evoluir exige bump de `LEXICAL_TERMS_VERSION`. BM25, dense, RRF,
 reranking e EvidencePack são HBIM-050.
 
+## Serviço isolado de embeddings Qwen3 (HBIM-030)
+
+`Qwen/Qwen3-Embedding-8B` corre num **processo próprio** (Text Embeddings
+Inference, imagem e revisão **pinadas**, GPU, **apenas loopback**), consumido
+pelo cliente tipado `backend/models/embeddings_qwen3.py`. A API e os indexers
+**deixaram de carregar `SentenceTransformer`/`torch` in-process**. Detalhes de
+deployment e limpeza segura: `deploy/embeddings/README.md`.
+
+```bash
+# arrancar / prontidao / identidade / parar
+docker compose -f deploy/embeddings/docker-compose.yml up -d
+curl --fail --silent http://127.0.0.1:8081/health && echo READY
+curl --fail --silent http://127.0.0.1:8081/info      # model_id + model_sha pinados
+docker compose -f deploy/embeddings/docker-compose.yml down
+
+# testes offline (sem GPU, sem modelo, sem rede)
+~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/test_embeddings_qwen3.py -q -o addopts=""
+
+# testes ao vivo (exigem o servico acima; nunca corridos no CI)
+HBIM_REQUIRE_EMBEDDING_SERVICE=1 ~/miniconda3/bin/conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_embeddings_qwen3_service.py -m gpu_service -q -o addopts=""
+
+# benchmark de latencia (p50/p95/max por dimensao) -> backend/eval/reports/ (git-ignored)
+PYTHONPATH=backend ~/miniconda3/bin/conda run -n hbim-rag python -m eval.bench.embedding_latency \
+  --dimensions 1024,2048,4096 --model-revision <40-hex-revision>
+```
+
+**Marcadores.** A suite ao vivo tem `integration` **e** `gpu_service`: sai em
+`-m "not integration"` (unit), sai no job de CI (`-m "integration and not
+gpu_service"`) e entra apenas com `-m gpu_service`. Sem o servico a correr faz
+**skip** com razão explícita; com `HBIM_REQUIRE_EMBEDDING_SERVICE=1` é falha dura.
+
+**Dimensões.** Só `{1024, 2048, 4096}`. A escolha da dimensão de produção por
+índice é da **HBIM-031**, não desta issue.
+
+**Rota semântica (transição).** O índice ativo `bim_elements` ainda contém
+vetores do espaço legacy; vetores Qwen são um **espaço diferente mesmo com o
+mesmo comprimento**. Por isso `get_query_embedding` falha fechado com
+`EmbeddingSpaceUnavailableError` e o endpoint degrada para o caminho **não
+semântico** — estruturado, exato, agregação e lexical mantêm-se intactos. Pela
+mesma razão o `build_actions` do indexer legacy recusa produzir vetores
+(`python -m ingestion.index_to_opensearch` já não indexa densamente). A
+indexação densa regressa na **HBIM-031**, contra um índice reconstruído.
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.

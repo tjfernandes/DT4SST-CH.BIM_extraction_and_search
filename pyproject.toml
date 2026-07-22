@@ -11,6 +11,7 @@ addopts = "-m 'not integration'"
 markers = [
     "unit: teste unitário (default para testes sem marker; sem rede, sem Docker)",
     "integration: exige Docker local; correr com -o addopts=\"\" -m integration",
+    "gpu_service: exige o servico local de embeddings com GPU (HBIM-030); correr com -m gpu_service",
 ]
 
 [tool.ruff]
@@ -84,6 +85,8 @@ module = [
     "ingestion.indexers.classification_facts_indexer",
     "ingestion.indexers.documents_indexer",
     "ingestion.indexers.cli",
+    "models.embeddings_qwen3",
+    "eval.bench.embedding_latency",
 ]
 disallow_untyped_defs = true
 

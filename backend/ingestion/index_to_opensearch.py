@@ -1,48 +1,27 @@
 import argparse
 import json
-from functools import lru_cache
 from pathlib import Path
 
 from opensearchpy import helpers
 from tqdm import tqdm
 
-from shared.config import EMBEDDING_BATCH_SIZE, EMBEDDING_DIM, EMBEDDING_MODEL_NAME, OPENSEARCH_INDEX
+from shared.config import EMBEDDING_DIM, OPENSEARCH_INDEX
 from shared.opensearch import get_opensearch_client
 
 INDEX_NAME = OPENSEARCH_INDEX
-SUPPORTED_EMBEDDING_DIMS = {40, 80, 160, 320, 640, 1280, 2560}
 
 
 def _validate_embedding_dim():
-    if EMBEDDING_DIM not in SUPPORTED_EMBEDDING_DIMS:
-        supported = ", ".join(str(value) for value in sorted(SUPPORTED_EMBEDDING_DIMS))
-        raise ValueError(f"EMBEDDING_DIM={EMBEDDING_DIM} is not supported by {EMBEDDING_MODEL_NAME}. Supported dims: {supported}")
+    """Model-agnostic guard for the legacy ``knn_vector`` mapping size (HBIM-030).
 
-
-@lru_cache(maxsize=1)
-def get_embedding_model():
-    try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError as exc:
-        raise RuntimeError(
-            "sentence-transformers is required to generate semantic embeddings. "
-            "Install it together with torch before running the indexer."
-        ) from exc
-
-    model_kwargs = {}
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            model_kwargs["torch_dtype"] = torch.bfloat16
-    except ImportError:
-        pass
-
-    init_kwargs = {"trust_remote_code": True}
-    if model_kwargs:
-        init_kwargs["model_kwargs"] = model_kwargs
-
-    return SentenceTransformer(EMBEDDING_MODEL_NAME, **init_kwargs)
+    The zembed-specific ``SUPPORTED_EMBEDDING_DIMS`` allowlist is gone: per-model
+    dimension validation now lives in the Qwen3 client
+    (``models.embeddings_qwen3``). A ``knn_vector`` dimension is simply a
+    positive integer, so the HBIM-005 evaluation baseline (``EMBEDDING_DIM=40``)
+    keeps working while the zembed-only assumption is removed.
+    """
+    if isinstance(EMBEDDING_DIM, bool) or not isinstance(EMBEDDING_DIM, int) or EMBEDDING_DIM < 1:
+        raise ValueError(f"EMBEDDING_DIM must be a positive integer, got {EMBEDDING_DIM!r}")
 
 
 def batched(items, batch_size):
@@ -229,40 +208,22 @@ def sanitize_element(element):
     return element
 
 
-def generate_embeddings(texts, pbar=None):
-    model = get_embedding_model()
-    encode_kwargs = {
-        "batch_size": EMBEDDING_BATCH_SIZE,
-        "convert_to_numpy": True,
-        "normalize_embeddings": True,
-        "show_progress_bar": False,
-        "truncate_dim": EMBEDDING_DIM,
-    }
-
-    if hasattr(model, "encode_document"):
-        vectors = model.encode_document(texts, **encode_kwargs)
-    else:
-        vectors = model.encode(texts, **encode_kwargs)
-
-    if pbar:
-        pbar.update(len(texts))
-
-    return [vector.tolist() if hasattr(vector, "tolist") else list(vector) for vector in vectors]
-
-
 def build_actions(elements, pbar_embed=None):
-    for batch in batched(elements, EMBEDDING_BATCH_SIZE):
-        clean_batch = [sanitize_element(element) for element in batch]
-        texts = [element["semantic_text"] for element in clean_batch]
-        embeddings = generate_embeddings(texts, pbar_embed)
+    """Legacy dense indexing is disabled in HBIM-030 (fails closed).
 
-        for clean_element, embedding in zip(clean_batch, embeddings, strict=False):
-            clean_element["semantic_embedding"] = embedding
-            yield {
-                "_index": INDEX_NAME,
-                "_id": f"{clean_element['project_id']}_{clean_element['id']}",
-                "_source": clean_element,
-            }
+    This path could only ever emit **zembed** vectors, produced by an in-process
+    ``SentenceTransformer`` that HBIM-030 removes. Emitting Qwen3 vectors here
+    instead would silently mix two different embedding spaces inside the legacy
+    index, so the path refuses rather than degrading. HBIM-031 restores dense
+    indexing against a rebuilt Qwen3-space index.
+    """
+    from models.embeddings_qwen3 import EmbeddingSpaceUnavailableError
+
+    raise EmbeddingSpaceUnavailableError(
+        "legacy dense indexing is disabled: it can only produce legacy-space vectors, "
+        "and mixing embedding spaces in one index is forbidden; HBIM-031 rebuilds "
+        "the dense index against the Qwen3 service"
+    )
 
 
 def index_data(input_path):

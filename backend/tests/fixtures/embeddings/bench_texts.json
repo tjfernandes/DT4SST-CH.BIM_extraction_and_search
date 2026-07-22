@@ -1,0 +1,19 @@
+{
+  "fixture_version": "1",
+  "description": "Deterministic synthetic texts for the HBIM-030 latency benchmark. No real project data, no hosts, no credentials. Two length classes: 'short' (~32 tokens) and 'medium' (~256 tokens).",
+  "short": [
+    "granite ashlar wall on the north cloister elevation",
+    "timber roof truss above the chapter house",
+    "limestone vaulted ceiling with ribbed groins",
+    "wrought iron window grille, ground floor",
+    "clay tile roof covering, south range",
+    "lime mortar pointing on the rubble masonry",
+    "oak door leaf with iron strap hinges",
+    "marble floor slab in the entrance hall"
+  ],
+  "medium": [
+    "The north cloister elevation is built in coursed granite ashlar with fine joints and a lime mortar bedding. The wall rises from a chamfered plinth to a moulded string course, above which the masonry changes to smaller squared rubble. Several blocks show tooling marks consistent with a punch and claw chisel. Localised decay is visible at the base course, where rising damp has caused granular disintegration and loss of arrises. Previous repointing in cementitious mortar has accelerated the loss of the surrounding stone and should be recorded as a conservation risk requiring removal and replacement with a compatible lime based mortar of appropriate strength and permeability for the substrate.",
+    "The timber roof structure over the chapter house consists of principal rafter trusses at approximately two metre centres, with collars, and a ridge purlin carried on shaped bosses. The timbers are oak, converted by pit sawing, and retain carpenter assembly marks in the form of scribed numerals at each joint. Mortice and tenon connections are secured with tapered oak pegs. Deflection is evident at the eastern truss, where a historic repair has introduced a steel flitch plate bolted through the principal. Moisture readings taken adjacent to the wall plate indicate elevated levels consistent with a failed gutter above the parapet.",
+    "The vaulted ceiling is constructed in limestone with chamfered ribs springing from moulded corbels set into the wall face. The web panels are laid in thin coursed stone with a lime mortar backing. Surface deposits of soot and particulate soiling obscure the original tooling across the northern bays. A network of fine cracks follows the line of the transverse rib, most likely reflecting historic settlement rather than active movement, although monitoring is recommended before any intervention. Earlier limewash layers survive in sheltered pockets adjacent to the corbels and should be sampled and analysed prior to any cleaning trial."
+  ]
+}
