@@ -611,6 +611,61 @@ mesma razão o `build_actions` do indexer legacy recusa produzir vetores
 (`python -m ingestion.index_to_opensearch` já não indexa densamente). A
 indexação densa regressa na **HBIM-031**, contra um índice reconstruído.
 
+## Baseline de qualidade de modelo semântico (HBIM-005B)
+
+O gold pré-registado vive em `backend/eval/semantic_gold/` e é **imutável**: o
+runner recalcula os cinco hashes e aborta **antes** de contactar qualquer modelo
+se um único byte diferir. Corrigir o gold exige nova `dataset_version` e um novo
+commit de pré-registo — nunca uma emenda depois de ver resultados.
+
+Perfil ML isolado (não instalado pelos jobs de CI):
+
+```bash
+pip install -r backend/requirements.txt -r backend/requirements-ml.txt
+```
+
+Correr a baseline (o cache de modelos fica **fora** do repositório):
+
+```bash
+docker compose -f deploy/embeddings/docker-compose.yml up -d   # Qwen via TEI
+
+cd backend
+HF_HOME="${HBIM_HF_CACHE:-$HOME/.cache/huggingface}" \
+EMBEDDING_SERVICE_URL=http://127.0.0.1:8081 \
+EMBEDDING_SERVICE_MODEL_ID=Qwen/Qwen3-Embedding-8B \
+EMBEDDING_SERVICE_MODEL_REVISION=1d8ad4ca9b3dd8059ad90a75d4983776a23d44af \
+  conda run -n hbim-rag python -m eval.run_semantic_baseline \
+  --models zembed,qwen --write-baseline
+```
+
+`EMBEDDING_SERVICE_MODEL_REVISION` é obrigatório e é um **pin público**
+(documentado em `deploy/embeddings/README.md`), não um segredo.
+
+Testes com modelos reais — falham em vez de saltar quando a flag está a 1:
+
+```bash
+HBIM_REQUIRE_SEMANTIC_MODELS=1 HBIM_REQUIRE_EMBEDDING_SERVICE=1 \
+  conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_semantic_baseline_models.py \
+  -q -o addopts="" -m model_service
+```
+
+Notas operacionais:
+
+- `zeroentropy/zembed-1` é público, mas um token HF expirado em disco faz
+  devolver **401 mesmo em leituras públicas**. Os adaptadores pedem
+  explicitamente acesso anónimo, pelo que a baseline não depende do estado de
+  credenciais do operador — e nunca lê nem escreve o ficheiro de token.
+- O modelo declara um módulo `modeling_zembed.py` próprio, logo é resolvido
+  primeiro o snapshot da revisão pinada e só depois carregado a partir dessa
+  pasta (`trust_remote_code=True`).
+- Os documentos Qwen são enviados **um por pedido**: em lote, dois passes
+  idênticos não são reprodutíveis (23/122 vetores iguais) e trocam posições
+  quase empatadas. HBIM-031, que mede latência, pode voltar a usar lotes.
+- O artefacto `backend/eval/baselines/semantic_model_quality.json` não tem
+  timestamp, vetores, hostname nem caminhos absolutos. Saídas volumosas ficam em
+  `backend/eval/semantic_reports/` (ignorado pelo Git).
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.

@@ -2,6 +2,70 @@
 
 ## Last completed issue
 
+HBIM-005B — Preregistered semantic retrieval gold and model-quality baseline
+(the evaluation prerequisite HBIM-031 was blocked on: a frozen natural-language
+gold set over canonical elements, authored before any model ran, plus the first
+**measured** embedding-model quality numbers in this repository)
+
+## Status of HBIM-005B
+
+**Complete.**
+
+- **Why it exists.** `ROADMAP.md` required HBIM-031 to beat a "dense Recall@10
+  baseline (zembed) recorded in HBIM-005". That baseline never existed: the
+  HBIM-005 specification excludes semantic **model quality** (§95, §302) and
+  `run_eval.py:51` reports `semantic model quality: not evaluated`. Its only
+  semantic number is the **kNN plumbing** score driven by hand-designed 40-dim
+  vectors. HBIM-031 was stopped for this reason and is now unblocked.
+- **Frozen gold** (`backend/eval/semantic_gold/`, preregistration commit
+  `662d14b`): 122 canonical `ElementRecord`s across 3 invented heritage sites,
+  62 natural-language needs (33 PT / 29 EN), 850 graded judgments,
+  57 rank-evaluated queries, 5 zero-relevant. `k/N` = 8.20 %, so the cutoff is
+  discriminative. Five files are hashed, including `rubric.md` and
+  `stopwords.json` — both are normative.
+- **Grades are derived, never hand-assigned.** A pure total function of each
+  query's declared `must`/`should` predicates over a closed allowlist that is
+  *exactly* the projected field set; `qrels.jsonl` is its materialised output and
+  is regenerated and byte-compared by the suite.
+- **Anti-leakage.** 18/62 queries share **no** content word with any of their
+  relevant documents. This is achievable without distorting truth because the
+  sites use genuinely different materials (`madeira de castanheiro`/`calcário`/
+  `azulejo` vs `oak`/`limestone`/`glazed tile`), so a Portuguese need for oak
+  correctly excludes chestnut joinery.
+- **Projection** `v1`, `projection_corpus_sha256`
+  `10e4f7ef530fae6865e1b174bd525f271a8e7beb6e2a8aeffbe001e660f96faf`. Both
+  models provably consumed this exact value.
+
+### Measured model quality (exact cosine, full-corpus ranking, k=10, n=57)
+
+| role | model | dim | Recall@10 | nDCG@10 | MRR@10 |
+|---|---|---|---|---|---|
+| legacy baseline | `zeroentropy/zembed-1` | 640 | **0.143713** | 0.117532 | 0.104330 |
+| reference | `Qwen/Qwen3-Embedding-8B` | 4096 | **0.904929** | 0.803681 | 0.787134 |
+
+Both revisions pinned (`10378878bba40172305a1a979db64a413ab7da7b` and
+`1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`), both `determinism_check: pass`,
+both `max_component_delta: 0.0`, zero failures.
+
+- **The legacy number is genuine, not an adapter defect.** The adapter
+  reproduces the pre-HBIM-030 call contract verbatim, and `encode_query`/
+  `encode_document` are both present and used with the model's own query and
+  document prompts. Diagnostic sweep at other truncations: 640 → 0.143713,
+  1280 → 0.151170, native 2560 → 0.241082. Even undtruncated the model is far
+  below Qwen on this deliberately hard cross-lingual corpus; the legacy
+  `EMBEDDING_DIM=640` truncation costs a further ~0.10.
+- **Determinism required a fix, not a relaxed gate.** Batched Qwen document
+  requests were not reproducible (23/122 vectors identical, max delta 7.6e-4),
+  flipping near-tied ranks. Single-item requests were exact (62/62). The adapter
+  now sends one document per request; the gate was left strict.
+- **kNN parity** (reported, never gated): OpenSearch HNSW/lucene/cosinesimil
+  top-10 overlap with exact cosine = **0.946774**.
+- **Not done here (deliberate).** No 1024/2048 measurement, no dimension
+  selection, no `knn_vector` field, no mapping version, no dense index, no alias
+  promotion — all HBIM-031.
+
+## Previous issue
+
 HBIM-030 — Qwen3-Embedding-8B isolated embedding service
 (`Qwen/Qwen3-Embedding-8B` served by a pinned Text Embeddings Inference
 container on loopback GPU; a typed, import-safe client in
@@ -89,8 +153,12 @@ git-ignored `backend/eval/reports/`.
 ## Next issue
 
 **HBIM-031** — dimension benchmark per index, production dimension selection,
-vector field in a new mapping version, dense reindex and alias promotion,
-Recall@10 against the HBIM-005 baseline.
+vector field in a new mapping version, dense reindex and alias promotion.
+Its Recall@10 gate is now the **measured** zembed baseline in
+`backend/eval/baselines/semantic_model_quality.json` (0.143713), not the
+nonexistent HBIM-005 model-quality number. The Qwen@4096 reference (0.904929)
+bounds what is achievable, and the frozen HBIM-005B gold plus the versioned
+`v1` text projection are reusable verbatim for the 1024/2048/4096 sweep.
 
 ## Previous issue
 

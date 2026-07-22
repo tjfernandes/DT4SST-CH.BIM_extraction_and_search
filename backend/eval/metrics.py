@@ -13,7 +13,8 @@ multiset comparison.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import math
+from collections.abc import Iterable, Mapping, Sequence
 
 
 def round_metric(value: float, ndigits: int = 6) -> float:
@@ -82,6 +83,39 @@ def mrr_at_k(retrieved: Sequence[str], relevant: Iterable[str], k: int) -> float
         if doc_id in relevant_set:
             return 1.0 / rank
     return 0.0
+
+
+def ndcg_at_k(retrieved: Sequence[str], grades: Mapping[str, int], k: int) -> float:
+    """Graded nDCG@k (HBIM-005B §9.3).
+
+    Gain ``2**grade - 1``, discount ``1 / log2(rank + 1)``. The ideal ranking is
+    the judged grades sorted descending and truncated at ``k``, so a query with
+    more relevant documents than the cutoff is still scored against the best
+    achievable top-``k`` rather than against an unreachable ideal.
+
+    Returns ``0.0`` when nothing is judged (``IDCG == 0``) — never ``1.0``: an
+    unjudged query must not be reported as perfectly answered. Unretrieved and
+    unjudged ids contribute gain 0.
+
+    HBIM-005 deliberately omitted nDCG ("relevance is binary in v1; ``grade``
+    reserved"); this is that reserved extension, added without touching any
+    existing function.
+    """
+    if k <= 0:
+        return 0.0
+    dcg = 0.0
+    for rank, doc_id in enumerate(retrieved[:k], start=1):
+        gain = (2 ** grades.get(doc_id, 0)) - 1
+        if gain:
+            dcg += gain / math.log2(rank + 1)
+    ideal = 0.0
+    for rank, grade in enumerate(sorted(grades.values(), reverse=True)[:k], start=1):
+        gain = (2**grade) - 1
+        if gain:
+            ideal += gain / math.log2(rank + 1)
+    if ideal == 0.0:
+        return 0.0
+    return dcg / ideal
 
 
 def routing_accuracy(predicted: Sequence[str], expected: Sequence[str]) -> float:
