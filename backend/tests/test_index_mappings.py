@@ -181,9 +181,13 @@ ALL_FILENAMES = list(FILENAMES)
 # --------------------------------------------------------------------------- #
 # 1–2. File set: exactly four, no chunks, no loader/__init__.py
 # --------------------------------------------------------------------------- #
-def test_exactly_four_mapping_files_present() -> None:
+def test_mapping_file_set_is_exactly_the_four_v1_plus_elements_v2() -> None:
+    # HBIM-031 added the single vector mapping `elements_v2.json` (selected
+    # dimension; see eval/baselines/dimension_decision.json). Every assertion
+    # in this module stays v1-scoped; v2 has its own dedicated suite
+    # (test_elements_v2_mapping.py).
     json_files = {p.name for p in MAPPINGS_DIR.glob("*.json")}
-    assert json_files == FILENAMES
+    assert json_files == FILENAMES | {"elements_v2.json"}
 
 
 def test_no_chunks_no_loader_no_python_modules() -> None:

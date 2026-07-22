@@ -83,6 +83,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_physical_version(create)
     _add_settings(create)
     _add_dry_run(create)
+    # HBIM-031: select a committed mapping version (default: registry file).
+    create.add_argument("--mapping-version", default=None, help="committed mapping version, e.g. 2")
 
     create_all = sub.add_parser("create-all", help="create the four physical indices")
     _add_physical_version(create_all)
@@ -197,7 +199,16 @@ def _run(args: argparse.Namespace, client: OpenSearch) -> None:
     command = args.command
     if command == "create":
         _emit_create(
-            [il.create_physical_index(client, args.record_type, args.physical_version, _settings(args), dry_run=args.dry_run)]
+            [
+                il.create_physical_index(
+                    client,
+                    args.record_type,
+                    args.physical_version,
+                    _settings(args),
+                    dry_run=args.dry_run,
+                    mapping_version=args.mapping_version,
+                )
+            ]
         )
     elif command == "create-all":
         _emit_create(il.create_all(client, args.physical_version, _settings(args), dry_run=args.dry_run))

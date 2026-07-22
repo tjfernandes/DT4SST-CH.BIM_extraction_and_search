@@ -666,6 +666,47 @@ Notas operacionais:
   timestamp, vetores, hostname nem caminhos absolutos. Saídas volumosas ficam em
   `backend/eval/semantic_reports/` (ignorado pelo Git).
 
+## Benchmark de dimensão e reindexação densa (HBIM-031)
+
+A dimensão de produção do índice `elements` foi selecionada por benchmark
+pré-comprometido sobre o gold imutável de HBIM-005B: **4096** (decisão e traço
+completos em `backend/eval/baselines/dimension_decision.json`; regra do
+seletor em `backend/eval/dim_selector.py`, `hbim-031-1`). O mapping denso é
+`backend/canonical/mappings/elements_v2.json` — gerado, nunca editado à mão
+(um teste regenera-o e compara byte a byte).
+
+Reproduzir o benchmark (TEI ativo; OpenSearch efémero gerido pelo próprio CLI):
+
+```bash
+cd backend
+HBIM_REQUIRE_EMBEDDING_SERVICE=1 \
+EMBEDDING_SERVICE_MODEL_REVISION=1d8ad4ca9b3dd8059ad90a75d4983776a23d44af \
+  conda run -n hbim-rag python -m eval.dim_benchmark --ephemeral --write-artifact
+```
+
+Reindexação densa de um JSONL canónico de elementos para o físico v2 (criado
+com `migrate create --record-type element --physical-version 2
+--mapping-version 2`; o `index.knn` é ativado automaticamente):
+
+```bash
+cd backend
+EMBEDDING_SERVICE_MODEL_REVISION=1d8ad4ca9b3dd8059ad90a75d4983776a23d44af \
+  conda run -n hbim-rag python -m ingestion.indexers.elements_dense \
+  --input <elements.jsonl> --physical-version 2 --dimensions 4096 \
+  --opensearch-url http://127.0.0.1:<porta>
+```
+
+Notas operacionais:
+
+- o preflight recusa qualquer índice cujo `_meta` não declare exatamente o
+  espaço `Qwen/Qwen3-Embedding-8B@1d8ad4ca…/d4096` e a projeção `v1` — misturar
+  espaços zembed/Qwen é estruturalmente impossível;
+- promoção e rollback continuam a ser passos explícitos do `ingestion.migrate`
+  (HBIM-021); uma reindexação parcial nunca move o alias;
+- a rota semântica da API continua *fail-closed* (HBIM-050 ativa o retrieval
+  denso sobre o alias canónico);
+- URLs de OpenSearch não-loopback são recusados por ambos os CLIs.
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.

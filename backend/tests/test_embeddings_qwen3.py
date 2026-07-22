@@ -572,11 +572,24 @@ def test_legacy_indexer_has_no_model_loader() -> None:
 # --------------------------------------------------------------------------- #
 # Scope guards: canonical mappings stay vector-free
 # --------------------------------------------------------------------------- #
-def test_canonical_mappings_remain_vector_free() -> None:
+def test_v1_mappings_remain_vector_free_and_only_elements_v2_carries_the_vector() -> None:
+    # HBIM-030 shipped no vector field anywhere; HBIM-031 moved that boundary
+    # by exactly one file: elements_v2.json (the benchmark-selected dimension).
+    # The four v1 mappings must stay byte-level vector-free forever.
     mappings = sorted((BACKEND / "canonical" / "mappings").glob("*.json"))
-    assert len(mappings) == 4
+    assert [path.name for path in mappings] == [
+        "classification_facts_v1.json",
+        "documents_v1.json",
+        "elements_v1.json",
+        "elements_v2.json",
+        "property_facts_v1.json",
+    ]
     for path in mappings:
         raw = path.read_text(encoding="utf-8")
+        if path.name == "elements_v2.json":
+            assert raw.count('"knn_vector"') == 1
+            assert '"embedding_qwen3"' in raw
+            continue
         for token in ("knn_vector", "embedding", "dimension", "semantic_embedding"):
             assert token not in raw, f"{path.name} gained a vector field"
 

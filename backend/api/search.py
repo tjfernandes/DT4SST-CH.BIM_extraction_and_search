@@ -98,8 +98,11 @@ def _qwen3_target_space() -> str | None:
     HBIM-030 ships **no** Qwen3-backed index: ``OPENSEARCH_INDEX`` still holds
     legacy ``zembed`` vectors, and Qwen3 vectors are a *different* embedding
     space even when the vector lengths match. Returning ``None`` therefore keeps
-    the semantic route fail-closed. HBIM-031 rebuilds the dense index and returns
-    that index's space id here, which activates the delegation below.
+    the semantic route fail-closed. HBIM-031 built the canonical dense contract
+    (``hbim_elements`` v2, field ``embedding_qwen3``, selected dimension in
+    ``eval/baselines/dimension_decision.json``) but this API still queries the
+    legacy index, so the route stays closed; **HBIM-050** moves retrieval onto
+    the canonical alias and returns that index's space id here.
     """
     return None
 
