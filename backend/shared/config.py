@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import warnings
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -309,3 +310,138 @@ class OpenSearchSettings(BaseSettings):
         if self.use_ssl is not None:
             return self.use_ssl
         return self.effective_scheme == "https"
+
+
+class EmbeddingConfigurationError(RuntimeError):
+    """Configuração inválida do serviço de embeddings (HBIM-030).
+
+    Não deriva de ValueError de propósito: erros de validador embrulhados em
+    ValidationError anexam o input bruto (que poderia incluir o token).
+    """
+
+
+_LOOPBACK_EMBEDDING_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+_HEX40 = re.compile(r"^[0-9a-f]{40}$")
+
+#: HBIM-030 target dimensions. HBIM-031 selects the production one per index.
+EMBEDDING_TARGET_DIMENSIONS = (1024, 2048, 4096)
+
+
+class EmbeddingSettings(BaseSettings):
+    """Definições do serviço isolado de embeddings Qwen3 (HBIM-030).
+
+    Segmentadas: não exigem OpenSearch nem LLM. Nunca instanciadas no import;
+    o token nunca aparece em ``repr``, mensagens de erro ou logs.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    base_url: str = Field(
+        default="http://127.0.0.1:8081", validation_alias=AliasChoices("EMBEDDING_SERVICE_URL")
+    )
+    model_id: str = Field(
+        default="Qwen/Qwen3-Embedding-8B",
+        validation_alias=AliasChoices("EMBEDDING_SERVICE_MODEL_ID"),
+    )
+    model_revision: str = Field(
+        validation_alias=AliasChoices("EMBEDDING_SERVICE_MODEL_REVISION")
+    )
+    dimensions: int = Field(
+        default=4096, validation_alias=AliasChoices("EMBEDDING_SERVICE_DIMENSIONS")
+    )
+    batch_size: int = Field(
+        default=8, validation_alias=AliasChoices("EMBEDDING_SERVICE_BATCH_SIZE")
+    )
+    connect_timeout_s: float = Field(
+        default=5.0, validation_alias=AliasChoices("EMBEDDING_SERVICE_CONNECT_TIMEOUT")
+    )
+    read_timeout_s: float = Field(
+        default=60.0, validation_alias=AliasChoices("EMBEDDING_SERVICE_READ_TIMEOUT")
+    )
+    max_retries: int = Field(
+        default=2, validation_alias=AliasChoices("EMBEDDING_SERVICE_MAX_RETRIES")
+    )
+    backoff_base_s: float = Field(
+        default=0.25, validation_alias=AliasChoices("EMBEDDING_SERVICE_BACKOFF_BASE")
+    )
+    readiness_timeout_s: float = Field(
+        default=600.0, validation_alias=AliasChoices("EMBEDDING_SERVICE_READINESS_TIMEOUT")
+    )
+    auth_token: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("EMBEDDING_SERVICE_AUTH_TOKEN")
+    )
+    allow_non_loopback: bool = Field(
+        default=False, validation_alias=AliasChoices("EMBEDDING_SERVICE_ALLOW_NON_LOOPBACK")
+    )
+
+    @field_validator("model_id")
+    @classmethod
+    def _model_id_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise EmbeddingConfigurationError("EMBEDDING_SERVICE_MODEL_ID must not be empty")
+        return value
+
+    @field_validator("model_revision")
+    @classmethod
+    def _revision_is_pinned(cls, value: str) -> str:
+        # Floating refs (main/latest/branch names) are forbidden: a moving
+        # revision silently changes the embedding space.
+        if not _HEX40.match(value.strip().lower()):
+            raise EmbeddingConfigurationError(
+                "EMBEDDING_SERVICE_MODEL_REVISION must be a pinned 40-character commit sha"
+            )
+        return value.strip().lower()
+
+    @field_validator("dimensions")
+    @classmethod
+    def _dimension_supported(cls, value: int) -> int:
+        if isinstance(value, bool) or value not in EMBEDDING_TARGET_DIMENSIONS:
+            raise EmbeddingConfigurationError(
+                f"EMBEDDING_SERVICE_DIMENSIONS must be one of {EMBEDDING_TARGET_DIMENSIONS}"
+            )
+        return value
+
+    @field_validator("batch_size")
+    @classmethod
+    def _batch_in_range(cls, value: int) -> int:
+        if not 1 <= value <= 64:
+            raise EmbeddingConfigurationError("EMBEDDING_SERVICE_BATCH_SIZE must be in [1, 64]")
+        return value
+
+    @field_validator("max_retries")
+    @classmethod
+    def _retries_in_range(cls, value: int) -> int:
+        if not 0 <= value <= 5:
+            raise EmbeddingConfigurationError("EMBEDDING_SERVICE_MAX_RETRIES must be in [0, 5]")
+        return value
+
+    @field_validator("connect_timeout_s", "read_timeout_s", "backoff_base_s", "readiness_timeout_s")
+    @classmethod
+    def _positive(cls, value: float, info: ValidationInfo) -> float:
+        if value <= 0:
+            raise EmbeddingConfigurationError(f"{info.field_name} must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_url(self) -> "EmbeddingSettings":
+        parts = urlsplit(self.base_url)
+        if parts.scheme not in ("http", "https"):
+            raise EmbeddingConfigurationError(
+                "EMBEDDING_SERVICE_URL must use http or https"
+            )
+        if not parts.hostname:
+            raise EmbeddingConfigurationError("EMBEDDING_SERVICE_URL must contain a host")
+        if parts.hostname not in _LOOPBACK_EMBEDDING_HOSTS and not self.allow_non_loopback:
+            raise EmbeddingConfigurationError(
+                "EMBEDDING_SERVICE_URL must be loopback unless "
+                "EMBEDDING_SERVICE_ALLOW_NON_LOOPBACK is explicitly enabled"
+            )
+        return self

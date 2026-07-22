@@ -530,7 +530,9 @@ def test_legacy_existing_index_is_not_touched(monkeypatch: pytest.MonkeyPatch) -
         raise AssertionError("_validate_embedding_dim must not run when the index exists")
 
     monkeypatch.setattr(legacy, "_validate_embedding_dim", _boom)
-    monkeypatch.setattr(legacy, "get_embedding_model", lambda: (_ for _ in ()).throw(AssertionError("no model")))
+    # HBIM-030 removed the in-process loader outright, so there is nothing left to
+    # patch — the absence of the symbol is a stronger guarantee than a stub.
+    assert not hasattr(legacy, "get_embedding_model")
 
     client = FakeClient()
     client.seed_index(legacy.INDEX_NAME, {"mappings": {}})
@@ -542,7 +544,9 @@ def test_legacy_existing_index_is_not_touched(monkeypatch: pytest.MonkeyPatch) -
 def test_legacy_absent_index_still_creates(monkeypatch: pytest.MonkeyPatch) -> None:
     from ingestion import index_to_opensearch as legacy
 
-    monkeypatch.setattr(legacy, "get_embedding_model", lambda: (_ for _ in ()).throw(AssertionError("no model")))
+    # HBIM-030 removed the in-process loader outright, so there is nothing left to
+    # patch — the absence of the symbol is a stronger guarantee than a stub.
+    assert not hasattr(legacy, "get_embedding_model")
     client = FakeClient()
     legacy.create_index(client)  # index absent -> creates (dimension default is valid)
     assert client.count("create") == 1

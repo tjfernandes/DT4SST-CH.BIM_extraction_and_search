@@ -16,3 +16,6 @@ ifcopenshell==0.8.3.post1
 pillow>=10.0.0
 numpy>=1.26.0
 tqdm==4.67.1
+
+# HBIM-030: HTTP client for the isolated Qwen3 embedding service (production dep).
+httpx~=0.28.1

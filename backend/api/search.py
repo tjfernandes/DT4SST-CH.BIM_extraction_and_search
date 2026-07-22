@@ -13,8 +13,6 @@ from retrieval.lexical import (
     parse_classification_buckets,
 )
 from shared.config import (
-    EMBEDDING_DIM,
-    EMBEDDING_MODEL_NAME,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_LOG_OUTPUTS,
@@ -94,37 +92,44 @@ IFC_CLASS_VARIANTS = {
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
-def _get_embedding_model():
-    from sentence_transformers import SentenceTransformer
+def _qwen3_target_space() -> str | None:
+    """Embedding space of the index the semantic route queries, if it is Qwen3.
 
-    model_kwargs = {}
-    try:
-        import torch
+    HBIM-030 ships **no** Qwen3-backed index: ``OPENSEARCH_INDEX`` still holds
+    legacy ``zembed`` vectors, and Qwen3 vectors are a *different* embedding
+    space even when the vector lengths match. Returning ``None`` therefore keeps
+    the semantic route fail-closed. HBIM-031 rebuilds the dense index and returns
+    that index's space id here, which activates the delegation below.
+    """
+    return None
 
-        if torch.cuda.is_available():
-            model_kwargs["torch_dtype"] = torch.bfloat16
-    except ImportError:
-        pass
 
-    init_kwargs = {"trust_remote_code": True}
-    if model_kwargs:
-        init_kwargs["model_kwargs"] = model_kwargs
-    return SentenceTransformer(EMBEDDING_MODEL_NAME, **init_kwargs)
+def _embedding_client():
+    """Lazily build the isolated-service client. Never called at import time."""
+    from models.embeddings_qwen3 import Qwen3EmbeddingClient
+
+    from shared.config import EmbeddingSettings
+
+    return Qwen3EmbeddingClient(EmbeddingSettings())
 
 
 def get_query_embedding(text: str) -> list:
-    model = _get_embedding_model()
-    encode_kwargs = {
-        "convert_to_numpy": True,
-        "normalize_embeddings": True,
-        "truncate_dim": EMBEDDING_DIM,
-    }
-    if hasattr(model, "encode_query"):
-        vector = model.encode_query([text], **encode_kwargs)[0]
-    else:
-        vector = model.encode([text], **encode_kwargs)[0]
-    return vector.tolist() if hasattr(vector, "tolist") else list(vector)
+    """Embed a query through the isolated Qwen3 service (no in-process model).
+
+    Guarded by embedding-space identity: a Qwen3 vector must never be used to
+    query an index built with another model, so this fails closed until
+    HBIM-031 provides a Qwen3-space index.
+    """
+    from models.embeddings_qwen3 import EmbeddingSpaceUnavailableError
+
+    space = _qwen3_target_space()
+    if space is None:
+        raise EmbeddingSpaceUnavailableError(
+            f"semantic route unavailable: index {OPENSEARCH_INDEX!r} holds legacy "
+            "vectors from a different embedding space; HBIM-031 rebuilds the dense index"
+        )
+    with _embedding_client() as client:
+        return client.embed_query(text)
 
 
 @lru_cache(maxsize=1)

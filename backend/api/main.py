@@ -8,6 +8,7 @@ from typing import List, Mapping, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from models.embeddings_qwen3 import EmbeddingSpaceUnavailableError
 from prometheus_client import CollectorRegistry
 from pydantic import BaseModel
 
@@ -56,6 +57,9 @@ from shared.logging import setup_logging
 from shared.security import redact_mapping, verify_api_key
 
 logger = logging.getLogger(__name__)
+
+# HBIM-030: sanitised counters only — never inputs, vectors or credentials.
+_EMBEDDING_DIAGNOSTICS: dict[str, int] = {"semantic_space_unavailable": 0}
 
 # --------------------------------------------------------------------------- #
 # HBIM-040 §10.3 — capability map: Route -> legacy execution strategy.
@@ -296,7 +300,12 @@ async def chat_endpoint(request: ChatRequest):
                 embedding_query = search_plan.embedding_query or effective_query
                 search_plan.embedding_query = embedding_query
                 log_preprocess_json("semantic_embedding_query", {"query": embedding_query})
-                query_embedding = get_query_embedding(embedding_query)
+                try:
+                    query_embedding = get_query_embedding(embedding_query)
+                except EmbeddingSpaceUnavailableError:
+                    # HBIM-030: no Qwen3-space index exists yet, so degrade to the
+                    # non-semantic path instead of mixing embedding spaces.
+                    _EMBEDDING_DIAGNOSTICS["semantic_space_unavailable"] += 1
         else:
             has_prior_user_messages = any(m["role"] == "user" for m in history)
             if has_prior_user_messages:
@@ -402,7 +411,12 @@ async def chat_endpoint(request: ChatRequest):
                         conditions_result,
                     )
                     log_preprocess_json("semantic_embedding_query", {"query": embedding_query})
-                    query_embedding = get_query_embedding(embedding_query)
+                    try:
+                        query_embedding = get_query_embedding(embedding_query)
+                    except EmbeddingSpaceUnavailableError:
+                        # HBIM-030: see the sibling call site — fail closed to the
+                        # non-semantic path rather than mix embedding spaces.
+                        _EMBEDDING_DIAGNOSTICS["semantic_space_unavailable"] += 1
 
                 search_plan = SearchPlan(
                     search_strategy=strategy,

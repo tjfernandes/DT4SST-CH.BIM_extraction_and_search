@@ -2,6 +2,98 @@
 
 ## Last completed issue
 
+HBIM-030 — Qwen3-Embedding-8B isolated embedding service
+(`Qwen/Qwen3-Embedding-8B` served by a pinned Text Embeddings Inference
+container on loopback GPU; a typed, import-safe client in
+`backend/models/embeddings_qwen3.py`; dimensions 1024/2048/4096; every
+in-process `SentenceTransformer`/`torch` model load removed from the API and the
+legacy indexer; the zembed-specific dimension allowlist deleted; the semantic
+route fails closed rather than mixing embedding spaces)
+
+## Status of HBIM-030
+
+**Complete.**
+
+- **Backend.** Hugging Face **TEI**, image
+  `ghcr.io/huggingface/text-embeddings-inference:120-1.9`, digest
+  `sha256:aedf3b34836dc57289583142adcf2b93836cda0736ac8e6ce43691b9c2c67170`.
+  Chosen over vLLM because TEI publishes a purpose-built **Blackwell 12.0
+  (`sm_120`)** image matching the measured GPU, officially supports
+  `Qwen3-Embedding-8B`, and exposes request-level `dimensions` (MRL),
+  `normalize`, `/health` and `/info`.
+- **Model.** `Qwen/Qwen3-Embedding-8B`, revision pinned to
+  `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af` (40-hex; floating refs rejected by
+  settings validation). `float16`, last-token pooling, `max_input_length` 16384.
+- **Hardware class.** RTX PRO 6000 Blackwell workstation GPU, 97 887 MiB VRAM,
+  compute capability 12.0, driver 596.72, CUDA 13.2, Docker 29.6.1 (no machine
+  identifiers recorded).
+- **Service topology.** Loopback only (`127.0.0.1:8081` → container `:80`),
+  GPU-reserved, cache outside the repository, healthcheck proving model
+  readiness, no privileged mode, no host networking, no embedded credentials.
+- **Normalization — Mode A confirmed live.** TEI truncates to the requested
+  dimension **then** L2-normalizes: measured norm `1.000000` at 1024/2048/4096,
+  and the renormalized 4096-prefix matches the native vector with cosine
+  `1.000000` (genuine Matryoshka truncation, not a re-encode). The client
+  validates the unit norm and fails closed; it never silently re-normalizes.
+- **Query/document contract.** Queries are wrapped exactly once with the pinned
+  `Instruct: …\nQuery: {text}` instruction (`QUERY_INSTRUCTION_VERSION = "v1"`,
+  not user-controllable); documents are sent **raw**. Live proof: the same text
+  embedded as query vs document differs (cosine 0.73).
+- **Dimensions.** Exactly `{1024, 2048, 4096}`, validated in the client before
+  any I/O; `bool`, `float`, `str`, `640`, `0` and negatives are all rejected.
+  **No production dimension is selected** — that is HBIM-031.
+- **Embedding-space guard.** A space is `(model_id, model_revision, dimensions)`.
+  `get_query_embedding` and the legacy `build_actions` raise
+  `EmbeddingSpaceUnavailableError` because the live index still holds legacy
+  vectors; the two authorized `api/main.py` call sites degrade to the
+  **non-semantic** path. **No vector is written to any index by HBIM-030.**
+- **Not done here (deliberate).** No canonical mapping change, no vector field,
+  no dense reindex, no alias promotion, no dimension selection (HBIM-031); no
+  residency manager (HBIM-032); no dense/hybrid retrieval or reranker
+  (HBIM-050/051).
+
+### Fresh validation evidence (this session)
+
+| scenario | dim | batch | p50 ms | p95 ms | max ms |
+|---|---|---|---|---|---|
+| query | 1024 | 1 | 22.917 | 27.336 | 30.581 |
+| documents | 1024 | 8 | 97.475 | 105.648 | 111.116 |
+| query | 2048 | 1 | 21.626 | 27.304 | 35.581 |
+| documents | 2048 | 8 | 100.561 | 108.847 | 116.316 |
+| query | 4096 | 1 | 21.039 | 26.965 | 30.214 |
+| documents | 4096 | 8 | 105.076 | 112.882 | 119.184 |
+
+20 warm-up requests discarded and 200 measured per cell, **zero failed
+requests**; nearest-rank p50/p95 (regression-tested). Report written to the
+git-ignored `backend/eval/reports/`.
+
+- **Live GPU suite:** 17 passed with `-m gpu_service` under
+  `HBIM_REQUIRE_EMBEDDING_SERVICE=1` (never a silent skip) — health, model id
+  **and** revision, all three dimensions, determinism, batch-vs-solo ordering,
+  query/document distinction, oversized-input truncation, Matryoshka prefix.
+- **Focused suite:** 102 passed in default order and under seeds
+  1, 7, 42, 20260722, 77082843 and `-p no:randomly`.
+- **Unit-only:** 1096 passed, 89 deselected (no GPU, no model, no network).
+- **Non-GPU integration (CI selector `-m "integration and not gpu_service"`):**
+  72 passed, 1111 deselected; the GPU suite is provably collected 0 times by CI
+  and by unit runs, and exactly 17 times by `-m gpu_service`.
+- **HBIM-005 baseline:** 6 passed; `current_system.json` byte-unchanged
+  (sha256 `32d940aa20494f8fe6744734636abc432bf42cdda7d345a72c9440d93077e9a6`).
+- **Ruff:** clean. **mypy:** 37 files clean via the exact CI command, now
+  including `models.embeddings_qwen3` and `eval.bench.embedding_latency`.
+- **Protected files:** `backend/canonical/**` (schema, ids, serialization, the
+  four mappings), `ingestion/indexers/**`, `index_lifecycle.py`, `migrate.py`
+  and `shared/opensearch.py` unchanged (`git diff HEAD` empty for those paths).
+- **Artifacts:** no model weights, caches or benchmark reports in the repository.
+
+## Next issue
+
+**HBIM-031** — dimension benchmark per index, production dimension selection,
+vector field in a new mapping version, dense reindex and alias promotion,
+Recall@10 against the HBIM-005 baseline.
+
+## Previous issue
+
 HBIM-042 — Lexical filters and classification aggregation
 (a pure, stdlib-only `backend/retrieval/lexical.py` whose clauses
 `api/search.py` now attaches: material/storey/name are actually applied —
