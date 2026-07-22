@@ -703,9 +703,48 @@ Notas operacionais:
   espaços zembed/Qwen é estruturalmente impossível;
 - promoção e rollback continuam a ser passos explícitos do `ingestion.migrate`
   (HBIM-021); uma reindexação parcial nunca move o alias;
-- a rota semântica da API continua *fail-closed* (HBIM-050 ativa o retrieval
-  denso sobre o alias canónico);
+- a rota semântica da API continua *fail-closed*; a ativação do retrieval denso
+  sobre o alias canónico pertence a **HBIM-051** (depois do reranker), não a
+  HBIM-050;
 - URLs de OpenSearch não-loopback são recusados por ambos os CLIs.
+
+## Retrieval híbrido BM25 + dense + RRF (HBIM-050)
+
+Geração de candidatos determinística: BM25 top-200 + dense Qwen3 top-200 →
+**RRF não-ponderado (k=60)** → união completa preservada. É *candidate
+generation*, não a qualidade final: o reranker e o gate bloqueante
+`nDCG@10 ≥ dense-sozinho` são de **HBIM-051**.
+
+Módulos: `retrieval/{lexical.py (secção BM25 canónica), dense.py, rrf.py,
+canonical_filters.py, hybrid.py}`. Seam para HBIM-051:
+`retrieval.hybrid.HybridRetriever.retrieve(text, filters=…, top_n=None)`
+devolve a união fundida completa (o conjunto que o reranker vai reordenar).
+
+Avaliação diagnóstica no gold imutável de HBIM-005B (TEI ativo; OpenSearch
+efémero gerido pelo CLI):
+
+```bash
+cd backend
+HBIM_REQUIRE_EMBEDDING_SERVICE=1 \
+EMBEDDING_SERVICE_MODEL_REVISION=1d8ad4ca9b3dd8059ad90a75d4983776a23d44af \
+  conda run -n hbim-rag python -m eval.hybrid_eval --ephemeral --write-report
+```
+
+Notas operacionais:
+
+- o relatório (`backend/eval/reports/hybrid_eval.json`, ignorado pelo Git)
+  regista BM25-only, dense-only e **RRF-cru** (nDCG@10/Recall@10/MRR@10),
+  wins/ties/losses, tamanho da união, sobreposição e flags de saturação;
+- **o RRF-cru pode ficar abaixo do dense-sozinho** — é **diagnóstico**, nunca um
+  gate; no gold (122 docs < k=200) ambas as fontes saturam o corpus, pelo que a
+  fusão não-ponderada não distingue por ausência de fonte;
+- o *exit code* do CLI reflete apenas sucesso **operacional** (as duas fontes
+  correram, sem pedidos falhados, hashes verificados) — nunca a comparação de
+  qualidade;
+- os hashes do gold são reverificados antes de qualquer modelo; filtros
+  estruturais são idênticos nas duas fontes (um único construtor canónico);
+- a rota `Route.HYBRID_SEMANTIC` continua fechada; `/chat` **não** é híbrido e
+  `FILTER_RESULTS_BATCH` mantém-se (removido em HBIM-051).
 
 ## Serviços locais de desenvolvimento (Docker Compose)
 

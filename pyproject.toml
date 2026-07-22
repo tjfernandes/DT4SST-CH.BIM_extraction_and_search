@@ -56,6 +56,10 @@ module = [
     "retrieval.lexical",
     "retrieval.query_parser",
     "retrieval.router",
+    "retrieval.canonical_filters",
+    "retrieval.rrf",
+    "retrieval.dense",
+    "retrieval.hybrid",
     "shared.config",
     "shared.opensearch",
     "shared.security",
@@ -96,6 +100,7 @@ module = [
     "eval.models.qwen_adapter",
     "eval.dim_selector",
     "eval.dim_benchmark",
+    "eval.hybrid_eval",
     "ingestion.indexers.elements_dense",
 ]
 disallow_untyped_defs = true

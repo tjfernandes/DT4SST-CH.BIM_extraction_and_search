@@ -855,13 +855,13 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Descrição.** `dense.py`, `lexical.py` (BM25), `rrf.py`, `hybrid.py` (top-200+top-200→RRF).
 - **Ficheiros.** `retrieval/{dense,lexical,rrf,hybrid}.py`, `tests/test_rrf.py`.
 - **Dependências.** HBIM-030, HBIM-040.
-- **Aceitação.** RRF determinístico; nDCG@10 ≥ dense-sozinho no gold.
+- **Aceitação.** RRF determinístico; preservação da união de candidatos (BM25∪dense, sem perda de fonte); paridade de IDs e filtros canónicos entre as duas fontes; comparação diagnóstica reproduzível BM25 vs dense vs RRF-cru. O nDCG@10 do RRF-cru é **diagnóstico** (pode ficar abaixo do dense na saturação corpus<200); o gate bloqueante nDCG@10 ≥ dense-sozinho pertence a HBIM-051 após reranking (M5 l.6 `… → RRF → reranker`; M5 l.42).
 
 ### HBIM-051 — Qwen3-Reranker-8B + remover FILTER_RESULTS_BATCH — **P2 / L**
 - **Descrição.** `rerank.py` + serviço; remover pós-filtro por LLM; limiares afinados.
 - **Ficheiros.** `retrieval/rerank.py`, `models/reranker_qwen3.py`, `api/main.py`, `api/prompts.py`.
 - **Dependências.** HBIM-050.
-- **Aceitação.** `FILTER_RESULTS_BATCH` ausente; ΔnDCG@10 positivo; recall não desce vs baseline.
+- **Aceitação.** `FILTER_RESULTS_BATCH` ausente; **nDCG@10 do hybrid reranked ≥ dense-sozinho** no gold (ΔnDCG@10 positivo); recall não desce vs baseline LLM-filter.
 
 ### HBIM-052 — EvidencePack + dedup + agregação — **P2 / L**
 - **Descrição.** `evidence.py` monta `EvidencePack` (dedup, agrupamento, caveats).

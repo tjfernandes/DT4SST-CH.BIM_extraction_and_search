@@ -16,7 +16,11 @@ ever emitted are ``term`` and ``terms`` — no ``query_string``, ``wildcard``,
 
 from __future__ import annotations
 
+import json
 import re
+import unicodedata
+from functools import lru_cache
+from pathlib import Path
 from typing import Sequence
 
 __all__ = [
@@ -207,3 +211,130 @@ def parse_classification_buckets(aggregations: dict) -> list[dict]:
         raise ValueError("malformed classification aggregation response") from exc
     buckets.sort(key=lambda item: (-item["count"], item["key"]))
     return buckets
+
+
+# =========================================================================== #
+# HBIM-050 canonical BM25 (elements_v2 target)
+# =========================================================================== #
+# Everything below targets the CANONICAL elements index selected by HBIM-031
+# (alias ``hbim_elements`` -> v2 physical). It shares nothing with the legacy
+# ``bim_elements`` builders above except this module, per the HBIM-050 spec §6:
+# the accepted HBIM-042 surface is byte-compatible and untouched.
+#
+# The stop-token policy (spec §7/C4) reuses the FROZEN, preregistered HBIM-005B
+# stop-word lists as data — committed before any hybrid result existed — so a
+# query token carrying no retrieval intent ("de", "com", "the") can never
+# flood BM25 with preposition-only matches. The comparison normalisation
+# (NFC -> casefold -> accent-strip) mirrors the frozen dataset's own contract;
+# the emitted query keeps the surviving original tokens verbatim.
+
+BM25_SIZE = 200
+BM25_TIE_BREAKER = 0.3
+BM25_MATERIALS_BOOST = 1.5
+
+#: Deterministic, alphabetically sorted field^boost emission (spec §7).
+BM25_FIELDS: tuple[str, ...] = (
+    "description^1.0",
+    "location.building.name^1.0",
+    "location.site.name^1.0",
+    "location.space.name^1.0",
+    "location.storey.name^1.0",
+    "name^3.0",
+    "object_type^1.5",
+    "semantic_label^2.0",
+)
+
+_STOPWORDS_PATH = (
+    Path(__file__).resolve().parents[1] / "eval" / "semantic_gold" / "stopwords.json"
+)
+
+
+def _bm25_normalise(token: str) -> str:
+    """Comparison-only normalisation: NFC -> casefold -> accent strip."""
+    decomposed = unicodedata.normalize("NFD", unicodedata.normalize("NFC", token).casefold())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+@lru_cache(maxsize=1)
+def _stop_tokens() -> frozenset[str]:
+    """The frozen HBIM-005B PT+EN stop lists, loaded lazily (never at import)."""
+    data = json.loads(_STOPWORDS_PATH.read_text(encoding="utf-8"))
+    return frozenset(_bm25_normalise(word) for words in data.values() for word in words)
+
+
+def strip_stop_tokens(text: str) -> str:
+    """Drop alphanumeric tokens whose normalised form is a frozen stop word.
+
+    Surviving tokens keep their original bytes (diacritics intact) and are
+    re-joined with single spaces. Non-alphanumeric characters act only as
+    token separators — nothing is ever passed through as query syntax.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    for char in text:
+        if char.isalnum():
+            current.append(char)
+        elif current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    return " ".join(token for token in tokens if _bm25_normalise(token) not in _stop_tokens())
+
+
+def build_bm25_query(
+    text: str,
+    filters: Sequence[dict] | None = None,
+    *,
+    size: int = BM25_SIZE,
+) -> dict | None:
+    """Exact canonical BM25 body (spec §7), or ``None`` when nothing remains.
+
+    ``None`` means "perform no OpenSearch call and treat the lexical source as
+    a valid empty result" — an all-stop-word query is not an error. Only
+    ``multi_match``/``match``/``nested`` clauses are ever emitted, so user
+    text cannot inject query syntax.
+    """
+    stripped = strip_stop_tokens(text)
+    if not stripped:
+        return None
+    body: dict = {
+        "size": size,
+        "_source": False,
+        "query": {
+            "bool": {
+                "must": {
+                    "bool": {
+                        "should": [
+                            {
+                                "multi_match": {
+                                    "query": stripped,
+                                    "type": "best_fields",
+                                    "tie_breaker": BM25_TIE_BREAKER,
+                                    "fields": list(BM25_FIELDS),
+                                }
+                            },
+                            {
+                                "nested": {
+                                    "path": "materials",
+                                    "score_mode": "max",
+                                    "query": {
+                                        "match": {
+                                            "materials.name": {
+                                                "query": stripped,
+                                                "boost": BM25_MATERIALS_BOOST,
+                                            }
+                                        }
+                                    },
+                                }
+                            },
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            }
+        },
+    }
+    if filters:
+        body["query"]["bool"]["filter"] = list(filters)
+    return body

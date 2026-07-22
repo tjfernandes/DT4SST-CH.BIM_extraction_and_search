@@ -75,6 +75,10 @@ jobs:
           backend/retrieval/lexical.py
           backend/retrieval/query_parser.py
           backend/retrieval/router.py
+          backend/retrieval/canonical_filters.py
+          backend/retrieval/rrf.py
+          backend/retrieval/dense.py
+          backend/retrieval/hybrid.py
           backend/shared/config.py
           backend/shared/opensearch.py
           backend/shared/security.py
@@ -116,6 +120,7 @@ jobs:
           backend/eval/models/qwen_adapter.py
           backend/eval/dim_selector.py
           backend/eval/dim_benchmark.py
+          backend/eval/hybrid_eval.py
           backend/ingestion/indexers/elements_dense.py
 
   frontend:
