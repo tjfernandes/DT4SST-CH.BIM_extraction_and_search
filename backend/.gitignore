@@ -14,3 +14,6 @@ __pycache__/
 
 # Evaluation run reports (HBIM-005); the approved baseline IS versioned.
 eval/reports/
+
+# HBIM-005B: volatile raw vectors and timings from the semantic baseline runner.
+eval/semantic_reports/

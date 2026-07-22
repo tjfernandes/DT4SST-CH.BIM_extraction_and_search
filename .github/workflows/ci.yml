@@ -108,6 +108,12 @@ jobs:
           backend/ingestion/indexers/cli.py
           backend/models/embeddings_qwen3.py
           backend/eval/bench/embedding_latency.py
+          backend/eval/text_projection.py
+          backend/eval/semantic_gold_dataset.py
+          backend/eval/run_semantic_baseline.py
+          backend/eval/models/__init__.py
+          backend/eval/models/zembed_adapter.py
+          backend/eval/models/qwen_adapter.py
 
   frontend:
     runs-on: ubuntu-latest
@@ -147,7 +153,7 @@ jobs:
       - name: Run OpenSearch integration tests (Testcontainers)
         # gpu_service is deselected: it needs the local GPU embedding service
         # (HBIM-030), not OpenSearch, and never runs in CI.
-        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service"
+        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service"
 
   evaluation-opensearch:
     runs-on: ubuntu-latest

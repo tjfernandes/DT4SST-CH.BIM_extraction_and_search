@@ -393,7 +393,7 @@ class EmbeddingClient(Protocol):
 - API e indexer não carregam mais `SentenceTransformer` in-process.
 - Benchmark 1024/2048/4096 executado; dimensão **documentada e aplicada por índice**.
 - `elements_v2`/`chunks_v1` pesquisáveis por kNN na dimensão escolhida.
-- Recall@10 dense ≥ baseline (zembed) registado em HBIM-005.
+- Recall@10 dense ≥ **baseline de qualidade de modelo zembed medida em HBIM-005B** (`eval/baselines/semantic_model_quality.json`). HBIM-005 **não** mediu qualidade de modelo: a sua categoria `semantic_vector` exercita o caminho kNN com vetores sintéticos desenhados à mão (spec HBIM-005 §95/§302, `run_eval.py`: `semantic model quality: not evaluated`), pelo que a sua pontuação **não** é uma baseline de embeddings.
 
 **Riscos.** VRAM/latência do 8B (mitigar: batching, FP8 se necessário — ver §5). Custo de reindex (mitigar: batch offline; o benchmark corre em amostra antes do reindex total).
 
@@ -761,7 +761,7 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Aceitação.** Frontend autentica e continua funcional após ativar auth; sem chamadas anónimas ao `/chat`.
 
 ### HBIM-004 — CI, lint/type-check, testcontainers e compose — **P0 / M**
-- **Descrição.** CI (correr `pytest`), `ruff`, `mypy`, **testcontainers** (OpenSearch+Neo4j) e `docker-compose.dev.yml`. *(O bootstrap de pytest e `test_config` já vêm de HBIM-002 — correção 5.)*
+- **Descrição.** CI (correr `pytest`), `ruff`, `mypy`, **testcontainers** (OpenSearch+Neo4j) e `docker-compose.dev.yml`. *(O bootstrap d    e pytest e `test_config` já vêm de HBIM-002 — correção 5.)*
 - **Ficheiros.** `docker-compose.dev.yml`, config CI, `pyproject.toml`/`ruff.toml`/`mypy.ini`.
 - **Dependências.** HBIM-002.
 - **Aceitação.** CI verde; `ruff`+`mypy` a correr; testcontainers OpenSearch disponível para testes de integração.
@@ -770,6 +770,7 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Descrição.** Criar o *evaluation harness* (`eval/run_eval.py`, `eval/metrics.py`: Recall@k, nDCG@k, MRR, routing accuracy, abstention), um **dataset gold inicial** por categoria (structured/semantic/historical/spatial/document/visual, começando pelas categorias já suportadas) e medir a **baseline do sistema atual** (pipeline zembed + `bim_elements` + filtro-LLM). **Tem de existir antes de qualquer alteração de retrieval** (M4/M5) para se poder medir regressão/ganho (correção 7). O benchmark de dimensão (HBIM-031) e todas as comparações posteriores usam este harness.
 - **Ficheiros.** `eval/run_eval.py`, `eval/metrics.py`, `eval/dataset/*_gold.jsonl`, `eval/baselines/current_system.json`.
 - **Dependências.** HBIM-002, HBIM-004.
+- **Limite explícito.** A categoria `semantic_vector` mede o **caminho kNN** com vetores sintéticos desenhados à mão, não a qualidade do modelo de embeddings (spec §95/§302). A avaliação de qualidade de modelo é criada em **HBIM-005B**.
 - **Aceitação.** Harness corre end-to-end contra o sistema atual e grava métricas versionadas; baseline reproduzível; dataset inicial com ≥ N queries por categoria suportada.
 
 ### HBIM-010 — Schema canónico Pydantic (IR) — **P1 / L**
@@ -814,11 +815,17 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Dependências.** HBIM-022.
 - **Aceitação.** Cliente devolve as três dimensões-alvo; API/indexer sem modelo in-process; latência p95 por dimensão registada.
 
+### HBIM-005B — Gold semântico pré-registado + baseline de qualidade de modelo — **P1 / M**
+- **Descrição.** Criar o pré-requisito de avaliação semântica que faltava: corpus canónico sintético (≥120 `ElementRecord`), necessidades de informação em linguagem natural PT/EN, julgamentos de relevância **graduados e derivados** por função pura, projeção de texto versionada e um **commit de pré-registo** anterior a qualquer inferência. Depois mede a **qualidade do modelo legado `zeroentropy/zembed-1`@640** e uma **referência `Qwen3-Embedding-8B`@4096** por cosseno exato. Não escolhe dimensão de produção nem cria índice denso.
+- **Ficheiros.** `eval/semantic_gold/*`, `eval/semantic_gold_dataset.py`, `eval/text_projection.py`, `eval/models/*`, `eval/run_semantic_baseline.py`, `eval/baselines/semantic_model_quality.json`.
+- **Dependências.** HBIM-005, HBIM-010/022, HBIM-030.
+- **Aceitação.** Gold pré-registado e imutável (hashes verificados antes de qualquer modelo); Recall@10/nDCG@10/MRR@10 medidos para ambos os modelos; artefacto canónico sem vetores nem identificadores.
+
 ### HBIM-031 — Benchmark de dimensão por índice + reindex denso — **P1 / M**
-- **Descrição.** Correr o benchmark 1024/2048/4096 por índice usando o harness de HBIM-005 (nDCG/Recall × tamanho × latência); **selecionar e aplicar a dimensão por índice** (correção 9); reindexar `elements`/`chunks` com a dimensão vencedora.
+- **Descrição.** Correr o benchmark 1024/2048/4096 por índice usando o harness de HBIM-005 e o **gold semântico de HBIM-005B** (nDCG/Recall × tamanho × latência); **selecionar e aplicar a dimensão por índice** (correção 9); reindexar `elements`/`chunks` com a dimensão vencedora. A seleção de 1024/2048/4096, o campo vetorial na nova versão de mapping e o reindex denso continuam a pertencer **exclusivamente** a esta issue.
 - **Ficheiros.** `eval/dim_benchmark.py`, `ingestion/migrate.py`, `canonical/mappings/*.json`.
-- **Dependências.** HBIM-030, HBIM-005.
-- **Aceitação.** kNN funcional; **dimensão documentada e aplicada por índice** com números; Recall@10 ≥ baseline (HBIM-005). 
+- **Dependências.** HBIM-030, HBIM-005, **HBIM-005B** (baseline de qualidade de modelo).
+- **Aceitação.** kNN funcional; **dimensão documentada e aplicada por índice** com números; Recall@10 ≥ à baseline zembed registada em `eval/baselines/semantic_model_quality.json` (HBIM-005B). 
 
 ### HBIM-032 — Gestor de residência de VRAM + perfis de GPU — **P2 / L**
 - **Descrição.** `models/residency.py` + endpoint de ops. Registo de modelos carregados com VRAM medida; invariante `Σ ≤ VRAM_BUDGET_GB`; `ensure_profile()` com load/evict/`sleep`/`wake` (vLLM sleep mode); lock para a janela exclusiva do VLM-32B. Perfis `P-Online-Text`, `P-Online-MM`, `P-Verify-Hard`, `P-Ingest-Docs`, `P-Ingest-Visual` (§5.3). Router pede o perfil antes de despachar. **O gestor completo só faz sentido depois de o reranker estar servido** (perfil `P-Online-Text` = embedder+reranker), pelo que depende de HBIM-051 (correção 6). Até lá, HBIM-030 já garante serviços isolados suficientes para o caminho denso.

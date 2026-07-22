@@ -12,6 +12,7 @@ markers = [
     "unit: teste unitário (default para testes sem marker; sem rede, sem Docker)",
     "integration: exige Docker local; correr com -o addopts=\"\" -m integration",
     "gpu_service: exige o servico local de embeddings com GPU (HBIM-030); correr com -m gpu_service",
+    "model_service: exige modelos de embedding reais locais (HBIM-005B: zembed + Qwen); correr com -m model_service",
 ]
 
 [tool.ruff]
@@ -89,6 +90,10 @@ module = [
     "eval.bench.embedding_latency",
     "eval.text_projection",
     "eval.semantic_gold_dataset",
+    "eval.run_semantic_baseline",
+    "eval.models",
+    "eval.models.zembed_adapter",
+    "eval.models.qwen_adapter",
 ]
 disallow_untyped_defs = true
 
@@ -99,7 +104,24 @@ module = ["api.main", "api.search", "api.prompts", "ingestion.*"]
 check_untyped_defs = false
 disallow_untyped_defs = false
 
-# Bibliotecas sem stubs — apenas as efetivamente reportadas pelo mypy.
+# Bibliotecas externas que não estão instaladas nos jobs de quality.
+# Os módulos ML são dependências opcionais do requirements-ml.txt e são
+# importados apenas dentro das chamadas de avaliação.
 [[tool.mypy.overrides]]
-module = ["opensearchpy.*", "ifcopenshell.*", "testcontainers.*", "tqdm.*"]
+module = [
+    "opensearchpy",
+    "opensearchpy.*",
+    "ifcopenshell",
+    "ifcopenshell.*",
+    "testcontainers",
+    "testcontainers.*",
+    "tqdm",
+    "tqdm.*",
+    "huggingface_hub",
+    "huggingface_hub.*",
+    "sentence_transformers",
+    "sentence_transformers.*",
+    "torch",
+    "torch.*",
+]
 ignore_missing_imports = true
