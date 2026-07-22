@@ -7,6 +7,11 @@ from openai import BadRequestError, OpenAI
 from opensearchpy import OpenSearch
 from pydantic import BaseModel, Field
 
+from retrieval.lexical import (
+    classification_aggregation,
+    lexical_filter_clauses,
+    parse_classification_buckets,
+)
 from shared.config import (
     EMBEDDING_DIM,
     EMBEDDING_MODEL_NAME,
@@ -349,6 +354,13 @@ def build_opensearch_query(search_plan: SearchPlan, query_embedding: Optional[li
         if metric_clauses:
             bool_filter.append({"bool": {"should": metric_clauses, "minimum_should_match": 1}})
 
+    # HBIM-042: apply the parsed lexical filters (material OR-within / storey
+    # expansion / exact name), ANDed with everything above. Appended before the
+    # kNN branch below, so the semantic pre-filter inherits them too.
+    bool_filter.extend(
+        lexical_filter_clauses(search_plan.material, search_plan.storey, search_plan.name)
+    )
+
     if search_plan.search_strategy == "semantic" and query_embedding is not None:
         knn_clause = {"vector": query_embedding, "k": search_plan.top_k}
         pre_filter = {"bool": {}}
@@ -444,7 +456,9 @@ AGG_FIELD_MAP = {
     "material": "material",
     "ifc_class": "ifc_class",
     "storey": "spatial_hierarchy.storey_name",
-    "classification": "classifications.name",
+    # HBIM-042: documental — "classification" nunca chega ao caminho plano
+    # (ramo nested abaixo); o campo keyword real é classifications.code.
+    "classification": "classifications.code",
 }
 
 
@@ -475,10 +489,23 @@ def build_aggregation_query(
             }
         )
 
+    # HBIM-042: as agregações passam a respeitar os filtros lexicais do plano
+    # ("quantas paredes de pedra existem?" conta só paredes de pedra).
+    if search_plan is not None:
+        bool_filter.extend(
+            lexical_filter_clauses(search_plan.material, search_plan.storey, search_plan.name)
+        )
+
     if bool_filter:
         query["query"] = {"bool": {"filter": bool_filter}}
 
-    if agg_field != "count":
+    if agg_field == "classification":
+        # HBIM-042: classifications é nested e name é text sem keyword — a
+        # terms plana histórica era inválida. Agregação válida: nested sobre
+        # classifications.code (keyword) + reverse_nested (contagem de
+        # ELEMENTOS por código, não de factos).
+        query["aggs"] = {"agg_result": classification_aggregation()}
+    elif agg_field != "count":
         os_field = AGG_FIELD_MAP.get(agg_field, agg_field)
         query["aggs"] = {"agg_result": {"terms": {"field": os_field, "size": 200}}}
     return query
@@ -488,7 +515,12 @@ def execute_aggregation(query: dict) -> tuple:
     response = get_search_client().search(index=OPENSEARCH_INDEX, body=query)
     total_info = response["hits"]["total"]
     total = total_info["value"] if isinstance(total_info, dict) else total_info
-    buckets = response.get("aggregations", {}).get("agg_result", {}).get("buckets", [])
+    aggregations = response.get("aggregations", {})
+    agg_result = aggregations.get("agg_result", {})
+    if "codes" in agg_result:
+        # HBIM-042: resposta da agregação nested de classificação.
+        return parse_classification_buckets(aggregations), total
+    buckets = agg_result.get("buckets", [])
     return [{"key": bucket["key"], "count": bucket["doc_count"]} for bucket in buckets], total
 
 
