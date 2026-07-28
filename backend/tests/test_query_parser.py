@@ -634,25 +634,31 @@ REMOVED_PROMPTS = (
     # HBIM-051 §18: the destructive LLM relevance filter is gone too.
     "FILTER_RESULTS_BATCH",
 )
+# HBIM-053 §42.1/§42.3: the three ungrounded result prompts are retired. The
+# assertion is now *stronger* — they must be absent, not merely present.
+RETIRED_PROMPTS = (
+    "FINAL_RESPONSE_FORMAT", "DETAIL_RESPONSE_FORMAT", "AGGREGATION_RESPONSE_FORMAT",
+)
 KEPT_PROMPTS = (
     "REWRITE_QUERY", "EXTRACT_EMBEDDING_QUERY",
-    "FINAL_RESPONSE_FORMAT", "DETAIL_RESPONSE_FORMAT", "AGGREGATION_RESPONSE_FORMAT",
+    # HBIM-053 §14: the grounded contract replaces them.
+    "GROUNDED_ANSWER_CONTRACT",
 )
 
 
 def test_removed_prompts_are_gone_and_kept_prompts_remain() -> None:
     from api import prompts
 
-    for name in REMOVED_PROMPTS:
+    for name in (*REMOVED_PROMPTS, *RETIRED_PROMPTS):
         assert not hasattr(prompts, name), name
     for name in KEPT_PROMPTS:
         assert hasattr(prompts, name), name
     main_source = (BACKEND / "api" / "main.py").read_text(encoding="utf-8")
-    for name in REMOVED_PROMPTS:
+    for name in (*REMOVED_PROMPTS, *RETIRED_PROMPTS):
         assert name not in main_source, name
 
 
-def test_main_has_exactly_six_get_response_call_sites() -> None:
+def test_main_has_exactly_three_get_response_call_sites() -> None:
     tree = ast.parse((BACKEND / "api" / "main.py").read_text(encoding="utf-8"))
     count = sum(
         1
@@ -662,7 +668,9 @@ def test_main_has_exactly_six_get_response_call_sites() -> None:
         and node.func.id == "get_response"
     )
     # HBIM-051 §18.3 item 4: the LLM relevance filter is gone.
-    assert count == 6  # rewrite, embedding, chat, detail, aggregation, final
+    # HBIM-053 §42.2: detail, aggregation and the final result answer moved to
+    # the grounded pipeline, which never calls get_response.
+    assert count == 3  # rewrite, embedding-query, chat
 
 
 # =========================================================================== #
@@ -726,11 +734,14 @@ def _parser_events(events: list[tuple[str, Any]]) -> list[dict]:
 @pytest.mark.parametrize(
     "message,kwargs,expected_llm_calls",
     [
+        # HBIM-053 §42.3 — generic get_response survives only on rewrite,
+        # embedding-query and chat. Result answers moved to the grounded
+        # adapter, which is counted separately.
         ("bom dia", {}, 1),                                       # chat
-        ("paredes de betao", {}, 1),                              # structured
-        ("quantas paredes existem?", {}, 1),                      # aggregation
-        ("estruturas antigas", {}, 2),                            # semantic
-        ("detalha o primeiro", {"result_ids": ["el-1", "el-2"]}, 1),  # detail
+        ("paredes de betao", {}, 0),                              # structured
+        ("quantas paredes existem?", {}, 0),                      # aggregation
+        ("estruturas antigas", {}, 1),                            # semantic: embedding only
+        ("detalha o primeiro", {"result_ids": ["el-1", "el-2"]}, 0),  # detail
     ],
 )
 def test_llm_call_counts_per_path(chat, message, kwargs, expected_llm_calls) -> None:
@@ -743,7 +754,9 @@ def test_history_adds_exactly_the_rewrite_call(chat) -> None:
         message="quantas paredes existem?",
         history=[{"role": "user", "content": "ola"}, {"role": "assistant", "content": "oi"}],
     )
-    assert len(llm_calls) == 2  # rewrite + aggregation answer
+    # HBIM-053 §42.3: the aggregation answer is grounded now; only the
+    # follow-up rewrite remains a generic call.
+    assert len(llm_calls) == 1  # rewrite only
 
 
 def test_parser_receives_effective_query_verbatim(chat, monkeypatch) -> None:
@@ -830,10 +843,11 @@ def test_pagination_never_calls_the_parser(chat, monkeypatch) -> None:
 @pytest.mark.parametrize(
     "message,expected_route,expected_llm_calls",
     [
-        ("o que suporta o telhado", "graph", 1),          # degraded -> structured
-        ("mostra uma fotografia da fachada", "multimodal", 2),  # degraded -> semantic
-        ("abre o pdf do relatorio", "document_hybrid", 2),      # degraded -> semantic
-        ("mostra 0AInvalidWALL0000000a1", "exact_lookup", 1),   # D2 -> structured
+        # HBIM-053 §42.3 — each row loses exactly the retired final-answer call.
+        ("o que suporta o telhado", "graph", 0),          # degraded -> structured
+        ("mostra uma fotografia da fachada", "multimodal", 1),  # degraded -> semantic
+        ("abre o pdf do relatorio", "document_hybrid", 1),      # degraded -> semantic
+        ("mostra 0AInvalidWALL0000000a1", "exact_lookup", 0),   # D2 -> structured
     ],
 )
 def test_degraded_routes_also_run_without_parsing_llm(

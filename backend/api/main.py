@@ -19,13 +19,17 @@ from api.health import healthz, readyz
 from api.metrics import MetricsMiddleware, create_metrics, make_metrics_endpoint
 from api.middleware import RequestIdMiddleware
 from api.prompts import (
-    AGGREGATION_RESPONSE_FORMAT,
-    DETAIL_RESPONSE_FORMAT,
     EXTRACT_EMBEDDING_QUERY,
-    FINAL_RESPONSE_FORMAT,
     REWRITE_QUERY,
 )
-from api.schemas import PublicEvidencePack
+from api.responses import (
+    AbstentionReason,
+    GroundedLLM,
+    GroundedOutcome,
+    default_grounded_llm,
+    generate_grounded_answer,
+)
+from api.schemas import PublicCitation, PublicEvidencePack
 from api.search import (
     Condition,
     ExtractedAggregation,
@@ -40,14 +44,19 @@ from api.search import (
     execute_search,
     fetch_by_id,
     fetch_canonical_by_id,
-    format_aggregation_for_prompt,
-    format_canonical_document,
-    format_full_document,
-    format_hits_for_prompt,
+    format_full_document,  # noqa: F401 - see below
     get_query_embedding,
     get_response,
     get_search_client,
 )
+
+# HBIM-053 §42.2 — `format_full_document` no longer feeds any prompt: the
+# detail route is grounded on the bounded pack projection. It is retained here
+# purely as the injection seam that four accepted regression fixtures patch
+# (`test_api_pagination_snapshot`, `test_api_hybrid_activation`,
+# `test_query_parser`, `test_router`). Those files are outside this milestone's
+# authorized change set, so removing the name would break them for no
+# behavioural gain. Retiring the seam belongs with their next scheduled edit.
 from retrieval.evidence import EvidencePack
 from retrieval.query_parser import PARSER_TERMS_VERSION, ParsedQuery, parse_detail_ref, parse_query
 from retrieval.router import Route, RouterContext, RoutingDecision, route
@@ -288,6 +297,91 @@ def _log_evidence(pack: "EvidencePack | None") -> None:
         logger.exception("evidence observability failed")
 
 
+def _grounded_llm_factory() -> "GroundedLLM":
+    """HBIM-053 §43.1 — the single injectable seam. Lazy by construction.
+
+    Returns an adapter that holds no client; the client is built only inside
+    ``.complete()``. Tests replace this symbol wholesale.
+    """
+    return default_grounded_llm()
+
+
+def _grounded_answer(
+    pack: "EvidencePack | None", question: str
+) -> "GroundedOutcome":
+    """HBIM-053 §29/§30 — the single grounded generation seam.
+
+    Every result route funnels through here, so there is exactly one place a
+    result answer can be produced and it always has a validated pack behind it.
+    """
+    try:
+        # §43.1 rule 2 — resolved exactly once per grounded request, never cached.
+        llm = _grounded_llm_factory()
+    except Exception:
+        # §43.1 rule 5 — a provider that cannot be constructed is a provider
+        # that is unavailable. Never an HTTP 500, never free text.
+        logger.exception("grounded provider factory failed")
+        outcome = _provider_unavailable_outcome()
+        _log_grounding(outcome)
+        return outcome
+    outcome = generate_grounded_answer(pack, question, llm)
+    _log_grounding(outcome)
+    return outcome
+
+
+def _provider_unavailable_outcome() -> "GroundedOutcome":
+    """§43.1 rule 5 — the deterministic abstention for a dead factory."""
+    from api.responses import abstention_message
+
+    return GroundedOutcome(
+        status="abstained",
+        text=abstention_message(AbstentionReason.PROVIDER_UNAVAILABLE),
+        citations=(),
+        abstention_reason=AbstentionReason.PROVIDER_UNAVAILABLE,
+        claim_count=0,
+        provider_calls=0,
+        projection_bytes=0,
+        item_ref_count=0,
+        agg_ref_count=0,
+    )
+
+
+def _log_grounding(outcome: "GroundedOutcome") -> None:
+    """§39 — closed codes and integers only; never question, evidence or claim."""
+    try:
+        from api.responses import observability_event
+
+        log_preprocess_json("grounded_response", observability_event(outcome))
+    except Exception:  # pragma: no cover - observability is never fatal
+        logger.exception("grounding observability failed")
+
+
+def _public_citations(outcome: "GroundedOutcome") -> "Optional[List[PublicCitation]]":
+    """§35/§36 — citations only accompany a rendered answer."""
+    if outcome.abstained:
+        return None
+    try:
+        from api.schemas import to_public_citations
+
+        return to_public_citations(outcome.citations)
+    except Exception:
+        logger.exception("citation projection failed")
+        return None
+
+
+def _grounded_fields(outcome: "GroundedOutcome") -> dict[str, object]:
+    """§36 — the three additive fields, always consistent with each other."""
+    return {
+        "grounding_status": outcome.status,
+        "citations": _public_citations(outcome),
+        "abstention_reason": (
+            outcome.abstention_reason.value
+            if outcome.abstention_reason is not None
+            else None
+        ),
+    }
+
+
 def _snapshot_now() -> int:
     """Injected clock seam for the snapshot codec (§19.3); never read at import."""
     return int(time.time())
@@ -463,7 +557,7 @@ def _validated_snapshot(token: str):
 
 def _try_snapshot_page(
     request: "ChatRequest",
-) -> "ChatResponse | tuple[str, int, int, list[str], str, EvidencePack] | None":
+) -> "ChatResponse | tuple[int, int, list[str], str, EvidencePack] | None":
     """§19.3 pagination paths: a served page tuple for the shared final-answer
     call site, a finished fail-closed/terminal ``ChatResponse``, or ``None`` to
     fall through to exactly today's legacy pagination pipeline."""
@@ -498,14 +592,18 @@ def _try_snapshot_page(
             result_from=offset,
         )
         _log_evidence(terminal_pack)
+        # HBIM-053 §11 — a supported route with no result: deterministic
+        # pre-model abstention, zero model calls, existing message preserved.
+        terminal = _grounded_answer(terminal_pack, "")
         return ChatResponse(
-            response="Não encontrei elementos que correspondam à sua pesquisa no modelo BIM.",
+            response=terminal.text,
             plan=dict(request.pagination.stored_plan),
             total_hits=snapshot.n,
             result_from=offset,
             result_count=0,
             snapshot=request.snapshot,
             evidence=_public_evidence(terminal_pack),
+            **_grounded_fields(terminal),
         )
     from retrieval.rerank import RerankInputError, fetch_sources_by_id
     from retrieval.rerank_projection import project_source
@@ -516,10 +614,6 @@ def _try_snapshot_page(
         )
     except RerankInputError:
         return _stale_snapshot_response("snapshot_document_missing")
-    blocks = [
-        f"[{element_id}]\n{project_source(source)[0]}"
-        for element_id, source in zip(page_ids, page_sources, strict=True)
-    ]
     # HBIM-052 §30 — frozen ids only. No embedding, retrieval, rerank or
     # threshold ran on this path, and no score is invented for it.
     evidence_pack = build_pack_for_snapshot_page(
@@ -531,14 +625,7 @@ def _try_snapshot_page(
         total_hits=snapshot.n,
         result_from=offset,
     )
-    return (
-        "\n\n".join(blocks),
-        snapshot.n,
-        offset,
-        page_ids,
-        request.snapshot,
-        evidence_pack,
-    )
+    return (snapshot.n, offset, page_ids, request.snapshot, evidence_pack)
 
 
 @lru_cache(maxsize=1)
@@ -564,12 +651,12 @@ def _canonical_mapping_meta() -> Mapping[str, object]:
 
 def _try_hybrid_answer(
     search_plan: SearchPlan, effective_query: str, history: list
-) -> "ChatResponse | tuple[str, int, int, list[str], str, EvidencePack] | None":
+) -> "ChatResponse | tuple[int, int, list[str], str, EvidencePack] | None":
     """§19.1 — take the reranked-hybrid path iff every activation check passes.
 
     Returns ``None`` to fall through to exactly today's legacy behaviour; a
     finished ``ChatResponse`` for the no-LLM outcomes (threshold rejection,
-    empty page); or ``(results_str, total, result_from, result_ids)`` for the
+    empty page); or ``(total, result_from, result_ids, snapshot, pack)`` for the
     endpoint's single shared final-answer call site (§18.4). There is NO
     raw-RRF fallback: if the reranker is unavailable the branch is simply not
     taken, so a known-regressing ranking can never reach a user. Rows 7–10 of
@@ -742,10 +829,6 @@ def _try_hybrid_answer(
         # final-answer LLM call site (§18.4: exactly six get_response sites);
         # this helper only prepares the deterministic result block.
         page_sources = fetch_sources(os_client, result.index, [c.source_id for c in page])
-        blocks = [
-            f"[{candidate.source_id}]\n{project_source(source)[0]}"
-            for candidate, source in zip(page, page_sources, strict=True)
-        ]
         # HBIM-052 §20/§37 — built from the page that was actually returned,
         # after the deterministic result set exists. It changes nothing about
         # what was retrieved, ranked, ordered or paged.
@@ -762,7 +845,6 @@ def _try_hybrid_answer(
             threshold_mode=result.threshold_mode,
         )
         return (
-            "\n\n".join(blocks),
             len(accepted),
             offset,
             [candidate.source_id for candidate in page],
@@ -808,6 +890,11 @@ class ChatResponse(BaseModel):
     # EVIDENCE_PACK_IN_RESPONSE unset this stays None on every response, so
     # existing clients see exactly today's behaviour.
     evidence: Optional["PublicEvidencePack"] = None
+    # HBIM-053 §36 — additive and optional. Chat and the deterministic
+    # non-grounded branches leave all three None.
+    grounding_status: Optional[str] = None
+    citations: Optional[List["PublicCitation"]] = None
+    abstention_reason: Optional[str] = None
 
 
 async def chat_endpoint(request: ChatRequest):
@@ -1066,9 +1153,6 @@ async def chat_endpoint(request: ChatRequest):
                 response_text = "Não consegui encontrar o elemento solicitado."
                 return ChatResponse(response=response_text, plan=None)
 
-            doc_str = format_canonical_document(doc) if activation.enabled else format_full_document(doc)
-            detail_prompt = DETAIL_RESPONSE_FORMAT.format(user_input=effective_query, document=doc_str)
-            response_message = get_response(detail_prompt, history)
             # HBIM-052 §32 — exactly one item, EXACT_LOOKUP, no score.
             from retrieval.evidence import build_pack_for_detail
             from shared.config import OPENSEARCH_INDEX
@@ -1083,8 +1167,11 @@ async def chat_endpoint(request: ChatRequest):
                 ),
             )
             _log_evidence(detail_pack)
+            # HBIM-053 §11/§42.4 — grounded on the bounded pack projection.
+            # The retired full-document prompt is gone; see §57.7.
+            detail_outcome = _grounded_answer(detail_pack, effective_query)
             return ChatResponse(
-                response=response_message.content,
+                response=detail_outcome.text,
                 plan={
                     "search_strategy": "detail",
                     "element_id": target_id,
@@ -1093,6 +1180,7 @@ async def chat_endpoint(request: ChatRequest):
                 },
                 result_ids=detail_ids,
                 evidence=_public_evidence(detail_pack),
+                **_grounded_fields(detail_outcome),
             )
 
         if is_aggregation:
@@ -1141,13 +1229,6 @@ async def chat_endpoint(request: ChatRequest):
             logger.debug("Aggregation buckets=%s total=%s", buckets, total)
             log_preprocess_json("aggregation_result", {"total": total, "buckets": buckets})
 
-            results_str = format_aggregation_for_prompt(buckets, agg_field, total)
-            agg_rag_prompt = AGGREGATION_RESPONSE_FORMAT.format(
-                user_input=effective_query,
-                agg_field=agg_field,
-                results=results_str,
-            )
-            response_message = get_response(agg_rag_prompt, history)
             # HBIM-052 §33 — buckets are derived values in their own block;
             # they are never items and never receive a source_id.
             from retrieval.evidence import build_pack_for_aggregation
@@ -1159,8 +1240,11 @@ async def chat_endpoint(request: ChatRequest):
                 total=total,
             )
             _log_evidence(aggregation_pack)
+            # HBIM-053 §11/§20 — cited through A-references against exact
+            # bucket facts; no element id is ever invented for a bucket.
+            aggregation_outcome = _grounded_answer(aggregation_pack, effective_query)
             return ChatResponse(
-                response=response_message.content,
+                response=aggregation_outcome.text,
                 plan={
                     "search_strategy": "aggregation",
                     "agg_field": agg_field,
@@ -1169,6 +1253,7 @@ async def chat_endpoint(request: ChatRequest):
                     "route_degraded": route_degraded,
                 },
                 evidence=_public_evidence(aggregation_pack),
+                **_grounded_fields(aggregation_outcome),
             )
 
         snapshot_token: Optional[str] = None
@@ -1177,7 +1262,6 @@ async def chat_endpoint(request: ChatRequest):
             # §19.3 v6 — the validated snapshot page: results were sliced from
             # the frozen ranking; only the shared final-answer call runs below.
             (
-                results_str,
                 total,
                 result_from,
                 hit_ids,
@@ -1202,7 +1286,6 @@ async def chat_endpoint(request: ChatRequest):
 
             if hybrid_outcome is not None:
                 (
-                    results_str,
                     total,
                     result_from,
                     hit_ids,
@@ -1219,15 +1302,17 @@ async def chat_endpoint(request: ChatRequest):
                 )
 
                 if not hits:
-                    response_text = "Não encontrei elementos que correspondam à sua pesquisa no modelo BIM."
+                    # HBIM-053 §11 — deterministic pre-model abstention: no
+                    # pack, no model call, existing message preserved.
+                    empty = _grounded_answer(None, effective_query)
                     return ChatResponse(
-                        response=response_text,
+                        response=empty.text,
                         plan=search_plan.model_dump(),
                         total_hits=total,
                         result_from=search_plan.offset,
                         result_count=0,
+                        **_grounded_fields(empty),
                     )
-                results_str = format_hits_for_prompt(hits)
                 result_from = search_plan.offset
                 hit_ids = [hit["_id"] for hit in hits]
                 # HBIM-052 §31 — the legacy store, labelled truthfully.
@@ -1245,17 +1330,12 @@ async def chat_endpoint(request: ChatRequest):
                 )
             response_plan = search_plan.model_dump()
 
-        rag_prompt = FINAL_RESPONSE_FORMAT.format(
-            user_input=effective_query,
-            results=results_str,
-            showing=f"{result_from + 1}-{result_from + len(hit_ids)}",
-            total=total,
-        )
-
-        response_message = get_response(rag_prompt, history)
         _log_evidence(evidence_pack)
+        # HBIM-053 §11 — the single shared grounded call for hybrid, snapshot
+        # and structured pages. Its only factual input is the pack projection.
+        outcome = _grounded_answer(evidence_pack, effective_query)
         return ChatResponse(
-            response=response_message.content,
+            response=outcome.text,
             plan=response_plan,
             total_hits=total,
             result_from=result_from,
@@ -1263,6 +1343,7 @@ async def chat_endpoint(request: ChatRequest):
             result_ids=hit_ids,
             snapshot=snapshot_token,
             evidence=_public_evidence(evidence_pack),
+            **_grounded_fields(outcome),
         )
     except HTTPException:
         raise

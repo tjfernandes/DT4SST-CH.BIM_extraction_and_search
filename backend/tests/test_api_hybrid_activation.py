@@ -138,6 +138,44 @@ class FakeRerankerSettings:
         return None if self.score_threshold_mode == "accept_all" else self.score_threshold
 
 
+# --------------------------------------------------------------------------- #
+# HBIM-053 §42.5/§43.1 — the grounded fake.
+#
+# It simulates a well-behaved model: it reads the projection it was actually
+# handed and quotes verbatim from the first evidence item, or restates the first
+# bucket exactly. Only the model's *behaviour* is simulated; every assertion in
+# this file stays hand-written.
+# --------------------------------------------------------------------------- #
+class _GroundedFake:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, messages):
+        self.calls += 1
+        payload = json.loads(messages[-1]["content"])
+        evidence = payload.get("evidence") or []
+        if evidence:
+            return json.dumps({"status": "answer", "claims": [{
+                "text": "Resposta fundamentada.",
+                "supports": [{"ref": evidence[0]["ref"],
+                              "quote": evidence[0]["content"][:60]}],
+            }]})
+        buckets = (payload.get("aggregation") or {}).get("buckets") or []
+        if buckets:
+            first = buckets[0]
+            return json.dumps({"status": "answer", "claims": [{
+                "text": "Resposta fundamentada.",
+                "supports": [{"ref": first["ref"], "agg_key": first["key"],
+                              "agg_count": first["count"]}],
+            }]})
+        return json.dumps({"status": "abstain",
+                           "abstain_reason": "insufficient_evidence"})
+
+
+#: The exact string the fake's draft renders to (§33/§34). Hand-written.
+GROUNDED_ANSWER = "Resposta fundamentada. [E001]"
+
+
 @pytest.fixture
 def chat(monkeypatch: pytest.MonkeyPatch):
     """Offline /chat with fakes; hybrid activation ON by default here."""
@@ -166,6 +204,8 @@ def chat(monkeypatch: pytest.MonkeyPatch):
 
     api_main._canonical_mapping_meta.cache_clear()
     monkeypatch.setattr(api_main, "get_response", fake_get_response)
+    # HBIM-053 §43.1 — opt in to a rendered grounded answer.
+    monkeypatch.setattr(api_main, "_grounded_llm_factory", lambda: _GroundedFake())
     monkeypatch.setattr(api_main, "log_preprocess_json", recorder)
     monkeypatch.setattr(api_main, "execute_search", lambda query: ([dict(_HIT)], 1))
     monkeypatch.setattr(api_main, "execute_aggregation", lambda query: ([], 0))
@@ -200,9 +240,11 @@ def test_hybrid_branch_returns_reranked_canonical_ids(chat) -> None:
     assert response.result_ids == ["el-1", "el-2"]
     assert response.total_hits == 2
     assert response.result_count == 2
-    assert response.response == "resposta final"
-    # Same LLM budget as the legacy semantic path: embedding-query + final.
-    assert len(llm_calls) == 2
+    assert response.response == GROUNDED_ANSWER
+    assert response.grounding_status == "answer"
+    # HBIM-053 §42.3: the final answer is grounded, so only the
+    # embedding-query remains a generic call.
+    assert len(llm_calls) == 1
 
 
 def test_reranked_order_matches_an_independent_oracle(chat) -> None:
@@ -268,7 +310,7 @@ def test_disabled_by_default_preserves_current_behaviour(chat, monkeypatch) -> N
     monkeypatch.setattr("models.reranker_qwen3.Qwen3RerankerClient", ExplodingRerankerClient)
     response, _e, llm_calls, _os = chat(message=SEMANTIC_MESSAGE)
     _assert_legacy(response)
-    assert len(llm_calls) == 2  # embedding-query + final answer (HBIM-041 count)
+    assert len(llm_calls) == 1  # HBIM-053 §42.3: embedding-query only
 
 
 def test_only_hybrid_route_uses_the_canonical_branch(chat, monkeypatch) -> None:
@@ -463,7 +505,8 @@ def test_detail_uses_canonical_lookup_when_active(chat, monkeypatch) -> None:
     monkeypatch.setattr(api_main, "fetch_by_id", exploding_legacy)
     response, _e, _l, _os = chat(message="detalha o primeiro", result_ids=["el-1", "el-2"])
     assert calls == {"index": "hbim_elements", "element_id": "el-1"}
-    assert response.response == "resposta final"
+    assert response.response == GROUNDED_ANSWER
+    assert response.grounding_status == "answer"
 
 
 def test_detail_uses_legacy_lookup_when_inactive(chat, monkeypatch) -> None:
@@ -476,7 +519,13 @@ def test_detail_uses_legacy_lookup_when_inactive(chat, monkeypatch) -> None:
 
     monkeypatch.setattr(api_main, "fetch_canonical_by_id", exploding_canonical)
     response, _e, _l, _os = chat(message="detalha o primeiro", result_ids=["el-1", "el-2"])
-    assert response.response == "resposta final"
+    # The subject of this test is the *lookup*: `exploding_canonical` proves the
+    # canonical fetch was never issued. The fixture's legacy doc is the bare
+    # stub `{"_id": ...}`, which projects to no quotable content, so HBIM-053
+    # correctly fails closed rather than inventing prose for empty evidence.
+    assert response.grounding_status == "abstained"
+    assert response.abstention_reason == "no_usable_content"
+    assert response.citations is None
 
 
 def test_unresolvable_canonical_id_is_not_found_never_legacy_fallback(chat, monkeypatch) -> None:
@@ -513,7 +562,7 @@ def test_filter_results_batch_is_absent_from_all_runtime_code() -> None:
         assert not (names & banned), (path.name, names & banned)
 
 
-def test_exactly_six_get_response_call_sites_and_one_json_mode() -> None:
+def test_exactly_three_get_response_call_sites_and_one_json_mode() -> None:
     tree = ast.parse((BACKEND / "api" / "main.py").read_text(encoding="utf-8"))
     calls = [
         node
@@ -522,7 +571,9 @@ def test_exactly_six_get_response_call_sites_and_one_json_mode() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id == "get_response"
     ]
-    assert len(calls) == 6
+    # HBIM-053 §42.3: rewrite, embedding-query, chat. Duplicate of the
+    # test_query_parser guard; both must track the same topology.
+    assert len(calls) == 3
     json_mode = [
         call
         for call in calls
@@ -539,8 +590,10 @@ def test_no_renamed_llm_relevance_filter(chat, monkeypatch) -> None:
         "shared.config.HybridActivationSettings", lambda: FakeActivation(enabled=False)
     )
     _response, _events, llm_calls, _os = chat(message="paredes de betao")
-    assert len(llm_calls) == 1
-    assert llm_calls[0][1] is False  # not JSON mode: it is the answer prompt
+    # HBIM-053 §42.3: the final answer is grounded, so the legacy structured
+    # path now makes zero generic calls. The original claim is preserved and
+    # strengthened — no model touches hits between search and answer.
+    assert len(llm_calls) == 0
 
 
 def test_no_raw_rrf_fallback_exists_structurally() -> None:

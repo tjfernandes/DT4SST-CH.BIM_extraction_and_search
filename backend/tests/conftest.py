@@ -246,3 +246,24 @@ def client_constructor_recorder():
     finally:
         patcher.undo()
         importlib.reload(api.search)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_grounded_llm(monkeypatch):
+    """HBIM-053 §43.2 — no unit test may reach a live grounded provider.
+
+    Without this, the offline guarantee is incidental: the same suite passes on
+    a machine with no API key and issues real HTTP on a machine with one. By
+    §43.1 rule 5 a raising factory abstains deterministically, so suites that
+    only assert ids, routes, packs or pagination stay green untouched; suites
+    that need a rendered answer opt in by patching the factory with a fake.
+    """
+    import api.main
+
+    def _blocked():
+        raise AssertionError(
+            "test reached the live grounded provider; "
+            "monkeypatch api.main._grounded_llm_factory with a fake"
+        )
+
+    monkeypatch.setattr(api.main, "_grounded_llm_factory", _blocked)

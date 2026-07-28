@@ -2,6 +2,123 @@
 
 ## Last completed issue
 
+HBIM-053 — grounded responses: result answers are now generated **only** from a
+bounded projection of the internal HBIM-052 EvidencePack, every rendered claim
+carries a structurally validated citation, and anything that fails validation
+abstains deterministically. The ungrounded result prompts are gone.
+
+## Status of HBIM-053
+
+**Complete.**
+
+### Versions
+
+- grounding prompt `hbim-053-grounding-v1`
+- projection `hbim-053-projection-v1`
+- structured model output `hbim-053-output-v1`
+
+### Grounded route matrix
+
+Grounded (pack → exactly one model call → validate → render): reranked hybrid
+initial page, signed snapshot page, structured/legacy search, exact/detail,
+aggregation, and degraded future routes that actually ran legacy retrieval.
+
+Deterministic pre-model abstention with **zero** model calls: empty result set
+and terminal snapshot page. Unchanged deterministic messages with all grounding
+fields `None`: hybrid threshold rejection, stale snapshot, detail without prior
+results. **Chat is byte-unchanged** and still uses generic `get_response` with
+conversation history.
+
+### Question and history boundary
+
+The grounded call receives exactly two messages: the system grounding contract
+and one JSON document carrying the resolved question plus the projection. It
+receives **no conversation history and no prior assistant turn**, so a previous
+hallucination cannot re-enter a grounded claim.
+
+### Reference map, support validation and rendering
+
+Item references `E001..` follow pack order; aggregation references `A001..`
+follow bucket order. An item support must carry a quote that is present in the
+cited item's bounded content under a closed normalization (NFKC → casefold →
+whitespace collapse → strip); an aggregation support must match the exact
+`(key, count)` of the cited bucket. The renderer is pure: claims in model order,
+citations in reference-map order, `[E001, E003]` markers, deterministic
+pagination and legacy-source notices.
+
+### Abstention
+
+Pre-model: `no_pack`, `unsupported_pack_version`, `no_evidence`,
+`no_usable_content`, `projection_too_large`. Post-model:
+`response_format_unsupported`, `provider_unavailable`, `output_too_large`,
+`malformed_output`, `schema_violation`, `no_claims`, `unsupported_claim`,
+`unknown_reference`, `quote_not_found`, `aggregate_mismatch`, `model_abstained`,
+`render_failure`. Validation is all-or-nothing: one invalid claim abstains the
+whole response.
+
+### Model call policy
+
+**Exactly one** call per grounded response, **zero** retries, no repair model
+and no second model validating the first. The dedicated adapter never strips
+`response_format`, so a provider rejecting structured output abstains instead of
+returning free text.
+
+### API additions
+
+`ChatResponse` gains three optional fields, all defaulting to `None`:
+`grounding_status`, `citations` and `abstention_reason`. Item citations expose
+`source_id`; aggregate citations carry `(agg_field, agg_key, agg_count)` and
+**no invented source id**. `result_ids` and `snapshot` are unchanged even when
+the response abstains — an abstention is a generation outcome, not a retrieval
+one. Grounding is independent of `EVIDENCE_PACK_IN_RESPONSE`.
+
+### Logging and privacy
+
+One observability event of closed codes and integers only. The grounded adapter
+never routes through the legacy prompt/output loggers, so `LLM_LOG_PROMPTS` and
+`LLM_LOG_OUTPUTS` cannot leak question, evidence, claim, quote or source text.
+
+### Evaluation
+
+29 hand-authored synthetic/adversarial gold cases across 8 categories
+(`backend/eval/dataset/grounding_gold.jsonl`). Measured: citation validity 1.0,
+claim citation coverage 1.0, support validity 1.0, abstention correctness 1.0,
+and **false-answer rate on no-evidence cases 0.0**.
+
+### Test evidence
+
+1966 unit tests pass (baseline 1857 + 109 new). The grounded suites pass
+identically under the default order, `-p no:randomly` and seeds 1, 7, 42,
+20260728 and 530053. CI integration selector 73, HBIM-005 baseline 6, marker
+isolation unchanged at 37/19/15/10, Ruff clean, mypy clean over 64 source files.
+
+### Truthful limitations
+
+- **This is structural validation, not semantic entailment.** A verified quote
+  proves the cited text exists in the cited evidence; it does **not** prove the
+  claim follows from it. Nothing here proves faithfulness or factual
+  correctness.
+- **No new retrieval threshold.** HBIM-053 reads no score at any point; it
+  consumes whatever HBIM-051's accepted policy already placed in the pack. An
+  AST guard fails the build if a score or threshold reference is introduced.
+- **No ungrounded fallback exists.** Every failure path abstains.
+- **Detail answers narrowed.** The detail route now sees at most 2000 characters
+  of bounded projection instead of the full formatted document. Detail answers
+  about elements with very large documents are less complete than before.
+- **All-or-nothing validation costs answers.** One bad claim discards a
+  mostly-correct draft, so measured abstention exceeds the rate of genuinely
+  unanswerable questions.
+- **No document, graph, Neo4j, TopologicPy, OCR, multimodal or VLM backend.**
+  `document_chunk`, `graph_path` and `media_item` remain non-emittable.
+- The question itself is still produced by the pre-existing LLM rewrite seam.
+
+### Next issue
+
+HBIM-060 — expand the evaluation harness and apply CI regression gates,
+inheriting `grounding_gold.jsonl` and the four grounding metrics.
+
+## Previous issue
+
 HBIM-052 — EvidencePack: the single structured, deterministic input to answer
 generation. A pure evidence library (`backend/retrieval/evidence.py`) with
 closed enums, **typed per-method provenance instead of any generic `score`
@@ -50,9 +167,9 @@ items. `document_chunk`, `graph_path` and `media_item` exist as closed enum
 members but **cannot be emitted** in v1. No citation validation, no answer
 abstention and no grounded answer generation — those are HBIM-053.
 
-### Next issue
+### Next issue (as of HBIM-052)
 
-HBIM-053 — grounded answer generation from the EvidencePack.
+HBIM-053 — grounded answer generation. **Now complete**; see the section above.
 
 ## Previous issue
 
