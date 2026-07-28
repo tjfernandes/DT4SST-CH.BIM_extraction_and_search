@@ -25,6 +25,7 @@ from api.prompts import (
     FINAL_RESPONSE_FORMAT,
     REWRITE_QUERY,
 )
+from api.schemas import PublicEvidencePack
 from api.search import (
     Condition,
     ExtractedAggregation,
@@ -47,6 +48,7 @@ from api.search import (
     get_response,
     get_search_client,
 )
+from retrieval.evidence import EvidencePack
 from retrieval.query_parser import PARSER_TERMS_VERSION, ParsedQuery, parse_detail_ref, parse_query
 from retrieval.router import Route, RouterContext, RoutingDecision, route
 from shared.config import (
@@ -252,6 +254,40 @@ SNAPSHOT_STALE_MESSAGE = (
 )
 
 
+def _public_evidence(pack: "EvidencePack | None") -> "PublicEvidencePack | None":
+    """HBIM-052 §12 — project the internal pack only when explicitly enabled.
+
+    Never raises into the request path: an evidence failure must not turn a
+    working answer into an error (the pack is an audit artefact, not the
+    answer).
+    """
+    if pack is None:
+        return None
+    try:
+        from shared.config import EvidenceSettings
+
+        if not EvidenceSettings().in_response:
+            return None
+        from api.schemas import to_public_pack
+
+        return to_public_pack(pack)
+    except Exception:
+        logger.exception("evidence projection failed; response left unchanged")
+        return None
+
+
+def _log_evidence(pack: "EvidencePack | None") -> None:
+    """§42 — closed codes and integers only; never source or query text."""
+    if pack is None:
+        return
+    try:
+        from retrieval.evidence import observability_event
+
+        log_preprocess_json("evidence_pack", observability_event(pack))
+    except Exception:  # pragma: no cover - observability is never fatal
+        logger.exception("evidence observability failed")
+
+
 def _snapshot_now() -> int:
     """Injected clock seam for the snapshot codec (§19.3); never read at import."""
     return int(time.time())
@@ -427,7 +463,7 @@ def _validated_snapshot(token: str):
 
 def _try_snapshot_page(
     request: "ChatRequest",
-) -> "ChatResponse | tuple[str, int, int, list[str], str] | None":
+) -> "ChatResponse | tuple[str, int, int, list[str], str, EvidencePack] | None":
     """§19.3 pagination paths: a served page tuple for the shared final-answer
     call site, a finished fail-closed/terminal ``ChatResponse``, or ``None`` to
     fall through to exactly today's legacy pagination pipeline."""
@@ -447,7 +483,21 @@ def _try_snapshot_page(
     log_preprocess_json(
         "snapshot_page", {"offset": offset, "count": len(page_ids), "total": snapshot.n}
     )
+    from retrieval.evidence import build_pack_for_snapshot_page
+
     if not page_ids:
+        # §34 — a supported route that produced no result still declares an
+        # empty pack carrying `no_evidence`, never a pack-less response.
+        terminal_pack = build_pack_for_snapshot_page(
+            route="hybrid_semantic",
+            page_ids=[],
+            contents=[],
+            index_identity=activation.canonical_index,
+            project_id=None,
+            total_hits=snapshot.n,
+            result_from=offset,
+        )
+        _log_evidence(terminal_pack)
         return ChatResponse(
             response="Não encontrei elementos que correspondam à sua pesquisa no modelo BIM.",
             plan=dict(request.pagination.stored_plan),
@@ -455,6 +505,7 @@ def _try_snapshot_page(
             result_from=offset,
             result_count=0,
             snapshot=request.snapshot,
+            evidence=_public_evidence(terminal_pack),
         )
     from retrieval.rerank import RerankInputError, fetch_sources_by_id
     from retrieval.rerank_projection import project_source
@@ -469,7 +520,25 @@ def _try_snapshot_page(
         f"[{element_id}]\n{project_source(source)[0]}"
         for element_id, source in zip(page_ids, page_sources, strict=True)
     ]
-    return ("\n\n".join(blocks), snapshot.n, offset, page_ids, request.snapshot)
+    # HBIM-052 §30 — frozen ids only. No embedding, retrieval, rerank or
+    # threshold ran on this path, and no score is invented for it.
+    evidence_pack = build_pack_for_snapshot_page(
+        route=Route.HYBRID_SEMANTIC.value,
+        page_ids=page_ids,
+        contents=[project_source(source) for source in page_sources],
+        index_identity=activation.canonical_index,
+        project_id=None,
+        total_hits=snapshot.n,
+        result_from=offset,
+    )
+    return (
+        "\n\n".join(blocks),
+        snapshot.n,
+        offset,
+        page_ids,
+        request.snapshot,
+        evidence_pack,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -495,7 +564,7 @@ def _canonical_mapping_meta() -> Mapping[str, object]:
 
 def _try_hybrid_answer(
     search_plan: SearchPlan, effective_query: str, history: list
-) -> "ChatResponse | tuple[str, int, int, list[str], str] | None":
+) -> "ChatResponse | tuple[str, int, int, list[str], str, EvidencePack] | None":
     """§19.1 — take the reranked-hybrid path iff every activation check passes.
 
     Returns ``None`` to fall through to exactly today's legacy behaviour; a
@@ -677,12 +746,28 @@ def _try_hybrid_answer(
             f"[{candidate.source_id}]\n{project_source(source)[0]}"
             for candidate, source in zip(page, page_sources, strict=True)
         ]
+        # HBIM-052 §20/§37 — built from the page that was actually returned,
+        # after the deterministic result set exists. It changes nothing about
+        # what was retrieved, ranked, ordered or paged.
+        from retrieval.evidence import build_pack_for_hybrid_page
+
+        evidence_pack = build_pack_for_hybrid_page(
+            route=search_plan.route or Route.HYBRID_SEMANTIC.value,
+            candidates=page,
+            contents=[project_source(source) for source in page_sources],
+            index_identity=result.index,
+            project_id=search_plan.project_id or None,
+            total_hits=len(accepted),
+            result_from=offset,
+            threshold_mode=result.threshold_mode,
+        )
         return (
             "\n\n".join(blocks),
             len(accepted),
             offset,
             [candidate.source_id for candidate in page],
             snapshot_token,
+            evidence_pack,
         )
     finally:
         if embedder is not None:
@@ -719,6 +804,10 @@ class ChatResponse(BaseModel):
     result_count: int = 0
     result_ids: Optional[List[str]] = None
     snapshot: Optional[str] = None
+    # HBIM-052 §12/§41 — additive and DEFAULT-OFF. With
+    # EVIDENCE_PACK_IN_RESPONSE unset this stays None on every response, so
+    # existing clients see exactly today's behaviour.
+    evidence: Optional["PublicEvidencePack"] = None
 
 
 async def chat_endpoint(request: ChatRequest):
@@ -980,6 +1069,20 @@ async def chat_endpoint(request: ChatRequest):
             doc_str = format_canonical_document(doc) if activation.enabled else format_full_document(doc)
             detail_prompt = DETAIL_RESPONSE_FORMAT.format(user_input=effective_query, document=doc_str)
             response_message = get_response(detail_prompt, history)
+            # HBIM-052 §32 — exactly one item, EXACT_LOOKUP, no score.
+            from retrieval.evidence import build_pack_for_detail
+            from shared.config import OPENSEARCH_INDEX
+
+            detail_pack = build_pack_for_detail(
+                route=routing_decision.route.value,
+                source_id=target_id,
+                source=doc,
+                canonical=bool(activation.enabled),
+                index_identity=(
+                    activation.canonical_index if activation.enabled else OPENSEARCH_INDEX
+                ),
+            )
+            _log_evidence(detail_pack)
             return ChatResponse(
                 response=response_message.content,
                 plan={
@@ -989,6 +1092,7 @@ async def chat_endpoint(request: ChatRequest):
                     "route_degraded": route_degraded,
                 },
                 result_ids=detail_ids,
+                evidence=_public_evidence(detail_pack),
             )
 
         if is_aggregation:
@@ -1044,6 +1148,17 @@ async def chat_endpoint(request: ChatRequest):
                 results=results_str,
             )
             response_message = get_response(agg_rag_prompt, history)
+            # HBIM-052 §33 — buckets are derived values in their own block;
+            # they are never items and never receive a source_id.
+            from retrieval.evidence import build_pack_for_aggregation
+
+            aggregation_pack = build_pack_for_aggregation(
+                route=routing_decision.route.value,
+                agg_field=agg_field,
+                buckets=[b for b in buckets if isinstance(b, dict)],
+                total=total,
+            )
+            _log_evidence(aggregation_pack)
             return ChatResponse(
                 response=response_message.content,
                 plan={
@@ -1053,13 +1168,22 @@ async def chat_endpoint(request: ChatRequest):
                     "route": routing_decision.route.value,
                     "route_degraded": route_degraded,
                 },
+                evidence=_public_evidence(aggregation_pack),
             )
 
         snapshot_token: Optional[str] = None
+        evidence_pack: Optional[EvidencePack] = None
         if served_page is not None:
             # §19.3 v6 — the validated snapshot page: results were sliced from
             # the frozen ranking; only the shared final-answer call runs below.
-            results_str, total, result_from, hit_ids, snapshot_token = served_page
+            (
+                results_str,
+                total,
+                result_from,
+                hit_ids,
+                snapshot_token,
+                evidence_pack,
+            ) = served_page
             response_plan = dict(request.pagination.stored_plan) if request.pagination else None
         else:
             assert search_plan is not None
@@ -1077,7 +1201,14 @@ async def chat_endpoint(request: ChatRequest):
                 return hybrid_outcome
 
             if hybrid_outcome is not None:
-                results_str, total, result_from, hit_ids, snapshot_token = hybrid_outcome
+                (
+                    results_str,
+                    total,
+                    result_from,
+                    hit_ids,
+                    snapshot_token,
+                    evidence_pack,
+                ) = hybrid_outcome
             else:
                 os_query = build_opensearch_query(search_plan, query_embedding)
                 logger.debug("OpenSearch query: %s", json.dumps(os_query, ensure_ascii=False))
@@ -1099,6 +1230,19 @@ async def chat_endpoint(request: ChatRequest):
                 results_str = format_hits_for_prompt(hits)
                 result_from = search_plan.offset
                 hit_ids = [hit["_id"] for hit in hits]
+                # HBIM-052 §31 — the legacy store, labelled truthfully.
+                from retrieval.evidence import build_pack_for_structured
+                from shared.config import OPENSEARCH_INDEX
+
+                evidence_pack = build_pack_for_structured(
+                    route=search_plan.route or Route.STRUCTURED.value,
+                    strategy=search_plan.search_strategy,
+                    degraded=bool(search_plan.route_degraded),
+                    hits=hits,
+                    index_identity=OPENSEARCH_INDEX,
+                    total_hits=total,
+                    result_from=search_plan.offset,
+                )
             response_plan = search_plan.model_dump()
 
         rag_prompt = FINAL_RESPONSE_FORMAT.format(
@@ -1109,6 +1253,7 @@ async def chat_endpoint(request: ChatRequest):
         )
 
         response_message = get_response(rag_prompt, history)
+        _log_evidence(evidence_pack)
         return ChatResponse(
             response=response_message.content,
             plan=response_plan,
@@ -1117,6 +1262,7 @@ async def chat_endpoint(request: ChatRequest):
             result_count=len(hit_ids),
             result_ids=hit_ids,
             snapshot=snapshot_token,
+            evidence=_public_evidence(evidence_pack),
         )
     except HTTPException:
         raise

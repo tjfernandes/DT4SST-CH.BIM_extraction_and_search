@@ -832,3 +832,25 @@ class OpsSettings(BaseSettings):
     enabled: bool = Field(
         default=False, validation_alias=AliasChoices("OPS_ENDPOINT_ENABLED")
     )
+
+
+class EvidenceSettings(BaseSettings):
+    """HBIM-052 §12 — exposição do EvidencePack na resposta pública.
+
+    **Desligada por omissão**: sem esta flag a resposta é byte-compatível com o
+    comportamento anterior a HBIM-052. Nunca instanciada no import.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    in_response: bool = Field(
+        default=False, validation_alias=AliasChoices("EVIDENCE_PACK_IN_RESPONSE")
+    )

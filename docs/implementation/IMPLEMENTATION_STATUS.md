@@ -2,6 +2,60 @@
 
 ## Last completed issue
 
+HBIM-052 — EvidencePack: the single structured, deterministic input to answer
+generation. A pure evidence library (`backend/retrieval/evidence.py`) with
+closed enums, **typed per-method provenance instead of any generic `score`
+field**, provenance-preserving deduplication, stable grouping and a validated
+serialization bound; a sanitising public projection (`backend/api/schemas.py`)
+that never exposes internal identity, raw `_source`, snapshot tokens or query
+text; and a **default-off** response field so the pre-HBIM-052 contract is
+unchanged until `EVIDENCE_PACK_IN_RESPONSE` is set.
+
+## Status of HBIM-052
+
+**Complete.** No LLM participates in evidence construction, deduplication,
+grouping, caveats, validation or serialization — the pack is built from the
+result set that was already deterministically produced, and changes nothing
+about what was retrieved, ranked, ordered or paged.
+
+### Guarantees proven by test
+
+- **Score honesty (§17).** There is no field named `score` anywhere; an AST
+  assertion over `evidence.py` fails if one is introduced. Every provenance
+  entry carries a typed `(score_kind, score_value)` pair, and `ALLOWED_SCORE_KIND`
+  rejects any scale that its method cannot produce. BM25, dense, RRF and
+  reranker numbers are never blended into one number.
+- **Snapshot pages carry no invented score (§30).** A served page from a frozen
+  HBIM-051 snapshot records only `snapshot_page` provenance with
+  `score_kind = None`, plus the `snapshot_page_without_scores` caveat.
+- **Deduplication preserves provenance (§16).** Merging is a union, never
+  "best score wins"; a differing `index_identity` is an error, not a silent
+  merge; differing content raises the `metadata_conflict` caveat.
+- **Determinism.** 74 tests pass identically under the default order,
+  `-p no:randomly` and seeds 1, 7, 42, 20260728 and 520052.
+- **Default-off compatibility (§41).** With the flag unset every response field
+  is byte-identical to pre-HBIM-052 behaviour and `evidence` is `None`.
+- **Never fatal.** A projection failure is logged and drops the pack; it never
+  turns a working answer into an error.
+- **Empty results still declare evidence (§34).** A supported route that
+  produced nothing emits an empty pack carrying `no_evidence`.
+- **No leakage (§12/§39).** The public pack contains no `index_identity`, no
+  snapshot token, no vector, no query text and no raw `_source`; observability
+  events are closed codes and integers only.
+
+### Explicit non-scope of HBIM-052
+
+Aggregation buckets are derived values in their own block and are never source
+items. `document_chunk`, `graph_path` and `media_item` exist as closed enum
+members but **cannot be emitted** in v1. No citation validation, no answer
+abstention and no grounded answer generation — those are HBIM-053.
+
+### Next issue
+
+HBIM-053 — grounded answer generation from the EvidencePack.
+
+## Previous issue
+
 HBIM-032 — VRAM residency manager and GPU profiles: a typed service registry,
 conservative VRAM accounting, a pure transition planner that enforces
 `Σ ≤ VRAM_BUDGET_MIB` at every intermediate state, a **capability-gated**
@@ -151,13 +205,13 @@ importing **no** HBIM-032 module reproduces it (11 flips over 19 consecutive
 identical pairs, 3 distinct result variants), so the condition is in the
 service, not in this milestone. All HBIM-051 offline suites are green.
 
-### Next issue
+### Next issue (as of HBIM-032)
 
-HBIM-052 — EvidencePack (not started here).
+HBIM-052 — EvidencePack. **Now complete**; see the section above.
 
 ### Explicit non-scope
 
-No HBIM-052 EvidencePack; no document/OCR implementation; no multimodal
+No document/OCR implementation; no multimodal
 retrieval; no VLM weights, image or service; no operational Docker host; no
 distributed lock service; no new database.
 
