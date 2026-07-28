@@ -27,6 +27,24 @@ from tests.test_api_pagination_snapshot import (  # reuse the accepted fixtures
 chat = _paging.chat
 
 
+# --------------------------------------------------------------------------- #
+# HBIM-053 §42.5/§43.1 — the grounded fake (quotes verbatim from the projection
+# it is actually handed). Assertions below stay hand-written.
+# --------------------------------------------------------------------------- #
+class _GroundedFake:
+    def complete(self, messages):
+        payload = json.loads(messages[-1]["content"])
+        evidence = payload["evidence"]
+        return json.dumps({"status": "answer", "claims": [{
+            "text": "Resposta fundamentada.",
+            "supports": [{"ref": evidence[0]["ref"],
+                          "quote": evidence[0]["content"][:60]}],
+        }]})
+
+
+GROUNDED_ANSWER = "Resposta fundamentada. [E001]"
+
+
 @pytest.fixture(autouse=True)
 def _evidence_enabled(monkeypatch: pytest.MonkeyPatch):
     """Default-off is proven separately; most cases need it on."""
@@ -199,16 +217,31 @@ def test_public_pack_has_no_generic_score_field(chat) -> None:
 def test_evidence_failure_never_breaks_the_response(
     chat, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The pack is an audit artefact; a projection failure must not turn a
-    working answer into an error."""
+    """HBIM-053 §42.6 — repointed off the retired ungrounded seam.
+
+    The pack is an audit artefact. A failure projecting it to the *public*
+    shape must not break the response (HBIM-052 §12), and it must not disturb
+    grounded generation, which reads the **internal** pack.
+    """
     def exploding(_pack):  # type: ignore[no-untyped-def]
         raise RuntimeError("projection blew up")
 
     monkeypatch.setattr("api.schemas.to_public_pack", exploding)
+    monkeypatch.setattr(api_main, "_grounded_llm_factory", lambda: _GroundedFake())
     response, _e, _l, _os = chat(message=SEMANTIC_MESSAGE)
-    assert response.response == "resposta final"
-    assert response.result_ids == SNAPSHOT_ORDER[:2]
+    # HBIM-052 guarantee: still answered, public pack dropped.
     assert response.evidence is None
+    # HBIM-053 guarantee: grounding unaffected, and no ungrounded text appears.
+    assert response.grounding_status == "answer"
+    # §33 step 5: 2 of 6 hits shown, so the deterministic pagination notice is
+    # part of the rendered answer.
+    assert response.response == (
+        GROUNDED_ANSWER + "\n\n_A mostrar 2 de 6 resultados._"
+    )
+    assert [c.ref for c in response.citations] == ["E001"]
+    # retrieval outcome untouched by either failure
+    assert response.result_ids == SNAPSHOT_ORDER[:2]
+    assert response.total_hits == 6
 
 
 def test_threshold_rejection_still_returns_no_pack_bearing_response(

@@ -99,6 +99,8 @@ module = [
     "api.snapshot",
     "retrieval.evidence",
     "api.schemas",
+    "api.responses",
+    "eval.grounding_eval",
     "models.residency",
     "models.residency_adapters",
     "api.ops",
@@ -124,6 +126,16 @@ disallow_untyped_defs = true
 module = ["api.main", "api.search", "api.prompts", "ingestion.*"]
 check_untyped_defs = false
 disallow_untyped_defs = false
+
+# HBIM-053: `api.responses` (gated) imports `api.search` lazily for the LLM
+# client factory, which would drag this legacy module into the blocking gate
+# for the first time and surface 22 pre-existing errors in a file HBIM-053 is
+# forbidden to modify. `follow_imports = "skip"` keeps the gate's scope exactly
+# as it was before this milestone: api.search remains outside it, as the
+# comment above already states. It hides nothing that was previously checked.
+[[tool.mypy.overrides]]
+module = ["api.search"]
+follow_imports = "skip"
 
 # Bibliotecas externas que não estão instaladas nos jobs de quality.
 # Os módulos ML são dependências opcionais do requirements-ml.txt e são

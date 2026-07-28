@@ -157,3 +157,62 @@ def pagination_integrity(pages: Sequence[Sequence[str]], expected: Iterable[str]
 def aggregation_exact(actual: dict[str, int], expected: dict[str, int]) -> bool:
     """Exact equality of aggregation bucket counts (order-independent)."""
     return actual == expected
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-053 §45 — grounding metrics. Pure, deterministic, no I/O.
+# --------------------------------------------------------------------------- #
+def citation_validity(cited: Sequence[str], known: Iterable[str]) -> float:
+    """Fraction of rendered citations that resolve in the current reference map.
+
+    Anything below 1.0 means a citation reached a user that pointed at nothing.
+    """
+    cited = list(cited)
+    if not cited:
+        return 1.0
+    allowed = set(known)
+    return round_metric(sum(1 for ref in cited if ref in allowed) / len(cited))
+
+
+def claim_citation_coverage(claims_with_support: Sequence[bool]) -> float:
+    """Fraction of rendered claims carrying at least one support."""
+    claims = list(claims_with_support)
+    if not claims:
+        return 1.0
+    return round_metric(sum(1 for ok in claims if ok) / len(claims))
+
+
+def support_validity(verdicts: Sequence[bool]) -> float:
+    """Fraction of supports that passed structural validation (§24/§25)."""
+    verdicts = list(verdicts)
+    if not verdicts:
+        return 1.0
+    return round_metric(sum(1 for ok in verdicts if ok) / len(verdicts))
+
+
+def abstention_correctness(
+    predicted: Sequence[str], expected: Sequence[str]
+) -> float:
+    """Fraction of cases whose answer/abstain decision matched the gold."""
+    if len(predicted) != len(expected):
+        raise ValueError("predicted and expected must have the same length")
+    if not predicted:
+        return 1.0
+    matched = sum(
+        1 for got, want in zip(predicted, expected, strict=True) if got == want
+    )
+    return round_metric(matched / len(predicted))
+
+
+def false_answer_rate(predicted: Sequence[str], expected: Sequence[str]) -> float:
+    """Fraction of cases that answered where the gold demands abstention.
+
+    This is the single most important number in HBIM-053: it must be 0.0.
+    """
+    if len(predicted) != len(expected):
+        raise ValueError("predicted and expected must have the same length")
+    demanded = [i for i, want in enumerate(expected) if want == "abstained"]
+    if not demanded:
+        return 0.0
+    wrong = sum(1 for i in demanded if predicted[i] != "abstained")
+    return round_metric(wrong / len(demanded))

@@ -117,6 +117,8 @@ jobs:
           backend/api/snapshot.py
           backend/retrieval/evidence.py
           backend/api/schemas.py
+          backend/api/responses.py
+          backend/eval/grounding_eval.py
           backend/models/residency.py
           backend/models/residency_adapters.py
           backend/api/ops.py

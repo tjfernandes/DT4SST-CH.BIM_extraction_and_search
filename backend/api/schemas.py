@@ -16,16 +16,19 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from api.responses import Citation
 from retrieval.evidence import EvidencePack
 
 __all__ = [
     "PublicAggregateBucket",
     "PublicAggregation",
+    "PublicCitation",
     "PublicEvidenceGroup",
     "PublicEvidenceItem",
     "PublicEvidencePack",
     "PublicPackLimits",
     "PublicProvenanceEntry",
+    "to_public_citations",
     "to_public_pack",
 ]
 
@@ -167,3 +170,46 @@ def to_public_pack(pack: EvidencePack) -> PublicEvidencePack:
             max_serialized_bytes=pack.limits.max_serialized_bytes,
         ),
     )
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-053 §35 — public citations
+# --------------------------------------------------------------------------- #
+class PublicCitation(BaseModel):
+    """One resolved citation.
+
+    ``source_id`` is present for item citations, satisfying the roadmap's
+    acceptance criterion "ids presentes quando existem". Aggregate citations
+    carry the typed bucket fact instead and leave every item field ``None`` —
+    a bucket has no source id and none is invented (§20).
+
+    ``index_identity`` is never exposed here, exactly as in the pack projection.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ref: str
+    kind: str
+    source_kind: Optional[str] = None
+    source_id: Optional[str] = None
+    project_id: Optional[str] = None
+    agg_field: Optional[str] = None
+    agg_key: Optional[str] = None
+    agg_count: Optional[int] = None
+
+
+def to_public_citations(citations: tuple[Citation, ...]) -> List[PublicCitation]:
+    """Project internal citations, preserving reference-map order."""
+    return [
+        PublicCitation(
+            ref=citation.ref,
+            kind=citation.kind,
+            source_kind=citation.source_kind,
+            source_id=citation.source_id,
+            project_id=citation.project_id,
+            agg_field=citation.agg_field,
+            agg_key=citation.agg_key,
+            agg_count=citation.agg_count,
+        )
+        for citation in citations
+    ]
