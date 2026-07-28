@@ -820,6 +820,62 @@ estabilidade garantida é **por snapshot**, e a deriva entre execuções é medi
 e reportada como diagnóstico — nunca se afirma determinismo de ranking entre
 execuções.
 
+### Gestor de residência de VRAM e endpoint de operações (HBIM-032)
+
+O gestor mantém um registo tipado dos serviços de modelo, contabiliza VRAM de
+forma **conservadora** e garante o invariante `Σ ≤ orçamento` em **todos** os
+estados intermédios de uma transição.
+
+Capacidade real dos serviços atuais (medida, nunca assumida): ambos são
+**apenas observáveis** — o TEI não expõe qualquer rota de ciclo de vida e o
+vLLM tem o *sleep mode* **desativado** no manifesto pinado (`/sleep`,
+`/wake_up`, `/is_sleeping` respondem 404). `GET /load` do vLLM é telemetria
+("Get Server Load Metrics"), **nunca** uma operação de residência. Transições
+não suportadas **falham fechadas** com um motivo tipado; nunca são simuladas
+como bem-sucedidas. O perfil `P-Verify-Hard` (colocar Emb+Rerank em *sleep*)
+é provado **apenas em simulação determinística**.
+
+Orçamento: `RESIDENCY_VRAM_BUDGET_MIB` quando definido, senão
+`total − RESIDENCY_VRAM_RESERVE_MIB` (reserva por omissão `10240` MiB). Tudo em
+MiB inteiros. Neste host (97 887 MiB) o orçamento derivado é 87 647 MiB.
+A atribuição de VRAM **por processo** não existe em WSL2
+(`--query-compute-apps` devolve `[N/A]`), pelo que é reportada como
+`"unavailable"` — nunca `0` e nunca substituída pela fração configurada.
+
+Os manifestos passam a declarar metadados de posse exatos
+(`com.hbim.project`, `com.hbim.service`, `com.hbim.milestone`); o gestor só
+atua sobre serviços que correspondam aos três por **igualdade exata**. Depois
+de atualizar os manifestos, recrie os contentores para que as etiquetas fiquem
+ativas:
+
+```bash
+docker compose -f deploy/embeddings/docker-compose.yml up -d
+docker compose -f deploy/reranker/docker-compose.yml up -d
+```
+
+Endpoint de operações — **desligado por omissão**. Ativa com
+`OPS_ENDPOINT_ENABLED=1`; fica sempre atrás da autenticação existente
+(`X-API-Key`). Sem a flag as rotas **não existem** (404).
+
+```bash
+curl -sS -H "X-API-Key: <chave>" http://127.0.0.1:8000/ops/residency
+curl -sS -H "X-API-Key: <chave>" -H 'Content-Type: application/json' \
+  -d '{"profile": "P-Online-Text"}' \
+  http://127.0.0.1:8000/ops/residency/ensure
+```
+
+O corpo aceita **apenas** um enum fechado de perfis: não é possível indicar um
+serviço, contentor ou caminho arbitrário. As respostas não contêm nomes de
+contentores, digests, URLs, caminhos absolutos nem texto de modelo. Não existe
+adaptador Docker nem exposição do socket do Docker.
+
+Suite live dedicada (falha, nunca skip, com `HBIM_REQUIRE_RESIDENCY_SERVICE=1`):
+
+```bash
+conda run -n hbim-rag python -m pytest \
+  backend/tests/integration/test_residency_apply.py -q -o addopts="" -m residency_service
+```
+
 ## Serviços locais de desenvolvimento (Docker Compose)
 
 Imagens pinadas: `opensearchproject/opensearch:2.19.1` e `neo4j:5.26.0`.

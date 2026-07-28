@@ -257,6 +257,63 @@ def _snapshot_now() -> int:
     return int(time.time())
 
 
+async def _ensure_residency_for_route(route: Route, degraded: bool) -> bool:
+    """HBIM-032 §9 — resolve the profile from the decided route and ensure it.
+
+    Returns ``True`` when model dispatch may proceed. Routes that dispatch no
+    model map to no profile and short-circuit, so structured, aggregation,
+    detail and chat never wake a service. A residency failure returns ``False``,
+    which prevents the model call and lets the request continue through exactly
+    the existing degradation policy — never a 500, never a schema change.
+    """
+    from models.residency import ResidencyError, profile_for_route
+
+    try:
+        profile = profile_for_route(route, degraded=degraded)
+    except ResidencyError:
+        return False
+    if profile is None:
+        # Structured, aggregation, detail, chat and every degraded route
+        # dispatch no model, so nothing is ever woken for them.
+        return True
+
+    from api.ops import get_residency_manager
+
+    try:
+        manager = get_residency_manager()
+    except Exception:
+        # Residency is not configured on this host (no GPU query, no service
+        # settings). It is then INERT: the request keeps exactly its
+        # pre-HBIM-032 behaviour rather than losing a working route (§9.6).
+        log_preprocess_json("residency_inert", {"profile": profile.value})
+        return True
+
+    try:
+        result = await manager.ensure_profile(profile)
+    except ResidencyError as exc:
+        log_preprocess_json(
+            "residency_unavailable",
+            {"profile": profile.value, "reason": exc.reason.value},
+        )
+        return False
+    except Exception:
+        # Residency is operating and failed: fail closed, never fake success.
+        logger.exception("residency transition failed; model dispatch prevented")
+        return False
+    log_preprocess_json(
+        "residency_ensure",
+        {
+            "profile": profile.value,
+            "outcome": result.outcome.value,
+            "reason": result.reason.value,
+            "transition_id": result.transition_id,
+            "accounted_mib": result.accounted_mib,
+            "budget_mib": result.budget_mib,
+        },
+    )
+    return result.ok
+
+
 def _candidate_contract() -> str:
     from retrieval.rerank import CANDIDATE_CONTRACT
 
@@ -666,6 +723,10 @@ class ChatResponse(BaseModel):
 
 async def chat_endpoint(request: ChatRequest):
     try:
+        # HBIM-032 §9 — bound unconditionally so no path can reach the hybrid
+        # guard with an undefined flag. Pagination and model-free routes leave
+        # it at True and simply never consult residency.
+        residency_ok = True
         user_input = request.message
         history = [{"role": m.role, "content": m.content} for m in request.history]
         logger.debug("Received user input: %r", user_input)
@@ -789,6 +850,14 @@ async def chat_endpoint(request: ChatRequest):
             is_aggregation = strategy == "aggregation"
             is_detail = strategy == "detail"
             query_embedding = None
+            # HBIM-032 §9 — the residency seam: the profile is resolved from
+            # the ALREADY-DECIDED route (route() stays pure) and ensured before
+            # any model client is constructed. A non-available profile degrades
+            # through the existing policy; it never raises and never changes a
+            # response schema (§9.6).
+            residency_ok = await _ensure_residency_for_route(
+                routing_decision.route, route_degraded
+            )
 
             if needs_search:
                 # HBIM-041 bridge (spec §22): the pydantic DTOs keep their
@@ -1001,7 +1070,7 @@ async def chat_endpoint(request: ChatRequest):
             # call site below, or None to fall through to today's behaviour.
             hybrid_outcome = (
                 _try_hybrid_answer(search_plan, effective_query, history)
-                if request.pagination is None
+                if request.pagination is None and residency_ok
                 else None
             )
             if isinstance(hybrid_outcome, ChatResponse):
@@ -1112,6 +1181,42 @@ def create_app(api_settings: ApiSettings | None = None) -> FastAPI:
         response_model=ChatResponse,
         dependencies=[Depends(verify_api_key)],
     )
+    # HBIM-032 §25 — residency ops, registered ONLY when explicitly enabled.
+    # When disabled the routes do not exist at all (404), and they always sit
+    # behind the existing verify_api_key contract.
+    from shared.config import OpsSettings, ResidencyConfigurationError
+
+    try:
+        ops_enabled = OpsSettings().enabled
+    except ResidencyConfigurationError:
+        ops_enabled = False
+    if ops_enabled:
+        from api.ops import (
+            EnsureProfileRequest,  # noqa: F401 - referenced by the route signature
+            ensure_profile_handler,
+            reconcile_handler,
+            residency_status_handler,
+        )
+
+        application.add_api_route(
+            "/ops/residency",
+            residency_status_handler,
+            methods=["GET"],
+            dependencies=[Depends(verify_api_key)],
+        )
+        application.add_api_route(
+            "/ops/residency/ensure",
+            ensure_profile_handler,
+            methods=["POST"],
+            dependencies=[Depends(verify_api_key)],
+        )
+        application.add_api_route(
+            "/ops/residency/reconcile",
+            reconcile_handler,
+            methods=["POST"],
+            dependencies=[Depends(verify_api_key)],
+        )
+
     application.add_api_route("/healthz", healthz, methods=["GET"])
     application.add_api_route("/readyz", readyz, methods=["GET"])
     application.add_api_route("/health", health, methods=["GET"], deprecated=True)
