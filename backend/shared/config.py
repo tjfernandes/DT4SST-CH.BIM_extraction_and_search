@@ -1,9 +1,10 @@
 import json
+import math
 import os
 import re
 import warnings
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Optional
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
@@ -664,3 +665,170 @@ class HybridActivationSettings(BaseSettings):
                 "HYBRID_ACTIVATION_ENABLED=true requires HYBRID_SNAPSHOT_SIGNING_SECRET"
             )
         return self
+
+
+class ResidencyConfigurationError(RuntimeError):
+    """Configuração inválida do gestor de residência de VRAM (HBIM-032).
+
+    Não deriva de ValueError pela mesma razão que RerankerConfigurationError:
+    erros de validador embrulhados em ValidationError anexam o input bruto.
+    """
+
+
+#: Environment values always arrive as strings; only a strict decimal integer
+#: is accepted, so "true"/"1e3"/"0x10" can never become a budget.
+_RESIDENCY_INT_RE = re.compile(r"^[+-]?\d+$")
+
+
+def _residency_int(value: object, field: str, *, minimum: int, maximum: int) -> int:
+    """Inteiro estrito em MiB: bool, NaN, inf e não-inteiros recusados."""
+    if isinstance(value, bool):
+        raise ResidencyConfigurationError(f"{field} must be an integer, not a bool")
+    if isinstance(value, str):
+        text = value.strip()
+        if not _RESIDENCY_INT_RE.match(text):
+            raise ResidencyConfigurationError(f"{field} must be an integer")
+        value = int(text)
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ResidencyConfigurationError(f"{field} must be a finite integer")
+        value = int(value)
+    if not isinstance(value, int):
+        raise ResidencyConfigurationError(f"{field} must be an integer")
+    if not minimum <= value <= maximum:
+        raise ResidencyConfigurationError(f"{field} must be in [{minimum}, {maximum}]")
+    return value
+
+
+def _residency_float(value: object, field: str, *, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise ResidencyConfigurationError(f"{field} must be a number, not a bool")
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            raise ResidencyConfigurationError(f"{field} must be a number") from None
+    if not isinstance(value, (int, float)):
+        raise ResidencyConfigurationError(f"{field} must be a number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ResidencyConfigurationError(f"{field} must be finite")
+    if not minimum <= number <= maximum:
+        raise ResidencyConfigurationError(f"{field} must be in [{minimum}, {maximum}]")
+    return number
+
+
+class ResidencySettings(BaseSettings):
+    """HBIM-032 §10 — orçamento de VRAM, frescura e timeouts.
+
+    Todas as memórias são inteiros em **MiB**. Nunca instanciada no import.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    vram_total_mib: Optional[int] = Field(
+        default=None, validation_alias=AliasChoices("RESIDENCY_VRAM_TOTAL_MIB")
+    )
+    vram_reserve_mib: int = Field(
+        default=10240, validation_alias=AliasChoices("RESIDENCY_VRAM_RESERVE_MIB")
+    )
+    vram_budget_mib: Optional[int] = Field(
+        default=None, validation_alias=AliasChoices("RESIDENCY_VRAM_BUDGET_MIB")
+    )
+    measurement_max_age_s: float = Field(
+        default=30.0, validation_alias=AliasChoices("RESIDENCY_MEASUREMENT_MAX_AGE_S")
+    )
+    reconciliation_tolerance_mib: int = Field(
+        default=512,
+        validation_alias=AliasChoices("RESIDENCY_RECONCILIATION_TOLERANCE_MIB"),
+    )
+    action_timeout_s: float = Field(
+        default=60.0, validation_alias=AliasChoices("RESIDENCY_ACTION_TIMEOUT_S")
+    )
+    transition_timeout_s: float = Field(
+        default=120.0, validation_alias=AliasChoices("RESIDENCY_TRANSITION_TIMEOUT_S")
+    )
+    exclusive_lock_timeout_s: float = Field(
+        default=300.0,
+        validation_alias=AliasChoices("RESIDENCY_EXCLUSIVE_LOCK_TIMEOUT_S"),
+    )
+
+    # mode="before": pydantic coerces bool→int and str→int in its own step, so
+    # the bool/NaN/non-integral traps must be checked on the RAW input.
+    @field_validator("vram_total_mib", "vram_budget_mib", mode="before")
+    @classmethod
+    def _optional_mib(cls, value: object, info: ValidationInfo) -> Optional[int]:
+        if value is None:
+            return None
+        return _residency_int(value, str(info.field_name), minimum=1, maximum=1 << 24)
+
+    @field_validator("vram_reserve_mib", "reconciliation_tolerance_mib", mode="before")
+    @classmethod
+    def _required_mib(cls, value: object, info: ValidationInfo) -> int:
+        return _residency_int(value, str(info.field_name), minimum=0, maximum=1 << 24)
+
+    @field_validator(
+        "measurement_max_age_s",
+        "action_timeout_s",
+        "transition_timeout_s",
+        "exclusive_lock_timeout_s",
+        mode="before",
+    )
+    @classmethod
+    def _positive_seconds(cls, value: object, info: ValidationInfo) -> float:
+        return _residency_float(
+            value, str(info.field_name), minimum=0.001, maximum=86400.0
+        )
+
+    @model_validator(mode="after")
+    def _budget_is_derivable(self) -> "ResidencySettings":
+        if self.vram_budget_mib is not None:
+            return self
+        if self.vram_total_mib is not None and self.vram_total_mib <= self.vram_reserve_mib:
+            raise ResidencyConfigurationError(
+                "RESIDENCY_VRAM_TOTAL_MIB must exceed RESIDENCY_VRAM_RESERVE_MIB"
+            )
+        return self
+
+    def budget_mib(self, measured_total_mib: Optional[int] = None) -> int:
+        """§10 — explicit budget, else ``total − reserve`` (measured or configured)."""
+        if self.vram_budget_mib is not None:
+            return self.vram_budget_mib
+        total = self.vram_total_mib if self.vram_total_mib is not None else measured_total_mib
+        if total is None:
+            raise ResidencyConfigurationError(
+                "no VRAM total available: set RESIDENCY_VRAM_TOTAL_MIB or "
+                "RESIDENCY_VRAM_BUDGET_MIB, or supply a measured total"
+            )
+        total = _residency_int(total, "vram_total_mib", minimum=1, maximum=1 << 24)
+        if total <= self.vram_reserve_mib:
+            raise ResidencyConfigurationError(
+                "VRAM total must exceed RESIDENCY_VRAM_RESERVE_MIB"
+            )
+        return total - self.vram_reserve_mib
+
+
+class OpsSettings(BaseSettings):
+    """HBIM-032 §25 — superfície de operações, **desligada por omissão**."""
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    enabled: bool = Field(
+        default=False, validation_alias=AliasChoices("OPS_ENDPOINT_ENABLED")
+    )

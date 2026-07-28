@@ -2,6 +2,167 @@
 
 ## Last completed issue
 
+HBIM-032 — VRAM residency manager and GPU profiles: a typed service registry,
+conservative VRAM accounting, a pure transition planner that enforces
+`Σ ≤ VRAM_BUDGET_MIB` at every intermediate state, a **capability-gated**
+executor that fails closed on unsupported transitions, the five roadmap
+profiles, an exclusive hard-verification window, and a default-off
+authenticated operations surface.
+
+## Status of HBIM-032
+
+**Complete under the capability-gated architecture.**
+
+### Supported live capability (measured, never assumed)
+
+The two merged services are **observe-only**. Probed read-only against the
+pinned deployments and re-proven by the live suite on every run:
+
+| service | backend | health/identity | load | unload | sleep L1/L2 | wake |
+|---|---|---|---|---|---|---|
+| `emb-qwen3-8b` (HBIM-030) | TEI `120-1.9` | ✅ `/health`, `/info` | ❌ 404 | ❌ 404 | ❌ 404 | ❌ 404 |
+| `rerank-qwen3-8b` (HBIM-051) | vLLM `v0.25.1` | ✅ `/health`, `/v1/models` | ❌ | ❌ | ❌ 404 | ❌ 404 |
+
+**Unsupported sleep/wake limitations, stated plainly.** TEI exposes no
+lifecycle API at all. vLLM sleep mode is a real product feature but is
+**disabled** on the pinned, digest-pinned deployment (the manifest sets neither
+`--enable-sleep-mode` nor `VLLM_SERVER_DEV_MODE=1`); enabling it is a
+deployment migration with its own review. `GET /load` on vLLM answers 200 but
+is *"Get Server Load Metrics"* — read-only telemetry, deliberately **not**
+wired to any residency operation. Consequently **no claim is made that
+Emb+Rerank were ever put to sleep**: the roadmap's `P-Verify-Hard` sleep/restore
+acceptance is satisfied **in deterministic simulation only** (60 exhaustive
+depth-3 profile sequences), and the live executor refuses the transition with a
+typed reason rather than faking it. `sleep ≠ docker stop`, `unloaded ≠
+unhealthy`, `loaded ≠ container exists`.
+
+### Current profile behaviour
+
+`P-Online-Text` is `AVAILABLE`; `ensure_profile` is an idempotent no-op that
+leaves the registry generation unchanged. The other four profiles are
+`UNAVAILABLE` with the exact missing members named — `P-Online-MM`
+(jina-clip, ocr, vlm-8b), `P-Verify-Hard` (vlm-32b), `P-Ingest-Docs` (ocr),
+`P-Ingest-Visual` (jina-clip, colqwen). `P-Verify-Hard` additionally records
+the capability block on the retrieval pair, so neither fact is hidden. Future
+slots are declarative: no image, endpoint or weight is referenced, and an
+`unavailable` slot can never become `loaded`.
+
+### Measurement provenance and the WSL limitation
+
+`nvidia-smi --query-compute-apps=pid,used_memory` returns `[N/A]` on this host
+class, so **per-process VRAM attribution is unavailable**. It is reported as
+the string `"unavailable"` — never `0`, never silently replaced by the
+configured fraction. Accounting is conservative:
+`effective = max(configured_reservation, measured or 0)`, so an unmeasurable
+service is charged its full reservation and the invariant can only ever be
+over-strict. A whole-GPU sample is a reconciliation aid only: drift beyond
+`RESIDENCY_RECONCILIATION_TOLERANCE_MIB` is reported as
+`reconciliation_drift`, never attributed to one service and never absorbed;
+with no sampler the drift is explicitly `None`.
+
+### Budget and reserve
+
+`RESIDENCY_VRAM_BUDGET_MIB` when set, else `total − RESIDENCY_VRAM_RESERVE_MIB`
+(reserve default `10240`). On the measured device (`97 887 MiB` total) the
+derived budget is **`87 647 MiB`**, consistent with the roadmap's suggested
+`VRAM_BUDGET_GB=86`. All memory is integer MiB; `bool`, `NaN`, `±inf`,
+negative, zero and non-integral values are rejected as typed configuration
+errors.
+
+### Ownership and locking semantics
+
+Control is restricted to services carrying **all three** exact labels
+`com.hbim.project=hbim-rag`, `com.hbim.service`, `com.hbim.milestone`, matched
+by equality — never substring, prefix or regex. Near-miss labels (truncated,
+superstring, whitespace, case, wrong milestone, foreign project) are all
+refused; unlabelled services are `ownership_unverified`; duplicates raise
+`AmbiguousOwnershipError`. The manifests gained these labels additively and a
+blocking migration test proves `manifest_pins()` returns a value
+**byte-identical** to its pre-migration literal, with the rest of both
+manifests structurally unchanged.
+
+The mutation lock and the exclusive `P-Verify-Hard` lock are **process-local**
+`asyncio` locks, created lazily (never at import, never bound to a loop at
+module scope). That scope is sufficient for the single-process API against a
+single local GPU and is **explicitly insufficient** for a multi-process or
+multi-host deployment — recorded as a boundary, not assumed away. Identical
+concurrent `ensure_profile` calls are coalesced; conflicting targets serialise;
+reentrancy raises rather than deadlocking; every error and cancellation path
+releases both locks in `finally`.
+
+### Transaction and rollback behaviour
+
+Full preflight (availability verdict → pure plan → budget check at every
+intermediate state) happens before any effect. Actions are ordered
+release-before-acquire, so the exclusive window never produces two
+simultaneous peaks. The active profile is committed **only** after a fully
+successful plan; a failure marks the service `failed` (never collapsed into
+`unloaded`), runs the deterministic inverse rollback in reverse order, and
+reports a typed `TransitionFailedError`. Rollback failure is a distinct
+`RollbackFailedError` carrying the exact residual state. An irreversible plan
+is refused at plan time with no caller override. The exclusive window restores
+the **captured** previous profile — proven from every source profile and on
+the success, error and cancellation paths.
+
+### Operations security
+
+`/ops/residency`, `/ops/residency/ensure` and `/ops/residency/reconcile` are
+registered **only** when `OPS_ENDPOINT_ENABLED` is set; by default the routes
+do not exist (404). When enabled they sit behind the existing `verify_api_key`
+contract. The request body is a closed profile enum, so an arbitrary service or
+container name is unrepresentable and injection attempts are rejected by the
+schema. `GET` is provably non-mutating. Responses carry no container name,
+image reference, digest, URL, absolute path, credential or model text. There is
+**no Docker adapter, no Docker socket and no generic administration API**, and
+the only subprocess (the whole-GPU total query) uses a fixed argument vector.
+
+### Router purity and the orchestration seam
+
+`backend/retrieval/router.py` is **byte-identical to `main`** (asserted by a
+test). A pure, total, exhaustive `profile_for_route(route, degraded=)` maps the
+already-decided route to a profile; `ensure_profile()` is invoked by the
+endpoint after routing and before any model client is constructed. Routes that
+dispatch no model (structured, aggregation, detail, chat, and every degraded
+route) map to no profile and never wake a service; HBIM-051 snapshot pagination
+neither reranks nor triggers a transition. A non-available profile prevents the
+model call and the request continues through the existing degradation policy —
+never a 500, never a schema change. Where residency cannot be constructed at
+all (no GPU query, no service settings) it is **inert**, preserving exact
+pre-HBIM-032 behaviour; that construction failure is cached so no request path
+re-spawns the measurement subprocess.
+
+### Tests
+
+1 770 unit tests pass (baseline 1 617 + 153 new), identically under default
+order, `-p no:randomly` and seeds 1, 7, 42, 20260722 and 77082843. Live
+`residency_service`: **15 passed** against the real loopback services,
+including re-proving every lifecycle 404. Marker isolation is unchanged and
+pinned: `gpu_service` 37, `reranker_service` 19, `residency_service` 15, and 0
+residency tests collected by unit runs or the CI integration selector. Ruff
+clean; exact CI mypy clean over 60 source files. Regressions green: HBIM-005
+baseline (6), CI integration selector (73), HBIM-040/041/042 (350).
+
+**Known environmental limitation (pre-existing, not caused by HBIM-032).** The
+HBIM-051 *live* suite currently cannot run on this host: the reranker is in the
+intermittent score-flipping state documented in HBIM-051's status, and its
+hardened readiness probe correctly refuses to declare a flipping service ready
+("1/26 probe scores differ between identical requests"). A raw-client probe
+importing **no** HBIM-032 module reproduces it (11 flips over 19 consecutive
+identical pairs, 3 distinct result variants), so the condition is in the
+service, not in this milestone. All HBIM-051 offline suites are green.
+
+### Next issue
+
+HBIM-052 — EvidencePack (not started here).
+
+### Explicit non-scope
+
+No HBIM-052 EvidencePack; no document/OCR implementation; no multimodal
+retrieval; no VLM weights, image or service; no operational Docker host; no
+distributed lock service; no new database.
+
+## Previous issue
+
 HBIM-051 — Qwen3-Reranker-8B over the HBIM-050 union, removal of the
 `FILTER_RESULTS_BATCH` LLM relevance filter, safety-first non-destructive
 threshold protocol v4, snapshot-scoped determinism v6 (one search → one

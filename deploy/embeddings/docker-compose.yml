@@ -13,6 +13,13 @@ services:
   embeddings:
     image: ghcr.io/huggingface/text-embeddings-inference:120-1.9@sha256:aedf3b34836dc57289583142adcf2b93836cda0736ac8e6ce43691b9c2c67170
     container_name: hbim-embeddings-qwen3
+    # HBIM-032 §24 — exact ownership metadata (see the reranker manifest).
+    # Additive only: no image, digest, model, revision, flag, env or port
+    # changes, so the HBIM-030 deployment contract is untouched.
+    labels:
+      com.hbim.project: hbim-rag
+      com.hbim.service: embeddings
+      com.hbim.milestone: HBIM-030
     command:
       - --model-id=Qwen/Qwen3-Embedding-8B
       - --revision=1d8ad4ca9b3dd8059ad90a75d4983776a23d44af

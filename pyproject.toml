@@ -14,6 +14,7 @@ markers = [
     "gpu_service: exige o servico local de embeddings com GPU (HBIM-030); correr com -m gpu_service",
     "model_service: exige modelos de embedding reais locais (HBIM-005B: zembed + Qwen); correr com -m model_service",
     "reranker_service: exige o servico local Qwen3-Reranker (HBIM-051); correr com -m reranker_service",
+    "residency_service: exige os servicos locais de embeddings+reranker para o gestor de residencia (HBIM-032); correr com -m residency_service",
 ]
 
 [tool.ruff]
@@ -96,6 +97,9 @@ module = [
     "retrieval.rerank_projection",
     "retrieval.rerank",
     "api.snapshot",
+    "models.residency",
+    "models.residency_adapters",
+    "api.ops",
     "eval.rerank_threshold",
     "eval.rerank_eval",
     "eval.bench.embedding_latency",
