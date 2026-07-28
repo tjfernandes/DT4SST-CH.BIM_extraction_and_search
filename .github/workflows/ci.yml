@@ -115,6 +115,8 @@ jobs:
           backend/retrieval/rerank_projection.py
           backend/retrieval/rerank.py
           backend/api/snapshot.py
+          backend/retrieval/evidence.py
+          backend/api/schemas.py
           backend/models/residency.py
           backend/models/residency_adapters.py
           backend/api/ops.py

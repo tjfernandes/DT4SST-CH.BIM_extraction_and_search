@@ -97,6 +97,8 @@ module = [
     "retrieval.rerank_projection",
     "retrieval.rerank",
     "api.snapshot",
+    "retrieval.evidence",
+    "api.schemas",
     "models.residency",
     "models.residency_adapters",
     "api.ops",

@@ -1,0 +1,976 @@
+"""HBIM-052 — EvidencePack: deterministic evidence, provenance and caveats.
+
+The typed, auditable boundary between retrieval and answer generation. Pure by
+construction: building, validating, deduplicating, grouping, deriving caveats
+and serializing perform no I/O, hold no state and call no model. Importing this
+module opens no socket, spawns no subprocess, constructs no client or settings
+object and touches no filesystem (spec §40).
+
+Two invariants dominate the design:
+
+* **Score honesty (§17)** — there is no field named ``score`` anywhere. BM25,
+  dense similarity, RRF, a reranker sigmoid and an OpenSearch query score are
+  incomparable, so each provenance entry carries its own typed
+  ``(score_kind, score_value)``. ``EXACT_LOOKUP`` and ``SNAPSHOT_PAGE`` carry no
+  score at all, because the snapshot deliberately persists ids only.
+* **Provenance preservation (§23)** — deduplication *unions* provenance. It
+  never keeps "the best score and drops the rest".
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from dataclasses import dataclass, replace
+from enum import Enum
+from typing import Any, Iterable, Mapping, Sequence
+
+__all__ = [
+    "ALLOWED_SCORE_KIND",
+    "DEFAULT_LIMITS",
+    "EMITTABLE_SOURCE_KINDS",
+    "EVIDENCE_PACK_VERSION",
+    "MAX_CONTENT_CHARS",
+    "MAX_GROUPS",
+    "MAX_ITEMS",
+    "MAX_PROVENANCE_PER_ITEM",
+    "MAX_SERIALIZED_BYTES",
+    "METHOD_ORDER",
+    "SOURCE_KIND_ORDER",
+    "AggregateBucket",
+    "AggregationEvidence",
+    "Caveat",
+    "EvidenceError",
+    "EvidenceGroup",
+    "EvidenceIdentityError",
+    "EvidenceItem",
+    "EvidenceLimitError",
+    "EvidencePack",
+    "EvidenceScoreError",
+    "EvidenceSerializationError",
+    "PackLimits",
+    "ProvenanceEntry",
+    "RetrievalMethod",
+    "ScoreKind",
+    "SourceKind",
+    "build_pack",
+    "build_pack_for_aggregation",
+    "build_pack_for_detail",
+    "build_pack_for_hybrid_page",
+    "build_pack_for_snapshot_page",
+    "build_pack_for_structured",
+    "canonical_json",
+    "dedup_items",
+    "legacy_projection",
+    "pack_sha256",
+    "pack_to_canonical_dict",
+]
+
+#: §11 — bump on any change to a closed enum, field, ordering rule or the
+#: canonicalisation.
+EVIDENCE_PACK_VERSION = "hbim-052-evidence-v1"
+
+
+# --------------------------------------------------------------------------- #
+# Closed enums (spec §13, §16, §17, §27)
+# --------------------------------------------------------------------------- #
+class SourceKind(str, Enum):
+    """§13 — what a piece of evidence *is*. Future kinds are declared so
+    HBIM-053 can be written against a stable type; emitting one is banned."""
+
+    CANONICAL_ELEMENT = "canonical_element"
+    LEGACY_ELEMENT = "legacy_element"
+    DOCUMENT_CHUNK = "document_chunk"   # HBIM-070 — never emitted in v1
+    GRAPH_PATH = "graph_path"           # HBIM-082 — never emitted in v1
+    MEDIA_ITEM = "media_item"           # HBIM-090 — never emitted in v1
+
+
+#: §13 — the only kinds a v1 builder may produce.
+EMITTABLE_SOURCE_KINDS = frozenset(
+    {SourceKind.CANONICAL_ELEMENT, SourceKind.LEGACY_ELEMENT}
+)
+
+#: §25 — deterministic group order.
+SOURCE_KIND_ORDER: tuple[SourceKind, ...] = (
+    SourceKind.CANONICAL_ELEMENT,
+    SourceKind.LEGACY_ELEMENT,
+    SourceKind.DOCUMENT_CHUNK,
+    SourceKind.GRAPH_PATH,
+    SourceKind.MEDIA_ITEM,
+)
+
+
+class RetrievalMethod(str, Enum):
+    """§16 — how a piece of evidence was reached."""
+
+    BM25 = "bm25"
+    DENSE_KNN = "dense_knn"
+    RRF_FUSION = "rrf_fusion"
+    RERANKER = "reranker"
+    STRUCTURED_FILTER = "structured_filter"
+    EXACT_LOOKUP = "exact_lookup"
+    SNAPSHOT_PAGE = "snapshot_page"
+
+
+METHOD_ORDER: tuple[RetrievalMethod, ...] = (
+    RetrievalMethod.BM25,
+    RetrievalMethod.DENSE_KNN,
+    RetrievalMethod.RRF_FUSION,
+    RetrievalMethod.RERANKER,
+    RetrievalMethod.STRUCTURED_FILTER,
+    RetrievalMethod.EXACT_LOOKUP,
+    RetrievalMethod.SNAPSHOT_PAGE,
+)
+
+
+class ScoreKind(str, Enum):
+    """§17 — the scale a number belongs to. There is no generic score."""
+
+    BM25_SCORE = "bm25_score"
+    DENSE_SIMILARITY = "dense_similarity"
+    RRF_FUSED = "rrf_fused"
+    RERANKER_PROBABILITY = "reranker_probability"
+    OPENSEARCH_QUERY = "opensearch_query_score"
+
+
+#: §17 — a method may only carry a score from its own scale. ``EXACT_LOOKUP``
+#: and ``SNAPSHOT_PAGE`` carry none: inventing one is a blocking defect.
+ALLOWED_SCORE_KIND: Mapping[RetrievalMethod, frozenset[ScoreKind]] = {
+    RetrievalMethod.BM25: frozenset({ScoreKind.BM25_SCORE}),
+    RetrievalMethod.DENSE_KNN: frozenset({ScoreKind.DENSE_SIMILARITY}),
+    RetrievalMethod.RRF_FUSION: frozenset({ScoreKind.RRF_FUSED}),
+    RetrievalMethod.RERANKER: frozenset({ScoreKind.RERANKER_PROBABILITY}),
+    RetrievalMethod.STRUCTURED_FILTER: frozenset({ScoreKind.OPENSEARCH_QUERY}),
+    RetrievalMethod.EXACT_LOOKUP: frozenset(),
+    RetrievalMethod.SNAPSHOT_PAGE: frozenset(),
+}
+
+
+class Caveat(str, Enum):
+    """§27 — every caveat is derived from a deterministic fact, never text."""
+
+    DEGRADED_ROUTE = "degraded_route"
+    FUTURE_BACKEND_UNAVAILABLE = "future_backend_unavailable"
+    ITEMS_TRUNCATED_BY_LIMIT = "items_truncated_by_limit"
+    LEGACY_SOURCE = "legacy_source"
+    METADATA_CONFLICT = "metadata_conflict"
+    NO_EVIDENCE = "no_evidence"
+    SNAPSHOT_PAGE_WITHOUT_SCORES = "snapshot_page_without_scores"
+    THRESHOLD_ACCEPT_ALL = "threshold_accept_all"
+    TRUNCATED_PROJECTION = "truncated_projection"
+
+
+# --------------------------------------------------------------------------- #
+# Typed failure taxonomy (spec §35)
+# --------------------------------------------------------------------------- #
+class EvidenceError(Exception):
+    """Base. Messages carry closed codes and identifiers only — never query
+    text, document text, secrets or tokens (§39)."""
+
+
+class EvidenceIdentityError(EvidenceError):
+    """Missing/blank id, non-emittable kind, or a merge across stores."""
+
+
+class EvidenceScoreError(EvidenceError):
+    """Bad method/score pair, bool, NaN, ±inf, or an invalid rank."""
+
+
+class EvidenceLimitError(EvidenceError):
+    """Group or provenance-per-item overflow."""
+
+
+class EvidenceSerializationError(EvidenceError):
+    """Canonical JSON is unserializable or exceeds the byte bound."""
+
+
+# --------------------------------------------------------------------------- #
+# Limits (spec §29)
+# --------------------------------------------------------------------------- #
+MAX_ITEMS = 200                 # == RERANK_DEPTH
+MAX_GROUPS = 16
+MAX_PROVENANCE_PER_ITEM = 8
+MAX_CONTENT_CHARS = 2000        # == MAX_RERANK_DOC_CHARS
+MAX_SERIALIZED_BYTES = 262144
+MAX_SOURCE_ID_CHARS = 512
+
+
+@dataclass(frozen=True)
+class PackLimits:
+    """Emitted verbatim so a consumer can tell a truncated pack from a
+    complete one without guessing (§29)."""
+
+    max_items: int = MAX_ITEMS
+    max_groups: int = MAX_GROUPS
+    max_provenance_per_item: int = MAX_PROVENANCE_PER_ITEM
+    max_content_chars: int = MAX_CONTENT_CHARS
+    max_serialized_bytes: int = MAX_SERIALIZED_BYTES
+
+    def __post_init__(self) -> None:
+        for field in (
+            "max_items",
+            "max_groups",
+            "max_provenance_per_item",
+            "max_content_chars",
+            "max_serialized_bytes",
+        ):
+            value = getattr(self, field)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise EvidenceLimitError(f"{field} must be an int, not a bool")
+            if value <= 0:
+                raise EvidenceLimitError(f"{field} must be positive")
+
+
+DEFAULT_LIMITS = PackLimits()
+
+
+# --------------------------------------------------------------------------- #
+# Numeric validation (spec §17)
+# --------------------------------------------------------------------------- #
+def _finite_score(value: object) -> float:
+    if isinstance(value, bool):
+        raise EvidenceScoreError("score_value must be a number, not a bool")
+    if not isinstance(value, (int, float)):
+        raise EvidenceScoreError("score_value must be a number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise EvidenceScoreError("score_value must be finite")
+    return number
+
+
+def _positive_rank(value: object) -> int:
+    if isinstance(value, bool):
+        raise EvidenceScoreError("rank must be an int, not a bool")
+    if not isinstance(value, int):
+        raise EvidenceScoreError("rank must be an int")
+    if value < 1:
+        raise EvidenceScoreError("rank must be >= 1")
+    return value
+
+
+def _non_negative_index(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise EvidenceIdentityError(f"{field} must be an int, not a bool")
+    if value < 0:
+        raise EvidenceIdentityError(f"{field} must be >= 0")
+    return value
+
+
+# --------------------------------------------------------------------------- #
+# Provenance (spec §16)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class ProvenanceEntry:
+    method: RetrievalMethod
+    rank: int | None = None
+    score_kind: ScoreKind | None = None
+    score_value: float | None = None
+    accepted: bool | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.method, RetrievalMethod):
+            raise EvidenceScoreError("method must be a RetrievalMethod")
+        if (self.score_kind is None) != (self.score_value is None):
+            raise EvidenceScoreError(
+                "score_kind and score_value must both be present or both absent"
+            )
+        if self.score_kind is not None:
+            if not isinstance(self.score_kind, ScoreKind):
+                raise EvidenceScoreError("score_kind must be a ScoreKind")
+            allowed = ALLOWED_SCORE_KIND[self.method]
+            if self.score_kind not in allowed:
+                raise EvidenceScoreError(
+                    f"{self.method.value} may not carry {self.score_kind.value}"
+                )
+            object.__setattr__(self, "score_value", _finite_score(self.score_value))
+        if self.rank is not None:
+            object.__setattr__(self, "rank", _positive_rank(self.rank))
+        if self.accepted is not None and not isinstance(self.accepted, bool):
+            raise EvidenceScoreError("accepted must be a bool or None")
+
+    @property
+    def sort_key(self) -> tuple[int, int, str, float, int]:
+        """§16 — the five-element total order. No ties, no insertion order."""
+        return (
+            METHOD_ORDER.index(self.method),
+            self.rank if self.rank is not None else -1,
+            self.score_kind.value if self.score_kind is not None else "",
+            self.score_value if self.score_value is not None else 0.0,
+            0 if self.accepted is None else (1 if self.accepted else 2),
+        )
+
+
+def _order_provenance(
+    entries: Iterable[ProvenanceEntry],
+) -> tuple[ProvenanceEntry, ...]:
+    unique: dict[tuple[Any, ...], ProvenanceEntry] = {}
+    for entry in entries:
+        unique.setdefault(entry.sort_key, entry)
+    return tuple(sorted(unique.values(), key=lambda item: item.sort_key))
+
+
+# --------------------------------------------------------------------------- #
+# Evidence item, group, aggregation, pack (spec §15, §18, §19, §33)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class EvidenceItem:
+    source_kind: SourceKind
+    source_id: str
+    project_id: str | None
+    index_identity: str
+    content: str
+    content_truncated: bool
+    order_index: int
+    provenance: tuple[ProvenanceEntry, ...]
+    caveats: tuple[Caveat, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_kind, SourceKind):
+            raise EvidenceIdentityError("source_kind must be a SourceKind")
+        if self.source_kind not in EMITTABLE_SOURCE_KINDS:
+            raise EvidenceIdentityError(
+                f"{self.source_kind.value} cannot be emitted in "
+                f"{EVIDENCE_PACK_VERSION}"
+            )
+        if not isinstance(self.source_id, str) or not self.source_id.strip():
+            raise EvidenceIdentityError("source_id must be a non-empty string")
+        if len(self.source_id) > MAX_SOURCE_ID_CHARS:
+            raise EvidenceIdentityError(
+                f"source_id exceeds {MAX_SOURCE_ID_CHARS} characters"
+            )
+        if self.project_id is not None and not isinstance(self.project_id, str):
+            raise EvidenceIdentityError("project_id must be a string or None")
+        if not isinstance(self.index_identity, str) or not self.index_identity:
+            raise EvidenceIdentityError("index_identity must be a non-empty string")
+        if not isinstance(self.content, str):
+            raise EvidenceIdentityError("content must be a string")
+        if len(self.content) > MAX_CONTENT_CHARS:
+            raise EvidenceLimitError(
+                f"content exceeds {MAX_CONTENT_CHARS} characters"
+            )
+        if not isinstance(self.content_truncated, bool):
+            raise EvidenceIdentityError("content_truncated must be a bool")
+        object.__setattr__(
+            self, "order_index", _non_negative_index(self.order_index, "order_index")
+        )
+        if not self.provenance:
+            raise EvidenceIdentityError("an evidence item needs provenance")
+        if len(self.provenance) > MAX_PROVENANCE_PER_ITEM:
+            raise EvidenceLimitError(
+                f"more than {MAX_PROVENANCE_PER_ITEM} provenance entries"
+            )
+        object.__setattr__(self, "provenance", _order_provenance(self.provenance))
+        object.__setattr__(self, "caveats", _order_caveats(self.caveats))
+
+    @property
+    def dedup_key(self) -> tuple[str, str, str]:
+        """§22 — kind and project participate, so no silent collision."""
+        return (self.source_kind.value, self.project_id or "", self.source_id)
+
+
+@dataclass(frozen=True)
+class EvidenceGroup:
+    source_kind: SourceKind
+    project_id: str | None
+    items: tuple[EvidenceItem, ...]
+
+    def __post_init__(self) -> None:
+        if not self.items:
+            raise EvidenceLimitError("an evidence group may never be empty")
+
+
+@dataclass(frozen=True)
+class AggregateBucket:
+    """§33 — a derived value. It is never a source and has no ``source_id``."""
+
+    key: str
+    count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str):
+            raise EvidenceIdentityError("bucket key must be a string")
+        if isinstance(self.count, bool) or not isinstance(self.count, int):
+            raise EvidenceScoreError("bucket count must be an int, not a bool")
+        if self.count < 0:
+            raise EvidenceScoreError("bucket count must be >= 0")
+
+
+@dataclass(frozen=True)
+class AggregationEvidence:
+    agg_field: str
+    total: int
+    buckets: tuple[AggregateBucket, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.agg_field, str) or not self.agg_field:
+            raise EvidenceIdentityError("agg_field must be a non-empty string")
+        if isinstance(self.total, bool) or not isinstance(self.total, int):
+            raise EvidenceScoreError("total must be an int, not a bool")
+        if self.total < 0:
+            raise EvidenceScoreError("total must be >= 0")
+
+
+@dataclass(frozen=True)
+class EvidencePack:
+    version: str
+    route: str
+    strategy: str
+    degraded: bool
+    result_count: int
+    total_hits: int | None
+    result_from: int
+    groups: tuple[EvidenceGroup, ...]
+    aggregation: AggregationEvidence | None
+    caveats: tuple[Caveat, ...]
+    limits: PackLimits
+
+    def __post_init__(self) -> None:
+        if self.version != EVIDENCE_PACK_VERSION:
+            raise EvidenceIdentityError("unknown EvidencePack version")
+        counted = sum(len(group.items) for group in self.groups)
+        if counted != self.result_count:
+            raise EvidenceLimitError(
+                "result_count does not match the number of items"
+            )
+        if len(self.groups) > self.limits.max_groups:
+            raise EvidenceLimitError(
+                f"more than {self.limits.max_groups} groups"
+            )
+
+    @property
+    def items(self) -> tuple[EvidenceItem, ...]:
+        return tuple(item for group in self.groups for item in group.items)
+
+
+def _order_caveats(caveats: Iterable[Caveat]) -> tuple[Caveat, ...]:
+    unique = set()
+    for caveat in caveats:
+        if not isinstance(caveat, Caveat):
+            raise EvidenceIdentityError("caveat must be a Caveat")
+        unique.add(caveat)
+    return tuple(sorted(unique, key=lambda item: item.value))
+
+
+# --------------------------------------------------------------------------- #
+# Dedup and merge algebra (spec §22, §23, §24)
+# --------------------------------------------------------------------------- #
+def _merge_pair(first: EvidenceItem, later: EvidenceItem) -> EvidenceItem:
+    if first.index_identity != later.index_identity:
+        raise EvidenceIdentityError(
+            f"{first.source_id}: the same identity in two stores cannot merge"
+        )
+    caveats = set(first.caveats) | set(later.caveats)
+    content, truncated = first.content, first.content_truncated
+    if not content and later.content:
+        content, truncated = later.content, later.content_truncated
+    elif content and later.content and later.content != content:
+        # §24 — never silently resolved: first wins, and it is recorded.
+        caveats.add(Caveat.METADATA_CONFLICT)
+    return replace(
+        first,
+        order_index=min(first.order_index, later.order_index),
+        provenance=_order_provenance(first.provenance + later.provenance),
+        content=content,
+        content_truncated=truncated,
+        caveats=_order_caveats(caveats),
+    )
+
+
+def dedup_items(items: Sequence[EvidenceItem]) -> tuple[EvidenceItem, ...]:
+    """§23 — union provenance, never drop it. First-appearance order is kept,
+    which makes this idempotent."""
+    merged: dict[tuple[str, str, str], EvidenceItem] = {}
+    for item in items:
+        key = item.dedup_key
+        existing = merged.get(key)
+        merged[key] = item if existing is None else _merge_pair(existing, item)
+    return tuple(merged.values())
+
+
+# --------------------------------------------------------------------------- #
+# Pack assembly (spec §29 — the exact eight-step pipeline)
+# --------------------------------------------------------------------------- #
+def build_pack(
+    *,
+    route: str,
+    strategy: str,
+    degraded: bool,
+    items: Sequence[EvidenceItem],
+    total_hits: int | None = None,
+    result_from: int = 0,
+    aggregation: AggregationEvidence | None = None,
+    caveats: Iterable[Caveat] = (),
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """1 validate → 2 dedup → 3 sort flat → 4 truncate → 5 group → 6 order
+    groups → 7 validate limits → 8 (serialization is the caller's step).
+
+    Truncating the *flat* list before grouping is what makes an empty group
+    impossible.
+    """
+    pack_caveats = set(_order_caveats(caveats))
+
+    deduped = dedup_items(items)                                   # 2
+    ordered = sorted(deduped, key=lambda i: (i.order_index, i.source_id))  # 3
+
+    if len(ordered) > limits.max_items:                            # 4
+        ordered = ordered[: limits.max_items]
+        pack_caveats.add(Caveat.ITEMS_TRUNCATED_BY_LIMIT)
+
+    buckets: dict[tuple[SourceKind, str | None], list[EvidenceItem]] = {}
+    for item in ordered:                                           # 5
+        buckets.setdefault((item.source_kind, item.project_id), []).append(item)
+        pack_caveats.update(item.caveats)
+
+    groups = tuple(                                                # 6
+        EvidenceGroup(source_kind=kind, project_id=project, items=tuple(group))
+        for kind, project in sorted(
+            buckets, key=lambda key: (SOURCE_KIND_ORDER.index(key[0]), key[1] or "")
+        )
+        for group in (buckets[(kind, project)],)
+    )
+
+    if not groups and aggregation is None:
+        pack_caveats.add(Caveat.NO_EVIDENCE)
+
+    return EvidencePack(                                           # 7
+        version=EVIDENCE_PACK_VERSION,
+        route=route,
+        strategy=strategy,
+        degraded=bool(degraded),
+        result_count=len(ordered),
+        total_hits=total_hits,
+        result_from=_non_negative_index(result_from, "result_from"),
+        groups=groups,
+        aggregation=aggregation,
+        caveats=_order_caveats(pack_caveats),
+        limits=limits,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Canonical serialization (spec §36)
+# --------------------------------------------------------------------------- #
+def pack_to_canonical_dict(pack: EvidencePack) -> dict[str, Any]:
+    """Plain JSON types only. No timestamp, no random id, no environment
+    value — so the output is byte-stable for identical input."""
+    return {
+        "aggregation": (
+            None
+            if pack.aggregation is None
+            else {
+                "agg_field": pack.aggregation.agg_field,
+                "buckets": [
+                    {"count": bucket.count, "key": bucket.key}
+                    for bucket in pack.aggregation.buckets
+                ],
+                "total": pack.aggregation.total,
+            }
+        ),
+        "caveats": [caveat.value for caveat in pack.caveats],
+        "degraded": pack.degraded,
+        "groups": [
+            {
+                "items": [
+                    {
+                        "caveats": [caveat.value for caveat in item.caveats],
+                        "content": item.content,
+                        "content_truncated": item.content_truncated,
+                        "index_identity": item.index_identity,
+                        "order_index": item.order_index,
+                        "project_id": item.project_id,
+                        "provenance": [
+                            {
+                                "accepted": entry.accepted,
+                                "method": entry.method.value,
+                                "rank": entry.rank,
+                                "score_kind": (
+                                    None
+                                    if entry.score_kind is None
+                                    else entry.score_kind.value
+                                ),
+                                "score_value": entry.score_value,
+                            }
+                            for entry in item.provenance
+                        ],
+                        "source_id": item.source_id,
+                        "source_kind": item.source_kind.value,
+                    }
+                    for item in group.items
+                ],
+                "project_id": group.project_id,
+                "source_kind": group.source_kind.value,
+            }
+            for group in pack.groups
+        ],
+        "limits": {
+            "max_content_chars": pack.limits.max_content_chars,
+            "max_groups": pack.limits.max_groups,
+            "max_items": pack.limits.max_items,
+            "max_provenance_per_item": pack.limits.max_provenance_per_item,
+            "max_serialized_bytes": pack.limits.max_serialized_bytes,
+        },
+        "result_count": pack.result_count,
+        "result_from": pack.result_from,
+        "route": pack.route,
+        "strategy": pack.strategy,
+        "total_hits": pack.total_hits,
+        "version": pack.version,
+    }
+
+
+def canonical_json(pack: EvidencePack) -> str:
+    """``allow_nan=False`` so a non-finite value fails instead of emitting
+    ``NaN``; the byte bound is enforced here, fail-closed."""
+    try:
+        text = json.dumps(
+            pack_to_canonical_dict(pack),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise EvidenceSerializationError(f"pack is not serializable: {exc}") from None
+    encoded = len(text.encode("utf-8"))
+    if encoded > pack.limits.max_serialized_bytes:
+        raise EvidenceSerializationError(
+            f"serialized pack is {encoded} bytes, over "
+            f"{pack.limits.max_serialized_bytes}"
+        )
+    return text
+
+
+def pack_sha256(pack: EvidencePack) -> str:
+    return hashlib.sha256(canonical_json(pack).encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------- #
+# Bounded projections (spec §28)
+# --------------------------------------------------------------------------- #
+#: Closed allowlist for the legacy store. Never the raw ``_source``.
+_LEGACY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("IFC class", "ifc_class"),
+    ("Name", "name"),
+    ("Description", "description"),
+    ("Materials", "material"),
+    ("Storey", "spatial_hierarchy.storey_name"),
+    ("Project", "project_id"),
+)
+
+
+def _lookup(source: Mapping[str, Any], path: str) -> Any:
+    node: Any = source
+    for part in path.split("."):
+        if not isinstance(node, Mapping):
+            return None
+        node = node.get(part)
+    return node
+
+
+def legacy_projection(source: Mapping[str, Any]) -> tuple[str, bool]:
+    """Ordered ``Label: value`` lines over the closed legacy allowlist."""
+    lines: list[str] = []
+    for label, path in _LEGACY_FIELDS:
+        value = _lookup(source, path)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            rendered = ", ".join(str(part) for part in value if part is not None)
+        else:
+            rendered = str(value)
+        rendered = rendered.strip()
+        if rendered:
+            lines.append(f"{label}: {rendered}")
+    text = "\n".join(lines)
+    if len(text) > MAX_CONTENT_CHARS:
+        return text[:MAX_CONTENT_CHARS], True
+    return text, False
+
+
+# --------------------------------------------------------------------------- #
+# Route builders (spec §20, §30, §31, §32, §33, §34)
+# --------------------------------------------------------------------------- #
+def _hybrid_provenance(candidate: Any) -> tuple[ProvenanceEntry, ...]:
+    """Map a ``RerankedCandidate`` verbatim. Each retrieval contribution keeps
+    its own scale; nothing is blended."""
+    entries = [
+        ProvenanceEntry(
+            method=RetrievalMethod.RERANKER,
+            rank=candidate.reranked_rank,
+            score_kind=ScoreKind.RERANKER_PROBABILITY,
+            score_value=candidate.reranker_score,
+            accepted=candidate.accepted,
+        ),
+        ProvenanceEntry(
+            method=RetrievalMethod.RRF_FUSION,
+            rank=candidate.fused_rank,
+            score_kind=ScoreKind.RRF_FUSED,
+            score_value=candidate.fused_score,
+        ),
+    ]
+    if candidate.bm25_rank is not None and candidate.bm25_score is not None:
+        entries.append(
+            ProvenanceEntry(
+                method=RetrievalMethod.BM25,
+                rank=candidate.bm25_rank,
+                score_kind=ScoreKind.BM25_SCORE,
+                score_value=candidate.bm25_score,
+            )
+        )
+    if candidate.dense_rank is not None and candidate.dense_score is not None:
+        entries.append(
+            ProvenanceEntry(
+                method=RetrievalMethod.DENSE_KNN,
+                rank=candidate.dense_rank,
+                score_kind=ScoreKind.DENSE_SIMILARITY,
+                score_value=candidate.dense_score,
+            )
+        )
+    return tuple(entries)
+
+
+def build_pack_for_hybrid_page(
+    *,
+    route: str,
+    candidates: Sequence[Any],
+    contents: Sequence[tuple[str, bool]],
+    index_identity: str,
+    project_id: str | None,
+    total_hits: int,
+    result_from: int,
+    threshold_mode: str,
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """§20 — one item per accepted candidate on the returned page."""
+    if len(candidates) != len(contents):
+        raise EvidenceIdentityError("candidate/content length mismatch")
+    items: list[EvidenceItem] = []
+    for position, (candidate, (content, truncated)) in enumerate(
+        zip(candidates, contents, strict=True)
+    ):
+        items.append(
+            EvidenceItem(
+                source_kind=SourceKind.CANONICAL_ELEMENT,
+                source_id=candidate.source_id,
+                project_id=project_id,
+                index_identity=index_identity,
+                content=content,
+                content_truncated=truncated,
+                order_index=result_from + position,
+                provenance=_hybrid_provenance(candidate),
+                caveats=(Caveat.TRUNCATED_PROJECTION,) if truncated else (),
+            )
+        )
+    caveats = (
+        (Caveat.THRESHOLD_ACCEPT_ALL,) if threshold_mode == "accept_all" else ()
+    )
+    return build_pack(
+        route=route,
+        strategy="semantic",
+        degraded=False,
+        items=items,
+        total_hits=total_hits,
+        result_from=result_from,
+        caveats=caveats,
+        limits=limits,
+    )
+
+
+def build_pack_for_snapshot_page(
+    *,
+    route: str,
+    page_ids: Sequence[str],
+    contents: Sequence[tuple[str, bool]],
+    index_identity: str,
+    project_id: str | None,
+    total_hits: int,
+    result_from: int,
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """§30 — frozen ids only. No embedding, retrieval, rerank or threshold, and
+    **no invented score**: the snapshot persists ids, not scores."""
+    if len(page_ids) != len(contents):
+        raise EvidenceIdentityError("page id/content length mismatch")
+    items = [
+        EvidenceItem(
+            source_kind=SourceKind.CANONICAL_ELEMENT,
+            source_id=source_id,
+            project_id=project_id,
+            index_identity=index_identity,
+            content=content,
+            content_truncated=truncated,
+            order_index=result_from + position,
+            provenance=(
+                ProvenanceEntry(
+                    method=RetrievalMethod.SNAPSHOT_PAGE,
+                    rank=result_from + position + 1,
+                ),
+            ),
+            caveats=(Caveat.TRUNCATED_PROJECTION,) if truncated else (),
+        )
+        for position, (source_id, (content, truncated)) in enumerate(
+            zip(page_ids, contents, strict=True)
+        )
+    ]
+    return build_pack(
+        route=route,
+        strategy="semantic",
+        degraded=False,
+        items=items,
+        total_hits=total_hits,
+        result_from=result_from,
+        caveats=(Caveat.SNAPSHOT_PAGE_WITHOUT_SCORES,),
+        limits=limits,
+    )
+
+
+def build_pack_for_structured(
+    *,
+    route: str,
+    strategy: str,
+    degraded: bool,
+    hits: Sequence[Mapping[str, Any]],
+    index_identity: str,
+    total_hits: int,
+    result_from: int,
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """§31 — legacy store, so `legacy_source` is always present."""
+    items: list[EvidenceItem] = []
+    for position, hit in enumerate(hits):
+        source = hit.get("_source") or {}
+        content, truncated = legacy_projection(source)
+        entries = [
+            ProvenanceEntry(
+                method=RetrievalMethod.STRUCTURED_FILTER, rank=position + 1
+            )
+        ]
+        raw_score = hit.get("_score")
+        if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
+            if math.isfinite(float(raw_score)):
+                entries = [
+                    ProvenanceEntry(
+                        method=RetrievalMethod.STRUCTURED_FILTER,
+                        rank=position + 1,
+                        score_kind=ScoreKind.OPENSEARCH_QUERY,
+                        score_value=float(raw_score),
+                    )
+                ]
+        items.append(
+            EvidenceItem(
+                source_kind=SourceKind.LEGACY_ELEMENT,
+                source_id=str(hit.get("_id") or ""),
+                project_id=(source.get("project_id") if isinstance(source, Mapping) else None),
+                index_identity=index_identity,
+                content=content,
+                content_truncated=truncated,
+                order_index=result_from + position,
+                provenance=tuple(entries),
+                caveats=(Caveat.TRUNCATED_PROJECTION,) if truncated else (),
+            )
+        )
+    caveats = [Caveat.LEGACY_SOURCE]
+    if degraded:
+        caveats.append(Caveat.DEGRADED_ROUTE)
+    return build_pack(
+        route=route,
+        strategy=strategy,
+        degraded=degraded,
+        items=items,
+        total_hits=total_hits,
+        result_from=result_from,
+        caveats=caveats,
+        limits=limits,
+    )
+
+
+def build_pack_for_detail(
+    *,
+    route: str,
+    source_id: str,
+    source: Mapping[str, Any],
+    canonical: bool,
+    index_identity: str,
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """§32 — exactly one item, `EXACT_LOOKUP`, no score."""
+    if canonical:
+        from retrieval.rerank_projection import project_source
+
+        content, truncated = project_source(source)
+        kind = SourceKind.CANONICAL_ELEMENT
+        caveats: list[Caveat] = []
+    else:
+        content, truncated = legacy_projection(source)
+        kind = SourceKind.LEGACY_ELEMENT
+        caveats = [Caveat.LEGACY_SOURCE]
+    item = EvidenceItem(
+        source_kind=kind,
+        source_id=source_id,
+        project_id=source.get("project_id") if isinstance(source, Mapping) else None,
+        index_identity=index_identity,
+        content=content,
+        content_truncated=truncated,
+        order_index=0,
+        provenance=(
+            ProvenanceEntry(method=RetrievalMethod.EXACT_LOOKUP, rank=1),
+        ),
+        caveats=(Caveat.TRUNCATED_PROJECTION,) if truncated else (),
+    )
+    return build_pack(
+        route=route,
+        strategy="detail",
+        degraded=False,
+        items=[item],
+        total_hits=1,
+        result_from=0,
+        caveats=caveats,
+        limits=limits,
+    )
+
+
+def build_pack_for_aggregation(
+    *,
+    route: str,
+    agg_field: str,
+    buckets: Sequence[Mapping[str, Any]],
+    total: int,
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """§33 — a bucket is a derived value, never a source. `groups == ()`."""
+    # The count is handed to AggregateBucket unconverted: an ``int()`` here
+    # would silently truncate 3.7 to 3 and accept "5", defeating §33.
+    parsed = tuple(
+        AggregateBucket(key=str(bucket.get("key")), count=bucket.get("count", 0))
+        for bucket in buckets
+    )
+    return build_pack(
+        route=route,
+        strategy="aggregation",
+        degraded=False,
+        items=[],
+        total_hits=total,
+        result_from=0,
+        aggregation=AggregationEvidence(
+            agg_field=agg_field, total=total, buckets=parsed
+        ),
+        caveats=(Caveat.LEGACY_SOURCE,),
+        limits=limits,
+    )
+
+
+def observability_event(pack: EvidencePack) -> dict[str, Any]:
+    """§42 — closed codes and integers only; never source or query text."""
+    return {
+        "route": pack.route,
+        "strategy": pack.strategy,
+        "degraded": pack.degraded,
+        "source_kinds": sorted({group.source_kind.value for group in pack.groups}),
+        "group_count": len(pack.groups),
+        "item_count": pack.result_count,
+        "provenance_count": sum(len(item.provenance) for item in pack.items),
+        "caveats": [caveat.value for caveat in pack.caveats],
+        "truncated": Caveat.ITEMS_TRUNCATED_BY_LIMIT in pack.caveats,
+    }
