@@ -111,6 +111,12 @@ jobs:
           backend/ingestion/indexers/documents_indexer.py
           backend/ingestion/indexers/cli.py
           backend/models/embeddings_qwen3.py
+          backend/models/reranker_qwen3.py
+          backend/retrieval/rerank_projection.py
+          backend/retrieval/rerank.py
+          backend/api/snapshot.py
+          backend/eval/rerank_threshold.py
+          backend/eval/rerank_eval.py
           backend/eval/bench/embedding_latency.py
           backend/eval/text_projection.py
           backend/eval/semantic_gold_dataset.py

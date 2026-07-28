@@ -1,8 +1,10 @@
 import json
 import logging
 import re
+import time
 import unicodedata
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from types import MappingProxyType
 from typing import List, Mapping, Optional
 
@@ -20,7 +22,6 @@ from api.prompts import (
     AGGREGATION_RESPONSE_FORMAT,
     DETAIL_RESPONSE_FORMAT,
     EXTRACT_EMBEDDING_QUERY,
-    FILTER_RESULTS_BATCH,
     FINAL_RESPONSE_FORMAT,
     REWRITE_QUERY,
 )
@@ -31,18 +32,20 @@ from api.search import (
     ExtractedEmbeddingQuery,
     ExtractedFilters,
     ExtractedIfcClass,
-    FilterBatchResult,
     SearchPlan,
     build_aggregation_query,
     build_opensearch_query,
     execute_aggregation,
     execute_search,
     fetch_by_id,
+    fetch_canonical_by_id,
     format_aggregation_for_prompt,
+    format_canonical_document,
     format_full_document,
     format_hits_for_prompt,
     get_query_embedding,
     get_response,
+    get_search_client,
 )
 from retrieval.query_parser import PARSER_TERMS_VERSION, ParsedQuery, parse_detail_ref, parse_query
 from retrieval.router import Route, RouterContext, RoutingDecision, route
@@ -53,7 +56,7 @@ from shared.config import (
     ApiSettings,
     get_api_settings,
 )
-from shared.logging import setup_logging
+from shared.logging import REQUEST_ID_VAR, setup_logging
 from shared.security import redact_mapping, verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -231,6 +234,405 @@ def extract_embedding_query(
     return embedding_query
 
 
+# --------------------------------------------------------------------------- #
+# HBIM-051 §19 — narrow, fail-closed reranked-hybrid answer path
+# --------------------------------------------------------------------------- #
+#: §18.3a — the user-facing sentence formerly produced by the LLM relevance
+#: filter, now produced only by the deterministic score threshold.
+HYBRID_REJECTION_MESSAGE = (
+    "Os resultados encontrados não são suficientemente relevantes para a sua pesquisa. "
+    "Tente reformular a pergunta."
+)
+
+#: §19.3 v6 — the single fail-closed message for any invalid, expired,
+#: tampered or identity-mismatched ranking snapshot.
+SNAPSHOT_STALE_MESSAGE = (
+    "Os resultados desta pesquisa já não estão disponíveis. "
+    "Por favor repita a pesquisa."
+)
+
+
+def _snapshot_now() -> int:
+    """Injected clock seam for the snapshot codec (§19.3); never read at import."""
+    return int(time.time())
+
+
+def _candidate_contract() -> str:
+    from retrieval.rerank import CANDIDATE_CONTRACT
+
+    return CANDIDATE_CONTRACT
+
+
+def _resolve_physical_index(os_client, alias: str) -> str:
+    """§19.3 — deterministic alias resolution: an alias must resolve to exactly
+    one physical index; a name that is not an alias resolves to itself; an
+    alias spanning several physical indices fails closed."""
+    from api.snapshot import SnapshotIdentityError
+
+    try:
+        from opensearchpy.exceptions import NotFoundError
+    except ImportError:  # pragma: no cover - opensearchpy is a hard dependency
+        NotFoundError = LookupError  # type: ignore[assignment,misc]
+    try:
+        mapping = os_client.indices.get_alias(index=alias)
+    except NotFoundError:
+        return alias
+    names = sorted(mapping) if isinstance(mapping, Mapping) else []
+    if len(names) != 1:
+        raise SnapshotIdentityError(
+            f"alias resolves to {len(names)} physical indices, snapshot needs exactly one"
+        )
+    return str(names[0])
+
+
+def _snapshot_expected_identity(
+    meta: Mapping[str, object], reranker_settings, activation, physical_index: str
+) -> dict:
+    """The §19.3 identity binds recomputed from the CURRENT serving state."""
+    from api.snapshot import THRESHOLD_PROTOCOL_VERSION
+    from retrieval.rerank import RERANK_DEPTH
+    from retrieval.rerank_projection import (
+        RERANK_INSTRUCTION_VERSION,
+        RERANK_PROJECTION_VERSION,
+    )
+
+    return {
+        "tproto": THRESHOLD_PROTOCOL_VERSION,
+        "tmode": reranker_settings.score_threshold_mode,
+        "tval": reranker_settings.effective_threshold,
+        "model": reranker_settings.model_id,
+        "rev": reranker_settings.model_revision,
+        "emb_rev": meta["model_revision"],
+        "space": meta["embedding_space_id"],
+        "proj": RERANK_PROJECTION_VERSION,
+        "instr": RERANK_INSTRUCTION_VERSION,
+        "depth": RERANK_DEPTH,
+        "alias": activation.canonical_index,
+        "phys": physical_index,
+        "cand_contract": _candidate_contract(),
+        "parser": PARSER_TERMS_VERSION,
+    }
+
+
+def _stale_snapshot_response(reason: str) -> "ChatResponse":
+    """§19.3 case (b) — one typed fail-closed response; never the token bytes."""
+    log_preprocess_json("snapshot_rejected", {"reason": reason})
+    return ChatResponse(
+        response=SNAPSHOT_STALE_MESSAGE,
+        plan=None,
+        total_hits=None,
+        result_from=0,
+        result_count=0,
+    )
+
+
+def _validated_snapshot(token: str):
+    """§19.3 validation: ``("valid", None, (snapshot, activation))``,
+    ``("stale", reason, None)`` (fail closed) or ``("legacy", reason, None)``
+    (activation disabled — the token is ignored, visibly)."""
+    from api import snapshot as snapshot_codec
+    from shared.config import (
+        HybridActivationSettings,
+        RerankerConfigurationError,
+        RerankerSettings,
+    )
+
+    try:
+        activation = HybridActivationSettings()
+    except RerankerConfigurationError:
+        return ("stale", "activation_misconfigured", None)
+    if not activation.enabled:
+        log_preprocess_json("snapshot_ignored", {"reason": "activation_disabled"})
+        return ("legacy", "activation_disabled", None)
+    try:
+        reranker_settings = RerankerSettings()
+    except RerankerConfigurationError:
+        return ("stale", "reranker_settings_misconfigured", None)
+    secret = activation.snapshot_signing_secret
+    if secret is None:  # unreachable behind the settings validator; defensive
+        return ("stale", "signing_secret_missing", None)
+    try:
+        snapshot = snapshot_codec.decode_token(
+            token, secret.get_secret_value(), now=_snapshot_now()
+        )
+        meta = _canonical_mapping_meta()
+        physical = _resolve_physical_index(get_search_client(), activation.canonical_index)
+        snapshot_codec.verify_identity(
+            snapshot,
+            expected=_snapshot_expected_identity(
+                meta, reranker_settings, activation, physical
+            ),
+        )
+    except snapshot_codec.SnapshotError as exc:
+        return ("stale", exc.reason, None)
+    return ("valid", None, (snapshot, activation))
+
+
+def _try_snapshot_page(
+    request: "ChatRequest",
+) -> "ChatResponse | tuple[str, int, int, list[str], str] | None":
+    """§19.3 pagination paths: a served page tuple for the shared final-answer
+    call site, a finished fail-closed/terminal ``ChatResponse``, or ``None`` to
+    fall through to exactly today's legacy pagination pipeline."""
+    if request.pagination is None or request.snapshot is None:
+        return None
+    status, reason, payload = _validated_snapshot(request.snapshot)
+    if status == "legacy":
+        return None
+    if status == "stale":
+        return _stale_snapshot_response(reason)
+    assert payload is not None
+    snapshot, activation = payload
+    offset = request.pagination.offset
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return _stale_snapshot_response("invalid_offset")
+    page_ids = list(snapshot.ids[offset : offset + activation.page_size])
+    log_preprocess_json(
+        "snapshot_page", {"offset": offset, "count": len(page_ids), "total": snapshot.n}
+    )
+    if not page_ids:
+        return ChatResponse(
+            response="Não encontrei elementos que correspondam à sua pesquisa no modelo BIM.",
+            plan=dict(request.pagination.stored_plan),
+            total_hits=snapshot.n,
+            result_from=offset,
+            result_count=0,
+            snapshot=request.snapshot,
+        )
+    from retrieval.rerank import RerankInputError, fetch_sources_by_id
+    from retrieval.rerank_projection import project_source
+
+    try:
+        page_sources = fetch_sources_by_id(
+            get_search_client(), activation.canonical_index, page_ids
+        )
+    except RerankInputError:
+        return _stale_snapshot_response("snapshot_document_missing")
+    blocks = [
+        f"[{element_id}]\n{project_source(source)[0]}"
+        for element_id, source in zip(page_ids, page_sources, strict=True)
+    ]
+    return ("\n\n".join(blocks), snapshot.n, offset, page_ids, request.snapshot)
+
+
+@lru_cache(maxsize=1)
+def _canonical_mapping_meta() -> Mapping[str, object]:
+    """The canonical elements-v2 identity, read from the production mapping.
+
+    Never from ``eval/**`` (§C6): the mapping file is the deploy-time source of
+    truth for the embedding space, projection version and dimension.
+    """
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "canonical" / "mappings" / "elements_v2.json"
+    meta = json.loads(path.read_text(encoding="utf-8"))["_meta"]
+    return MappingProxyType(
+        {
+            "dimensions": meta["dimensions"],
+            "embedding_space_id": meta["embedding_space_id"],
+            "model_revision": meta["model_revision"],
+            "projection_version": meta["projection_version"],
+        }
+    )
+
+
+def _try_hybrid_answer(
+    search_plan: SearchPlan, effective_query: str, history: list
+) -> "ChatResponse | tuple[str, int, int, list[str], str] | None":
+    """§19.1 — take the reranked-hybrid path iff every activation check passes.
+
+    Returns ``None`` to fall through to exactly today's legacy behaviour; a
+    finished ``ChatResponse`` for the no-LLM outcomes (threshold rejection,
+    empty page); or ``(results_str, total, result_from, result_ids)`` for the
+    endpoint's single shared final-answer call site (§18.4). There is NO
+    raw-RRF fallback: if the reranker is unavailable the branch is simply not
+    taken, so a known-regressing ranking can never reach a user. Rows 7–10 of
+    the failure policy (§20) re-raise and abort the request.
+    """
+    from shared.config import HybridActivationSettings, RerankerConfigurationError, RerankerSettings
+
+    try:
+        activation = HybridActivationSettings()
+    except RerankerConfigurationError:
+        return None
+    if not activation.enabled:
+        return None
+    if search_plan.search_strategy != "semantic":
+        return None
+    if search_plan.route != Route.HYBRID_SEMANTIC.value or search_plan.route_degraded:
+        return None
+
+    from models.embeddings_qwen3 import EmbeddingError, Qwen3EmbeddingClient
+    from models.reranker_qwen3 import Qwen3RerankerClient, RerankerError
+
+    from retrieval.canonical_filters import FilterInputError, canonical_filter_clauses
+    from retrieval.hybrid import HybridPreflightError, HybridRetriever, HybridSourceError
+    from retrieval.rerank import fetch_sources, rerank
+    from retrieval.rerank_projection import project_source
+    from shared.config import EmbeddingSettings
+
+    try:
+        reranker_settings = RerankerSettings()
+    except RerankerConfigurationError:
+        return None
+    reranker = Qwen3RerankerClient(reranker_settings)
+    embedder = None
+    started = time.perf_counter()
+    try:
+        try:
+            if not reranker.health():
+                return None  # §20 row 4 — never raw RRF, never dense-as-hybrid
+            reranker.validate_model_identity()
+        except RerankerError:
+            return None  # §20 rows 4–5 — fail closed to the legacy path
+
+        meta = _canonical_mapping_meta()
+        try:
+            clauses = canonical_filter_clauses(
+                ifc_classes=[search_plan.ifc_class] if search_plan.ifc_class else None,
+                project_id=search_plan.project_id or None,
+                materials=search_plan.material or None,
+                storey=search_plan.storey or None,
+            )
+        except FilterInputError:
+            return None  # tampered/malformed plan values degrade deterministically
+
+        embedder = Qwen3EmbeddingClient(EmbeddingSettings(model_revision=meta["model_revision"]))
+        os_client = get_search_client()
+        retriever = HybridRetriever(
+            os_client,
+            lambda text: embedder.embed_query(text, dimensions=meta["dimensions"]),
+            index=activation.canonical_index,
+            expected_embedding_space_id=meta["embedding_space_id"],
+            expected_projection_version=meta["projection_version"],
+        )
+        query_text = search_plan.embedding_query or effective_query
+        try:
+            union = retriever.retrieve(query_text, filters=clauses or None, top_n=None)
+        except HybridPreflightError:
+            return None  # §20 row 6 — index/projection identity mismatch
+        except HybridSourceError as exc:
+            if isinstance(exc.__cause__, EmbeddingError):
+                _EMBEDDING_DIAGNOSTICS["semantic_space_unavailable"] += 1
+                return None  # §20 row 3 — embedding unavailable degrades
+            raise  # §20 row 7 — OpenSearch failure aborts the request
+
+        result = rerank(
+            os_client,
+            reranker,
+            union,
+            query_text=query_text,
+            threshold=reranker_settings.effective_threshold,
+        )
+
+        accepted = [candidate for candidate in result.candidates if candidate.accepted]
+        offset = search_plan.offset or 0
+        page = accepted[offset : offset + activation.page_size]
+
+        log_preprocess_json(
+            "hybrid_rerank",
+            {
+                "request_id": REQUEST_ID_VAR.get() or "-",
+                "route": search_plan.route,
+                "index": result.index,
+                "reranker_space_id": result.reranker_space_id,
+                "projection_version": result.projection_version,
+                "instruction_version": result.instruction_version,
+                "threshold_mode": result.threshold_mode,
+                "threshold": result.threshold,
+                "union_size": result.union_size,
+                "reranked_count": result.reranked_count,
+                "accepted_count": len(accepted),
+                "unranked_tail_size": result.unranked_tail_size,
+                "truncated_count": result.truncated_count,
+                "requests_issued": len(reranker.score_request_latencies_s),
+                "retries": reranker.transport_retries,
+                "failures": 0,
+                "latency_ms": round((time.perf_counter() - started) * 1000.0, 3),
+            },
+        )
+
+        if not accepted:
+            return ChatResponse(
+                response=HYBRID_REJECTION_MESSAGE,
+                plan=search_plan.model_dump(),
+                total_hits=0,
+                result_from=offset,
+                result_count=0,
+            )
+        if not page:
+            return ChatResponse(
+                response="Não encontrei elementos que correspondam à sua pesquisa no modelo BIM.",
+                plan=search_plan.model_dump(),
+                total_hits=len(accepted),
+                result_from=offset,
+                result_count=0,
+            )
+
+        # §19.3 v6 — freeze the COMPLETE accepted order into one signed
+        # snapshot before the first response; every later page slices it.
+        from api import snapshot as snapshot_codec
+        from retrieval.rerank import RERANK_DEPTH
+        from retrieval.rerank_projection import (
+            RERANK_INSTRUCTION_VERSION,
+            RERANK_PROJECTION_VERSION,
+        )
+
+        secret = activation.snapshot_signing_secret
+        if secret is None:  # unreachable behind the settings validator; defensive
+            return None
+        try:
+            physical = _resolve_physical_index(os_client, activation.canonical_index)
+            snapshot = snapshot_codec.build_snapshot(
+                accepted_ids=[candidate.source_id for candidate in accepted],
+                candidate_ids=[candidate.source_id for candidate in result.candidates],
+                threshold_mode=result.threshold_mode,
+                threshold=result.threshold,
+                model=reranker_settings.model_id,
+                revision=reranker_settings.model_revision,
+                embedding_revision=str(meta["model_revision"]),
+                embedding_space_id=str(meta["embedding_space_id"]),
+                projection_version=RERANK_PROJECTION_VERSION,
+                instruction_version=RERANK_INSTRUCTION_VERSION,
+                rerank_depth=RERANK_DEPTH,
+                alias=activation.canonical_index,
+                physical_index=physical,
+                candidate_contract=_candidate_contract(),
+                parser_version=PARSER_TERMS_VERSION,
+                now=_snapshot_now(),
+                ttl_seconds=activation.snapshot_ttl_seconds,
+            )
+            snapshot_token = snapshot_codec.encode_token(
+                snapshot, secret.get_secret_value()
+            )
+        except (snapshot_codec.SnapshotError, ValueError):
+            # §19.1 fail-closed pattern: if the snapshot cannot be issued the
+            # hybrid contract cannot be honoured — degrade to exactly today's
+            # legacy behaviour, never a 500 and never token-less hybrid pages.
+            log_preprocess_json("snapshot_issue_failed", {"reason": "encode_failed"})
+            return None
+
+        # The final answer is produced by the endpoint's SINGLE shared
+        # final-answer LLM call site (§18.4: exactly six get_response sites);
+        # this helper only prepares the deterministic result block.
+        page_sources = fetch_sources(os_client, result.index, [c.source_id for c in page])
+        blocks = [
+            f"[{candidate.source_id}]\n{project_source(source)[0]}"
+            for candidate, source in zip(page, page_sources, strict=True)
+        ]
+        return (
+            "\n\n".join(blocks),
+            len(accepted),
+            offset,
+            [candidate.source_id for candidate in page],
+            snapshot_token,
+        )
+    finally:
+        if embedder is not None:
+            embedder.close()
+        reranker.close()
+
+
 class PaginationState(BaseModel):
     stored_plan: dict
     offset: int = 0
@@ -247,6 +649,9 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = []
     pagination: Optional[PaginationState] = None
     result_ids: Optional[List[str]] = None
+    # §19.3 v6 — the opaque signed ranking-snapshot token issued by a hybrid
+    # initial search; echoed by clients for pagination and detail follow-up.
+    snapshot: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -256,6 +661,7 @@ class ChatResponse(BaseModel):
     result_from: int = 0
     result_count: int = 0
     result_ids: Optional[List[str]] = None
+    snapshot: Optional[str] = None
 
 
 async def chat_endpoint(request: ChatRequest):
@@ -273,39 +679,56 @@ async def chat_endpoint(request: ChatRequest):
             },
         )
 
+        served_page: "tuple[str, int, int, list[str], str] | None" = None
         if request.pagination:
-            search_plan = SearchPlan(**request.pagination.stored_plan)
-            search_plan.offset = request.pagination.offset
-            needs_search = search_plan.search_strategy not in ("chat", "aggregation")
-            is_aggregation = False
-            is_detail = False
-            effective_query = request.pagination.original_query or user_input
-            search_plan = clear_plan_inferred_project_id(search_plan, effective_query, "pagination_plan")
-            logger.debug(
-                "Pagination request with offset=%s and plan=%s",
-                search_plan.offset,
-                search_plan.model_dump(),
-            )
-            log_preprocess_json(
-                "pagination_plan",
-                {
-                    "effective_query": effective_query,
-                    "offset": search_plan.offset,
-                    "plan": search_plan,
-                },
-            )
+            # §19.3 v6 — the snapshot path first: a valid token serves the page
+            # as an exact slice of the frozen ranking with ZERO model work; an
+            # invalid token under active hybrid fails closed; only a token-less
+            # request (or disabled activation) reaches the legacy pipeline.
+            snapshot_outcome = _try_snapshot_page(request)
+            if isinstance(snapshot_outcome, ChatResponse):
+                return snapshot_outcome
+            if snapshot_outcome is not None:
+                served_page = snapshot_outcome
+                effective_query = request.pagination.original_query or user_input
+                needs_search = True
+                is_aggregation = False
+                is_detail = False
+                search_plan = None  # type: ignore[assignment]  # unused on this path
+                query_embedding = None
+            else:
+                search_plan = SearchPlan(**request.pagination.stored_plan)
+                search_plan.offset = request.pagination.offset
+                needs_search = search_plan.search_strategy not in ("chat", "aggregation")
+                is_aggregation = False
+                is_detail = False
+                effective_query = request.pagination.original_query or user_input
+                search_plan = clear_plan_inferred_project_id(search_plan, effective_query, "pagination_plan")
+                logger.debug(
+                    "Pagination request with offset=%s and plan=%s",
+                    search_plan.offset,
+                    search_plan.model_dump(),
+                )
+                log_preprocess_json(
+                    "pagination_plan",
+                    {
+                        "effective_query": effective_query,
+                        "offset": search_plan.offset,
+                        "plan": search_plan,
+                    },
+                )
 
-            query_embedding = None
-            if search_plan.search_strategy == "semantic":
-                embedding_query = search_plan.embedding_query or effective_query
-                search_plan.embedding_query = embedding_query
-                log_preprocess_json("semantic_embedding_query", {"query": embedding_query})
-                try:
-                    query_embedding = get_query_embedding(embedding_query)
-                except EmbeddingSpaceUnavailableError:
-                    # HBIM-030: no Qwen3-space index exists yet, so degrade to the
-                    # non-semantic path instead of mixing embedding spaces.
-                    _EMBEDDING_DIAGNOSTICS["semantic_space_unavailable"] += 1
+                query_embedding = None
+                if search_plan.search_strategy == "semantic":
+                    embedding_query = search_plan.embedding_query or effective_query
+                    search_plan.embedding_query = embedding_query
+                    log_preprocess_json("semantic_embedding_query", {"query": embedding_query})
+                    try:
+                        query_embedding = get_query_embedding(embedding_query)
+                    except EmbeddingSpaceUnavailableError:
+                        # HBIM-030: no Qwen3-space index exists yet, so degrade to the
+                        # non-semantic path instead of mixing embedding spaces.
+                        _EMBEDDING_DIAGNOSTICS["semantic_space_unavailable"] += 1
         else:
             has_prior_user_messages = any(m["role"] == "user" for m in history)
             if has_prior_user_messages:
@@ -456,12 +879,36 @@ async def chat_endpoint(request: ChatRequest):
             logger.debug("Detail fetch for id=%s index=%s", target_id, idx)
             log_preprocess_json("detail_target", {"index": idx, "element_id": target_id})
 
-            doc = fetch_by_id(target_id)
+            # §19.4 v6 — snapshot binding: with a token present and activation
+            # on, the target must belong to the validated snapshot; otherwise
+            # the canonical fetch is never issued. Token-less detail (legacy
+            # clients, legacy-served searches) is byte-unchanged.
+            if request.snapshot is not None:
+                snap_status, snap_reason, snap_payload = _validated_snapshot(request.snapshot)
+                if snap_status == "stale":
+                    return _stale_snapshot_response(snap_reason)
+                if snap_status == "valid":
+                    assert snap_payload is not None
+                    validated_snapshot, _snap_activation = snap_payload
+                    if target_id not in set(validated_snapshot.ids):
+                        log_preprocess_json("detail_id_not_in_snapshot", {"index": idx})
+                        return _stale_snapshot_response("detail_id_not_in_snapshot")
+
+            # HBIM-051 §19.4: with activation on, ids are canonical element_ids
+            # and resolve ONLY on the canonical index (never a legacy fallback,
+            # so a cross-index id collision cannot return the wrong element).
+            from shared.config import HybridActivationSettings
+
+            activation = HybridActivationSettings()
+            if activation.enabled:
+                doc = fetch_canonical_by_id(activation.canonical_index, target_id)
+            else:
+                doc = fetch_by_id(target_id)
             if not doc:
                 response_text = "Não consegui encontrar o elemento solicitado."
                 return ChatResponse(response=response_text, plan=None)
 
-            doc_str = format_full_document(doc)
+            doc_str = format_canonical_document(doc) if activation.enabled else format_full_document(doc)
             detail_prompt = DETAIL_RESPONSE_FORMAT.format(user_input=effective_query, document=doc_str)
             response_message = get_response(detail_prompt, history)
             return ChatResponse(
@@ -539,64 +986,68 @@ async def chat_endpoint(request: ChatRequest):
                 },
             )
 
-        os_query = build_opensearch_query(search_plan, query_embedding)
-        logger.debug("OpenSearch query: %s", json.dumps(os_query, ensure_ascii=False))
-        log_preprocess_json("opensearch_query", os_query)
-        hits, total = execute_search(os_query)
-        log_preprocess_json("opensearch_result_summary", {"total": total, "hits_returned": len(hits)})
-
-        if not hits:
-            response_text = "Não encontrei elementos que correspondam à sua pesquisa no modelo BIM."
-            return ChatResponse(
-                response=response_text,
-                plan=search_plan.model_dump(),
-                total_hits=total,
-                result_from=search_plan.offset,
-                result_count=0,
+        snapshot_token: Optional[str] = None
+        if served_page is not None:
+            # §19.3 v6 — the validated snapshot page: results were sliced from
+            # the frozen ranking; only the shared final-answer call runs below.
+            results_str, total, result_from, hit_ids, snapshot_token = served_page
+            response_plan = dict(request.pagination.stored_plan) if request.pagination else None
+        else:
+            assert search_plan is not None
+            # HBIM-051 §19: the reranked-hybrid branch, taken only when every
+            # activation check passes — including §19.1 check 0: NEVER from the
+            # pagination flow. It yields a finished ChatResponse (rejection or
+            # empty page), a prepared result block for the shared final-answer
+            # call site below, or None to fall through to today's behaviour.
+            hybrid_outcome = (
+                _try_hybrid_answer(search_plan, effective_query, history)
+                if request.pagination is None
+                else None
             )
+            if isinstance(hybrid_outcome, ChatResponse):
+                return hybrid_outcome
 
-        all_results_str = format_hits_for_prompt(hits)
-        filter_prompt = FILTER_RESULTS_BATCH.format(user_input=effective_query, results=all_results_str)
-        filter_message = get_response(filter_prompt, [], {"type": "json_object"})
-        logger.debug("Filter batch response: %s", filter_message.content)
-        filter_result = FilterBatchResult.model_validate_json(filter_message.content)
-        log_preprocess_json("filter_results_batch", filter_result)
-        filtered_hits = [hit for idx, hit in enumerate(hits, start=1) if idx in filter_result.relevant_indices]
-        logger.debug("Filtered %s/%s hits as relevant", len(filtered_hits), len(hits))
-        log_preprocess_json(
-            "filtered_results_summary",
-            {"input_hits": len(hits), "filtered_hits": len(filtered_hits), "total": total},
-        )
+            if hybrid_outcome is not None:
+                results_str, total, result_from, hit_ids, snapshot_token = hybrid_outcome
+            else:
+                os_query = build_opensearch_query(search_plan, query_embedding)
+                logger.debug("OpenSearch query: %s", json.dumps(os_query, ensure_ascii=False))
+                log_preprocess_json("opensearch_query", os_query)
+                hits, total = execute_search(os_query)
+                log_preprocess_json(
+                    "opensearch_result_summary", {"total": total, "hits_returned": len(hits)}
+                )
 
-        if not filtered_hits:
-            response_text = "Os resultados encontrados não são suficientemente relevantes para a sua pesquisa. Tente reformular a pergunta."
-            return ChatResponse(
-                response=response_text,
-                plan=search_plan.model_dump(),
-                total_hits=total,
-                result_from=search_plan.offset,
-                result_count=0,
-            )
+                if not hits:
+                    response_text = "Não encontrei elementos que correspondam à sua pesquisa no modelo BIM."
+                    return ChatResponse(
+                        response=response_text,
+                        plan=search_plan.model_dump(),
+                        total_hits=total,
+                        result_from=search_plan.offset,
+                        result_count=0,
+                    )
+                results_str = format_hits_for_prompt(hits)
+                result_from = search_plan.offset
+                hit_ids = [hit["_id"] for hit in hits]
+            response_plan = search_plan.model_dump()
 
-        showing_from = search_plan.offset + 1
-        showing_to = search_plan.offset + len(filtered_hits)
-        results_str = format_hits_for_prompt(filtered_hits)
         rag_prompt = FINAL_RESPONSE_FORMAT.format(
             user_input=effective_query,
             results=results_str,
-            showing=f"{showing_from}-{showing_to}",
+            showing=f"{result_from + 1}-{result_from + len(hit_ids)}",
             total=total,
         )
 
         response_message = get_response(rag_prompt, history)
-        hit_ids = [hit["_id"] for hit in filtered_hits]
         return ChatResponse(
             response=response_message.content,
-            plan=search_plan.model_dump(),
+            plan=response_plan,
             total_hits=total,
-            result_from=search_plan.offset,
-            result_count=len(filtered_hits),
+            result_from=result_from,
+            result_count=len(hit_ids),
             result_ids=hit_ids,
+            snapshot=snapshot_token,
         )
     except HTTPException:
         raise

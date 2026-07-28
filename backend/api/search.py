@@ -49,10 +49,6 @@ class ExtractedConditions(BaseModel):
     conditions: List[Condition] = Field(default_factory=list)
 
 
-class FilterBatchResult(BaseModel):
-    relevant_indices: List[int] = Field(default_factory=list)
-
-
 class DetailRef(BaseModel):
     index: int = 1
 
@@ -401,6 +397,52 @@ def fetch_by_id(doc_id: str) -> dict | None:
         return response.get("_source")
     except Exception:
         return None
+
+
+# ── HBIM-051 §19.4 — canonical detail lookup (hybrid branch only) ─────────
+def fetch_canonical_by_id(index: str, element_id: str) -> dict | None:
+    """Resolve one canonical element on the CANONICAL index — never the legacy
+    one, so a cross-index id collision cannot silently return the wrong
+    element. ``None`` produces the existing not-found response upstream."""
+    try:
+        response = get_search_client().get(index=index, id=element_id)
+        return response.get("_source")
+    except Exception:
+        return None
+
+
+def format_canonical_document(src: dict) -> str:
+    """Deterministic detail text over the canonical shape (§19.4).
+
+    The §11.2 projection allowlist plus identity (`element_id`, `global_id`,
+    `project_id`) and `metrics`. No vectors, no dynamic property dump.
+    """
+    lines: list[str] = []
+    for field in ("element_id", "global_id", "project_id", "ifc_class", "name",
+                  "description", "object_type", "predefined_type", "semantic_label"):
+        value = src.get(field)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{field}: {value}")
+    materials = src.get("materials")
+    if isinstance(materials, list) and materials:
+        names = [entry.get("name") for entry in materials
+                 if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+        if names:
+            lines.append("materials: " + ", ".join(names))
+    location = src.get("location") or {}
+    if isinstance(location, dict):
+        for part in ("site", "building", "storey", "space"):
+            node = location.get(part)
+            name = node.get("name") if isinstance(node, dict) else None
+            if isinstance(name, str) and name.strip():
+                lines.append(f"{part}: {name}")
+    metrics_obj = src.get("metrics")
+    if isinstance(metrics_obj, dict):
+        for key in ("height", "area", "volume", "thickness"):
+            value = metrics_obj.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                lines.append(f"{key}: {value:g}")
+    return "\n".join(lines)
 
 
 def format_full_document(src: dict) -> str:

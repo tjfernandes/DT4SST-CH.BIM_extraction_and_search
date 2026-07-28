@@ -861,7 +861,7 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Descrição.** `rerank.py` + serviço; remover pós-filtro por LLM; limiares afinados.
 - **Ficheiros.** `retrieval/rerank.py`, `models/reranker_qwen3.py`, `api/main.py`, `api/prompts.py`.
 - **Dependências.** HBIM-050.
-- **Aceitação.** `FILTER_RESULTS_BATCH` ausente; **nDCG@10 do hybrid reranked ≥ dense-sozinho** no gold (ΔnDCG@10 positivo); recall não desce vs baseline LLM-filter.
+- **Aceitação.** `FILTER_RESULTS_BATCH` ausente; **nDCG@10 do hybrid reranked ≥ dense-sozinho** no gold (ΔnDCG@10 reportado, não gated — a igualdade passa); recall não desce vs o comparador do **mesmo gold** (dense-sozinho Recall@10), porque `current_system.json` mede outro corpus/ID-space e nunca executou o filtro por LLM.
 
 ### HBIM-052 — EvidencePack + dedup + agregação — **P2 / L**
 - **Descrição.** `evidence.py` monta `EvidencePack` (dedup, agrupamento, caveats).

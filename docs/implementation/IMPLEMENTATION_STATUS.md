@@ -2,6 +2,139 @@
 
 ## Last completed issue
 
+HBIM-051 — Qwen3-Reranker-8B over the HBIM-050 union, removal of the
+`FILTER_RESULTS_BATCH` LLM relevance filter, safety-first non-destructive
+threshold protocol v4, snapshot-scoped determinism v6 (one search → one
+immutable HMAC-signed ranking snapshot; cross-run order drift measured and
+reported, never hidden), and the fail-closed default-off hybrid activation.
+
+## Status of HBIM-051
+
+**Complete.** Gates G1–G8 all `PASS` on the frozen HBIM-005B gold
+(57 rank-evaluated queries, k=10, 122-element synthetic corpus).
+
+### Measured quality (primary A/B evaluation, pinned vLLM v0.25.1, eager, no
+### prefix cache, `VLLM_BATCH_INVARIANT=1`, FLASH_ATTN pinned)
+
+| system | nDCG@10 | Recall@10 | MRR@10 |
+|---|---|---|---|
+| BM25-only | 0.401182 | 0.412719 | 0.436571 |
+| dense-only (bar) | 0.803681 | 0.904929 | 0.787135 |
+| raw RRF (diagnostic) | 0.681347 | 0.785359 | 0.669298 |
+| **reranked hybrid** | **0.805935** | **0.943129** | 0.762281 |
+
+ΔnDCG@10 = +0.002254 (reported, not gated); ΔRecall@10 = +0.038200;
+wins/ties/losses vs dense-only: 22/4/31. Zero failed requests; per-run
+counters equal across runs A/B (228 requests, 6 954 pairs each, warm-up
+excluded).
+
+### Threshold decision (protocol v4 — safety-first, unchanged by v6)
+
+`accept_all` (threshold `null`), selected **mechanically** on every outer fold
+and for production by the safety-first selector, and independently recomputed
+to the same outcome by both evaluation runs. No destructive numeric cutoff is
+robustly safe on every fold: thresholding can only remove candidates, every
+eligible candidate carries zero held-out margins, and `accept_all` wins the
+least-destructive tie-break. This is the anti-destructive constraint working,
+**not a filtering gain**. G3-v4 passes with the expected exact equality
+(OOF thresholded == unthresholded at Recall@10 0.943129 / nDCG@10 0.805935).
+
+### Determinism protocol history (v1 → v6; every failure preserved)
+
+| protocol | outcome | evidence sha256 |
+|---|---|---|
+| v1 aggregate-F1 | G3 OOF recall 0.877799 < 0.904929 | `632d2b8c4b45a1f42f2dd239130e39fe01094ab260ec5315e5e6f0efefe10303` |
+| v2 dense-anchored per-fold | structurally unsatisfiable (`no_safe_threshold`) | `ab8a1fb5289f9af4f81e21829b6bd8457f7fda893a7257778a0e9d50d5b4cb50` |
+| v3 unthresholded-anchor F1-first | fold-1 non-transfer (t=0.051905, −0.051282 held-out recall) | A `b03b13e4ad8589124622d85e699351ce1a166073ef012d677e3daa0e534fa09f`, B `444a1f7d72fc376c7fd386bdf89c818f23d638497ebc20744c0df05f845d3c7c` |
+| v4 behavioral + bounded drift | threshold passed; G5-v4 failed: 34/57 cross-run full-order diffs, drift max 1.78e-2 ≫ 1e-4 | A `89ed75ce225ab83d9d15a9dd80f36f86b5159b5871efcc5db523f8b89262058e`, B `0b4b9c1f4f91b60dfdedb170ee79d52efb4b946656cf5f4be8eab49f77e4540d` |
+| v5 exact cross-run top-10 | authorization did not apply: the v4 evidence already contains a rank-10 boundary crossing (`sg-0028` — run A's rank-10 document fell to rank 12 while ranks 11/12 kept byte-identical scores); min rank-10/11 gap 1.7e-5 ≪ drift p95 1.03e-3 | external archive (`v5_phase1_contradiction_analysis.md`) |
+| **v6 snapshot-scoped (adopted)** | **all gates pass** | artifact `cb74b6434daaf5698f936f517f84eb2a4e041575a42de34fffe2b451539d3fa1` |
+
+### G5-v6 — cross-run quality and set reproducibility (blocking) + order drift (diagnostic)
+
+Blocking fields — query coverage, per-query candidate id **sets**, per-query
+accepted id **sets**, threshold mode/value, folds/selector, per-query + macro
+metrics at 6-decimal rounding, G1/G2/G3-v4/G4 outcomes, per-run counters,
+identities, zero malformed candidates, snapshot contract — **byte-equal**
+between independent runs A and B (behavioral hash `93902a4acc87066c…` on both).
+Cross-run **order** is a measured diagnostic, reported truthfully and never
+gated: 29/57 queries showed order changes; **1 rank-10 boundary crossing
+occurred in this very pair** (recorded, as designed); top-10 exact agreement
+56/57; minimum first-differing rank 10; maximum rank displacement 4; 107 moved
+ids; raw score drift max 0.017047 / mean 1.11e-5 / p95 0. **No cross-run
+ranking-determinism or bitwise-score claim is made anywhere**: independent
+executions of the pinned stack can permute near-tied documents, including at
+the rank-10 boundary, with no metric, set, threshold, gate or counter change.
+
+### Snapshot-scoped pagination (§19.3 — the binding user-visible guarantee)
+
+One hybrid search → one immutable ranking snapshot: the complete accepted
+order is frozen into a stateless `hs1.<payload>.<signature>` token
+(HMAC-SHA256, dedicated `HYBRID_SNAPSHOT_SIGNING_SECRET` ≥32 chars — never an
+API key; constant-time verification; TTL default 3600 s in [60, 86400];
+≤200 ids, ≤32 KiB, closed schema `hbim-051-snapshot-v6`; ids + identities
+only — never query text, document text, scores, vectors or grades). Every
+page is an exact slice of that snapshot; page requests construct **no
+embedder, no retriever, no reranker** (exploding-spy proven offline and live);
+repeated pages are byte-identical; pages concatenate to exactly the snapshot
+with no overlap or gap; detail follow-ups with a token resolve only snapshot
+member ids. Tampered, expired, oversized, unsigned or identity-mismatched
+tokens fail closed with one deterministic message; activation flips between
+pages are visible, never silent; secret rotation invalidates outstanding
+snapshots (documented operator behaviour). Token-less requests follow exactly
+the pre-HBIM-051 legacy pipeline, which can no longer reach the hybrid branch
+(§19.1 check 0). The end-to-end proof ran live: real embedder + real reranker
+initial search, then every later page served under exploding model classes.
+
+### Live-service incident (2026-07-28, after the primary run — documented, not hidden)
+
+~2 h after the primary A/B (whose readiness passed byte-equality), the
+service's back-to-back identical-request stability degraded under external
+GPU contention: 16–22 flips over 29 consecutive identical calls between two
+stable per-document score states, surviving service restart and full
+recreation, while the TEI embedder on the same GPU stayed byte-identical
+10/10 — engine-specific, not hardware. The committed readiness probe was
+hardened regression-first (`test_intermittent_probe_flip_beyond_two_repeats_means_not_ready`;
+probe now repeats the 32-shape ×4 and the 26-shape ×3), so an intermittently
+flipping service can no longer be declared ready. The primary-run evidence is
+unaffected: its readiness passed at run time and G5-v6 binds no raw scores.
+
+### `FILTER_RESULTS_BATCH` removed
+
+The LLM relevance filter is gone from runtime code (AST + grep proven:
+`FILTER_RESULTS_BATCH`, `FilterBatchResult`, `relevant_indices` absent);
+exactly **six** `get_response` call sites remain; no renamed filter exists; the
+rejection sentence survives as a constant produced only by the deterministic
+threshold; the final-answer LLM is a separate, retained concern and not an
+EvidencePack.
+
+### Activation (honest claim)
+
+The reranked hybrid answer path is implemented, gated, live-tested against an
+ephemeral cluster and the local reranker service, and **disabled by default**;
+enabling it requires `HYBRID_ACTIVATION_ENABLED=1`, a
+`HYBRID_SNAPSHOT_SIGNING_SECRET` (≥32 chars) **and** a canonical
+`hbim_elements` alias carrying the HBIM-031 embedding space, and is authorised
+only because G1–G7 passed. No raw-RRF fallback exists anywhere.
+
+### Services and VRAM
+
+Pinned vLLM `v0.25.1@sha256:e4f88a83…` serving Qwen3-Reranker-8B
+`77d193c791ed757ca307ee72715aa132723da912` (bf16, template sha
+`e1ee98e6…`, loopback `127.0.0.1:8082`, `--enforce-eager`,
+`--no-enable-prefix-caching`, `--attention-config FLASH_ATTN`,
+`VLLM_BATCH_INVARIANT=1` — all proven at runtime via the authorized read-only
+log scan). Static co-residency with the HBIM-030 TEI embedder: measured peak
+49 510 MiB ≤ usable budget 88 098 MiB of 97 887 MiB physical. No residency
+manager (HBIM-032 not started).
+
+### Next issue
+
+HBIM-032 — GPU residency profiles and model lifecycle (not started here; the
+static coexistence measurement above is its input).
+
+## Previous issue
+
 HBIM-050 — BM25, dense retrieval and deterministic RRF hybrid fusion
 (deterministic candidate generation: canonical BM25 top-200 + dense Qwen3
 top-200 on the HBIM-031 contract, fused by exact unweighted RRF k=60 into a
