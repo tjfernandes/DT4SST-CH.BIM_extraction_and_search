@@ -386,6 +386,24 @@ Nos e relacoes:
 
 **Decisao:** Neo4j e fonte de verdade para relacoes; OpenSearch guarda `relations_summary` so para filtros e snippets rapidos.
 
+**Pipeline de extracao do grafo (em avaliacao).** Como este grafo sera
+construido a partir do IFC ainda **nao esta decidido**. O TopologicPy e um
+**candidato** a motor de topologia/relacoes (import IFC, grafo de relacoes IFC,
+relacoes espaciais derivadas), avaliado na ADR proposta
+`ADR-0001-TOPOLOGICPY-IFC-GRAPH-PIPELINE.md` (estado **Proposed**). As
+seguintes decisoes ja aceites mantem-se **intactas** e limitam qualquer
+adocao: o **IfcOpenShell** continua o parser IFC autoritativo e a unica fonte de
+identidade IFC (`GlobalId`); o **schema canonico** e os IDs canonicos continuam
+o contrato de ingestao; o **Neo4j continua a fonte de verdade das relacoes**,
+escrito por um writer proprio do projeto com o schema `hbim_kg` acima — nunca
+por um upsert de grafo generico. Qualquer biblioteca terceira fica **atras de um
+adapter**, produzindo um **IR canonico de grafo** propriedade do projeto; os
+seus objetos nunca sao o contrato persistido. Relacoes **nativas IFC** e
+**derivadas por geometria** permanecem distinguiveis, com proveniencia,
+algoritmo, versao e tolerancia por aresta. A adocao final esta **condicionada ao
+benchmark de HBIM-079**; nenhuma selecao e assumida antes desse artefacto de
+decisao.
+
 ---
 
 ## 5. Modelos decididos para GPU local

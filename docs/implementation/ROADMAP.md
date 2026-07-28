@@ -124,8 +124,8 @@ A tabela cruza cada decisão `[DOC]` com o que existe hoje `[OBS]`. "Δ" indica 
 | 4 | `Qwen3-Reranker-8B`; **remover** filtro por LLM | `FILTER_RESULTS_BATCH` (LLM) ativo | CONFLITO | Reranker + remover pós-filtro LLM |
 | 5 | Router **determinístico** antes de qualquer LLM | `CLASSIFY_INTENT` (LLM) | CONFLITO | `retrieval/router.py` determinístico |
 | 6 | Documentos como evidência própria (parse+OCR+chunks+vetor) | `documents` `enabled:False`, metadados | GAP | Pipeline Docling/PaddleOCR + `chunks_v1` |
-| 7 | Geometria e relações espaciais *first-class* | Sem geometria; só `metrics` de pset | GAP | `geometry_extractor` + edges/Neo4j |
-| 8 | Neo4j como fonte de verdade de relações | Inexistente | GAP | `kg_builder` + `graph.py` |
+| 7 | Geometria e relações espaciais *first-class* | Sem geometria; só `metrics` de pset | GAP | Pipeline selecionado em **HBIM-079** (IfcOpenShell-only / TopologicPy-led / híbrido) + edges no IR canónico |
+| 8 | Neo4j como fonte de verdade de relações | Inexistente | GAP | Writer próprio a partir do IR canónico (`kg_builder` + `graph.py`) |
 | 9 | Multimodal (`media_v1`, `jina-clip-v2`, VLM verifier, `VISUALLY_MATCHES`) | Inexistente | GAP | Milestone multimodal |
 | 10 | `EvidencePack` estruturado; AMALIA só *grounded* | AMALIA decide factos e filtra | CONFLITO | `retrieval/evidence.py` + prompt novo |
 | 11 | Filtros determinísticos p/ material/piso/métricas | material/storey/name **não aplicados** na query | CONFLITO/BUG | Implementar filtros lexicais reais |
@@ -537,13 +537,13 @@ Pesos iniciais e limiares conforme §8 (por tipo de query).
 
 **Objetivo.** Tornar geometria e relações *first-class*: bbox/centróide/orientação por elemento, edges espaciais derivados, KG Neo4j como fonte de verdade de relações, e retrieval por Cypher.
 
-**Alterações arquiteturais.** `ingestion/geometry_extractor.py` (ifcopenshell `geom` + numpy: bbox, centróide, footprint, orientação). `ingestion/kg_builder.py` (nós/relações §4.6). `shared/neo4j.py` (driver). `retrieval/graph.py` (Cypher). `relations_summary` materializado em `elements_v2` para snippets rápidos.
+**Alterações arquiteturais.** O pipeline de extração de geometria/relações **não está decidido**: é selecionado por **HBIM-079** entre IfcOpenShell-only, TopologicPy-led e híbrido (ver `docs/architecture/ADR-0001-TOPOLOGICPY-IFC-GRAPH-PIPELINE.md`, estado *Proposed*). Qualquer biblioteca terceira fica **atrás de um adapter** e produz um **IR canónico de grafo** propriedade do projeto; os nomes de ficheiro citados nesta secção e nas árvores de estrutura ilustrativas são **provisórios** e ficam fixados na spec executável de HBIM-079/080. `ingestion/kg_builder.py` (nós/relações §4.6, escritos a partir do IR canónico). `shared/neo4j.py` (driver oficial Neo4j). `retrieval/graph.py` (Cypher parametrizado). `relations_summary` materializado em `elements_v2` **apenas** como cache para snippets rápidos — o Neo4j continua a fonte de verdade.
 
 **Ficheiros a modificar.** `ingestion/ifc_extractor.py` (invocar geometria), `indexers/elements_indexer.py` (geometry+relations_summary), `retrieval/router.py` (rota `graph` já existente → liga a `graph.py`), `api/main.py`.
 
-**Novos ficheiros.** `ingestion/geometry_extractor.py`, `ingestion/spatial_relations.py` (containment/adjacency/above-below/intersects via bbox+ifc rel), `ingestion/kg_builder.py`, `shared/neo4j.py`, `retrieval/graph.py`, `tests/test_geometry.py`, `tests/test_spatial_relations.py`, `tests/test_graph_retrieval.py`, `eval/dataset/spatial_gold.jsonl`.
+**Novos ficheiros (provisórios; conjunto final decidido em HBIM-079/080).** módulo(s) de geometria e de relações espaciais conforme o pipeline selecionado (p.ex. `ingestion/geometry_extractor.py`, `ingestion/spatial_relations.py`, e/ou `backend/graph/adapters/*` com o IR canónico em `backend/graph/schema.py`), `ingestion/kg_builder.py`, `shared/neo4j.py`, `retrieval/graph.py`, `tests/test_geometry.py`, `tests/test_spatial_relations.py`, `tests/test_graph_retrieval.py`, `eval/dataset/spatial_gold.jsonl`, `eval/dataset/graph_gold/`.
 
-**Interfaces/schemas.** `elements_v2.geometry.{has_geometry,bbox_min[3],bbox_max[3],centroid[3],footprint_area,orientation}`; Neo4j nós/relações §4.6 (`CONTAINS`, `ADJACENT_TO`, `ABOVE/BELOW/INTERSECTS/HOSTED_BY/VOIDS/FILLS`, `MENTIONED_IN`). Edges com `confidence`+`source` (ifc_native vs geom_derived).
+**Interfaces/schemas.** `elements_v2.geometry.{has_geometry,bbox_min[3],bbox_max[3],centroid[3],footprint_area,orientation}` (representação **versionada**); Neo4j nós/relações §4.6 (`CONTAINS`, `ADJACENT_TO`, `ABOVE/BELOW/INTERSECTS/HOSTED_BY/VOIDS/FILLS`, `MENTIONED_IN`), escritos por um writer próprio do projeto — nunca por um upsert de grafo genérico. Cada aresta canónica transporta proveniência e, quando derivada, algoritmo, versão do algoritmo, tolerância e qualidade/confiança (ver HBIM-081); relações **nativas IFC** e **derivadas por geometria** nunca são confundidas.
 
 **Migrations/reindex.** Reindex de `elements_v2` para acrescentar `geometry`/`relations_summary`. Build inicial do grafo (batch). Idempotente por `global_id`.
 
@@ -905,23 +905,59 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Dependências.** HBIM-052, HBIM-072.
 - **Aceitação.** Citação documento+página+chunk na resposta.
 
-### HBIM-080 — Extração geométrica (bbox/centróide/orientação) — **P3 / XL**
-- **Descrição.** `geometry_extractor.py` com ifcopenshell geom + numpy; `geometry` em elements.
-- **Ficheiros.** `ingestion/geometry_extractor.py`, `indexers/elements_indexer.py`, `tests/test_geometry.py`.
-- **Dependências.** HBIM-011.
-- **Aceitação.** % elementos com bbox ≥ meta; valores corretos p/ sólidos conhecidos.
+### HBIM-079 — Feasibility do pipeline de grafo IFC (TopologicPy) + decisão do IR canónico — **P3 / L**
+- **Descrição.** Milestone de **avaliação e decisão**, obrigatório antes de HBIM-080. Faz benchmark comparativo dos pipelines candidatos de extração de grafo/geometria, decide a arquitetura de produção, define o **IR canónico de grafo** (representação intermédia, propriedade do projeto) e regista um **artefacto de decisão reproduzível**. A adoção (ou rejeição) do TopologicPy é decidida **aqui**, por evidência medida — nunca por conveniência. Ver `docs/architecture/ADR-0001-TOPOLOGICPY-IFC-GRAPH-PIPELINE.md` (estado **Proposed**).
+- **Pipelines candidatos.** **(A) IfcOpenShell-only:** travessia determinística das entidades/relações IFC + derivação geométrica/espacial própria. **(B) TopologicPy-led:** import de grafo/topologia IFC e relações espaciais derivadas pelo TopologicPy, atrás de um adapter canónico. **(C) Híbrido:** semântica e identidade IFC nativas do IfcOpenShell + geometria/topologia e relações derivadas selecionadas do TopologicPy, com merger/deduplicador canónico. **O vencedor não é escolhido neste roadmap.**
+- **Fronteira arquitetural (obrigatória em qualquer resultado).** IfcOpenShell continua o parser IFC autoritativo e a única fonte de identidade IFC (`GlobalId`); TopologicPy, se selecionado, vive **atrás de um adapter do projeto**; objetos TopologicPy **nunca** são o contrato de domínio persistido; relações nativas e derivadas permanecem distinguíveis; toda a aresta canónica transporta proveniência (`ifc_native`, `topologicpy_ifc_relationship`, `derived_geometry`, e futuramente `document_link`, `visual_match`); o Neo4j consome **apenas** o IR canónico.
+- **Dataset de avaliação (sintético, nunca IFC real).** Fixtures IFC2X3 e IFC4 conforme a política aceite do extractor, cobrindo hierarquia project/site/building/storey/space, relações de tipo, materiais, psets/quantities, void/fill, grupos/sistemas, portas/ligações quando viável, space boundaries, **pelo menos um caso malformado/parcial**, e casos geométricos para disjunto, tangente, contido, sobreposto/interseção e fronteiras próximas da tolerância.
+- **Métricas e gates.** *Correção:* identidade canónica de nós, preservação de `GlobalId`, contagens de nós/arestas, direção, multiplicidade, nenhuma relação nativa perdida, nenhuma relação nativa inventada, tipos de origem/destino corretos, proveniência exata, IDs de aresta determinísticos, eliminação de duplicados, rerun idempotente. *Geometria derivada:* precisão/recall/F1 por predicado contra o gold espacial, varrimento de tolerância, falsos positivos junto à fronteira, reprodutibilidade. *Operacional:* wall-clock, pico de RSS quando mensurável, tamanho de output, taxa de falha, comportamento em falha parcial, output canónico byte-equivalente e determinístico, e viabilidade de instalação/import no ambiente do projeto (incluindo licença, wheels nativas e footprint transitivo).
+- **Decisão.** Regra de seleção explícita, razões, versão selecionada, fallback, contrato protegido; nunca seleção por conveniência. Alternativas rejeitadas ficam registadas.
+- **Ficheiros propostos (só após a spec executável do próprio HBIM-079).** `backend/eval/graph_pipeline_benchmark.py`, `backend/eval/dataset/graph_gold/`, `backend/graph/schema.py` (ou localização equivalente do IR canónico), `backend/graph/adapters/ifcopenshell_adapter.py`, `backend/graph/adapters/topologicpy_adapter.py`, `backend/tests/test_graph_ir.py`, `backend/tests/test_graph_pipeline_benchmark.py`, artefacto de decisão determinístico em `backend/eval/baselines/`.
+- **Dependências.** HBIM-011, HBIM-012, e as fundações de CI/avaliação existentes. **HBIM-052 não é pré-requisito do benchmark**: HBIM-079 mede extração e IR, não consumo de evidência; o contrato de evidência de grafo só é exigido quando HBIM-082 expõe `graph_paths` ao EvidencePack.
+- **Bloqueia.** HBIM-080, HBIM-081, HBIM-082.
+- **Aceitação.** Benchmark reproduzível; IR canónico de grafo especificado; pipeline selecionado documentado com evidência; todas as alternativas rejeitadas registadas; **sem ingestão Neo4j de produção**; **sem implementação de HBIM-080/081/082**.
 
-### HBIM-081 — Relações espaciais derivadas + IFC nativas — **P3 / L**
-- **Descrição.** `spatial_relations.py`: containment/adjacency/above-below/intersects; edges com `confidence/source`.
-- **Ficheiros.** `ingestion/spatial_relations.py`, `tests/test_spatial_relations.py`.
-- **Dependências.** HBIM-080.
-- **Aceitação.** Relações IFC nativas + ≥1 derivada; precisão no `spatial_gold`.
+### HBIM-080 — Extração geométrica canónica pelo pipeline selecionado em HBIM-079 — **P3 / XL**
+- **Descrição.** Extrai factos geométricos canónicos (bbox, centróide/ponto representativo, orientação quando bem definida, validade) usando **o adapter/pipeline selecionado por HBIM-079**. TopologicPy só é usado se tiver sido selecionado por evidência; caso contrário aplica-se o pipeline IfcOpenShell-only. A identidade e a semântica de schema do IfcOpenShell são preservadas em qualquer caso.
+- **Contrato.** Consome elementos/IDs canónicos; produz **factos geométricos próprios do projeto**; **nunca** guarda objetos opacos do TopologicPy/`topologic_core` em JSON canónico ou Neo4j; representação geométrica **versionada**; CRS/unidades e tolerâncias explícitas; comportamento definido para geometria inválida ou não suportada; output determinístico com ordenação estável; a geometria **não** é carregada durante o import canónico e a streamabilidade é preservada onde possível.
+- **Ficheiros.** A definir na spec executável, alinhados com a decisão de HBIM-079 (p.ex. `ingestion/geometry_extractor.py` e/ou `backend/graph/adapters/*`), `indexers/elements_indexer.py`, `tests/test_geometry.py`.
+- **Dependências.** **HBIM-079** (decisão + IR canónico), HBIM-011.
+- **Riscos.** Custo de conversão geométrica em modelos grandes; sensibilidade a tolerância e escala de coordenadas; wheels nativas; divergência de versões do IfcOpenShell.
+- **Aceitação.** % elementos com bbox ≥ meta; valores corretos p/ sólidos conhecidos; output determinístico e byte-equivalente entre reruns; nenhum objeto de biblioteca terceira persistido.
 
-### HBIM-082 — Neo4j KG + graph retrieval (Cypher) — **P3 / XL**
-- **Descrição.** `kg_builder.py`, `shared/neo4j.py`, `retrieval/graph.py`; `relations_summary` derivado.
-- **Ficheiros.** `ingestion/kg_builder.py`, `shared/neo4j.py`, `retrieval/graph.py`, `tests/test_graph_retrieval.py`.
-- **Dependências.** HBIM-081, HBIM-052.
-- **Aceitação.** Rota `graph` devolve `graph_paths`; Neo4j é fonte de verdade.
+### HBIM-081 — Relações IFC nativas + relações espaciais derivadas (duas classes distintas) — **P3 / L**
+- **Descrição.** Produz arestas canónicas em **duas classes explicitamente separadas**, ambas no IR canónico de grafo definido em HBIM-079. Nenhuma aresta derivada pode ser apresentada como IFC-nativa.
+- **(A) Relações IFC nativas.** Extraídas da semântica autoritativa do schema IFC, com proveniência estável da entidade/relação IFC e direção e multiplicidade preservadas. Cobrem, no mínimo: contenção espacial, agregação, nesting, tipo, material, void/fill, space boundary, portas/ligações e grupos/sistemas.
+- **(B) Relações espaciais/topológicas derivadas.** Produzidas pelo pipeline selecionado em HBIM-079/080; podem usar `Graph.BySpatialRelationships` do TopologicPy **se** este tiver sido selecionado. Cobrem p.ex. adjacente/tangente, contém/dentro, interseta/sobrepõe, acima/abaixo quando regras próprias do projeto os definirem, e `near` **apenas** se existir métrica e limiar documentados.
+- **Campos obrigatórios por aresta canónica.** `edge_id`, `project_id`, `source_node_id`, `target_node_id`, `predicate`, `directed`, `source_kind`, `source_relation_id` (quando nativa), `algorithm`, `algorithm_version`, `tolerance_m` (ou tolerância tipada com unidade), `confidence` (ou marcador determinístico de qualidade), `geometry_version`, `provenance`, `schema_version`. Os tipos exatos pertencem à spec executável de HBIM-079/081.
+- **Invariantes.** Sem colisão semântica entre nativas e derivadas; dedup determinístico; canonicalização de predicados simétricos; preservação de predicados direcionados; sem self-edges salvo quando semanticamente válido; validação ao nível da aresta; avaliação contra o gold espacial com precisão/recall **por predicado**; análise de sensibilidade à tolerância; reruns reprodutíveis; estratégia explícita de substituição de arestas derivadas obsoletas.
+- **Ficheiros.** A definir na spec executável (p.ex. `ingestion/spatial_relations.py` e/ou `backend/graph/*`), `tests/test_spatial_relations.py`.
+- **Dependências.** **HBIM-079** (IR canónico + pipeline selecionado), **HBIM-080** (factos geométricos), pré-requisitos do schema canónico (HBIM-010/011/012).
+- **Aceitação.** Relações IFC nativas completas e sem invenções + ≥1 classe derivada avaliada; precisão por predicado no `spatial_gold`; proveniência, tolerância e qualidade presentes em todas as arestas derivadas; dedup e rerun idempotentes.
+
+### HBIM-082 — Neo4j KG a partir do IR canónico + graph retrieval (Cypher) — **P3 / XL**
+- **Descrição.** Persiste o **IR canónico de grafo** em Neo4j com um **writer próprio do projeto** e expõe graph retrieval tipado. Arquitetura obrigatória:
+
+```text
+IFC
+  → extração canónica IFC aceite (IfcOpenShell)
+  → adapters de grafo selecionados em HBIM-079
+  → IR canónico de grafo
+  → writer Neo4j explícito, propriedade do projeto
+  → graph retrieval tipado
+  → EvidencePack
+  → resposta grounded
+```
+
+  **Nunca** persiste objetos de grafo TopologicPy em bruto.
+- **Responsabilidades.** Settings/cliente Neo4j tipados **sem ligação no import**; constraints e índices; labels de nó explícitos; tipos de relação explícitos; chaves `MERGE` determinísticas; isolamento por `project_id`; lotes transacionais; upsert idempotente; reconciliação de nós/arestas obsoletos; migração/versionamento seguros; estratégia de rollback ou rebuild; preservação de origem/proveniência; API de query tipada; **Cypher parametrizado**; **nenhuma interpolação de query do utilizador**; **nenhum Cypher gerado por LLM sem restrições no caminho de produção**; travessia limitada em profundidade e resultados; evidência de caminho adequada ao EvidencePack.
+- **Schema.** Mantém o grafo `hbim_kg` já decidido (§4.6 do documento de decisões): labels `Project`, `Site`, `Building`, `Storey`, `Space`, `Element`, `Material`, `Document`, `Chunk`, `MuseumObject`, `Image`, `Period`, `Person`, `Place`; relações com nomes de domínio explícitos (`HAS_SITE`, `HAS_BUILDING`, `HAS_STOREY`, `HAS_SPACE`, `CONTAINS`, `HAS_MATERIAL`, `HAS_DOCUMENT`, `HAS_CHUNK`, `AGGREGATES`, `NESTS`, `IS_TYPED_BY`, `VOIDS`, `FILLS`, `HOSTED_BY`, `CONNECTS_TO`, `ADJACENT_TO`, `ABOVE`, `BELOW`, `INTERSECTS`, `MENTIONED_IN`), **nunca** um `CONNECTED_TO` genérico. `VISUALLY_MATCHES` pertence ao seu milestone autorizado (HBIM-091). Direções e nomes canónicos exatos ficam fixados na spec executável.
+- **Escrita em Neo4j.** Preferir o **driver oficial Neo4j para Python** com Cypher parametrizado explícito. O suporte `GraphDB` do TopologicPy pode ser avaliado em HBIM-079, mas um upsert de grafo genérico **não** se torna o writer de produção sem provar compatibilidade exata com labels, tipos de relação, identidade, proveniência, transações, semântica de eliminação e isolamento por projeto.
+- **Retrieval.** Templates Cypher determinísticos para as intenções suportadas; resolução de entidades antes da travessia; profundidade e número de resultados limitados; isolamento de projeto correto; reconstrução exata do caminho; proveniência da relação; `graph_paths` consumidos pelo EvidencePack; dataset gold de grafo; **nenhuma relação fabricada**; **nenhum LLM como fonte de verdade de relações**.
+- **OpenSearch.** `relations_summary` permanece derivado/cache; **Neo4j continua a fonte de verdade das relações**.
+- **Ficheiros.** `ingestion/kg_builder.py`, `shared/neo4j.py`, `retrieval/graph.py`, `tests/test_graph_retrieval.py` (nomes finais na spec executável).
+- **Dependências.** **HBIM-081**, **HBIM-052**, e o **artefacto de decisão de HBIM-079**.
+- **Aceitação.** Rota `graph` devolve `graph_paths` tipados com proveniência; Neo4j é fonte de verdade; upsert idempotente e reconciliação de obsoletos provados; isolamento por projeto provado; nenhum objeto de biblioteca terceira persistido; nenhum Cypher gerado por LLM em produção.
 
 ### HBIM-090 — Índice media + jina-clip-v2 + ingestão de imagens/museu — **P3 / XL**
 - **Descrição.** `hbim_media_v1`; `image_ingestor.py`/`museum_ingestor.py` (CIDOC-lite); embeddings visuais.
@@ -950,7 +986,7 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 3. **Dados canónicos + índices + denso:** HBIM-010→012, 020→022, 030, **031** (benchmark de dimensão por índice, usa HBIM-005).
 4. **Determinismo + hybrid + grounding:** HBIM-040→042, 050 → **051** → **032** (gestor de residência completo, só após 051 — correção 6) → 052→053. *(regression gates de HBIM-060 acompanham este bloco.)*
 5. **Documentos:** HBIM-070→073.
-6. **Grafo/geometria:** HBIM-080→082.
+6. **Grafo/geometria:** **HBIM-079** (feasibility + decisão do IR canónico de grafo; ADR-0001) → HBIM-080 → HBIM-081 → HBIM-082. Nenhum destes começa antes de HBIM-079 produzir o artefacto de decisão.
 7. **Multimodal/museu:** HBIM-090→092.
 
 Cada bloco deixa o sistema funcional e avaliável. Nenhuma reescrita total: `extract_bim.py`, `search.py`, `index_to_opensearch.py`, `main.py` evoluem por extração de módulos, não por substituição em bloco. As decisões-mãe (OpenSearch+Neo4j, Qwen3 embedding/reranker, router determinístico, índices separados, EvidencePack, AMALIA grounded, multimodal com verificação) mantêm-se **intactas**; a v3 só corrige configuração, segurança, ordem de avaliação, dependências e a fixação prematura da dimensão de embedding.
