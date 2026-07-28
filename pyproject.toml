@@ -116,6 +116,7 @@ module = [
     "eval.dim_selector",
     "eval.dim_benchmark",
     "eval.hybrid_eval",
+    "eval.gates",
     "ingestion.indexers.elements_dense",
 ]
 disallow_untyped_defs = true

@@ -1,0 +1,289 @@
+{
+  "policy_version": "hbim-060-policy-v1",
+  "slices": [
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "exact_id_success"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "zero_result_correctness"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "filter_correctness"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "semantic_correctness"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "aggregation_exactness"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "pagination_integrity"
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "hbim005-synthetic-legacy-v1",
+      "delegated_to": "evaluation-opensearch",
+      "execution": "testcontainers",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/dataset.json",
+          "sha256": "2fc153624404fe3a4a54ff52e4b34a4d40e3b348171e3d6e4061d1464afc5268"
+        },
+        {
+          "path": "backend/eval/dataset/corpus.jsonl",
+          "sha256": "7b83750e43aecca68fe98794dbad7078265c77e987b92d4866e80a578f4ff7a5"
+        },
+        {
+          "path": "backend/eval/dataset/qrels.jsonl",
+          "sha256": "63524a5565739a84a42647f9b1099795bc193c716c8a35de34cd76db1a060b0e"
+        },
+        {
+          "path": "backend/eval/dataset/queries.jsonl",
+          "sha256": "01ffb1dba51e64ede583d622fe3cc092810f354675680db522e5f045c3dcc8c8"
+        },
+        {
+          "path": "backend/eval/baselines/current_system.json",
+          "sha256": "32d940aa20494f8fe6744734636abc432bf42cdda7d345a72c9440d93077e9a6"
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "hbim005_opensearch",
+      "title": "HBIM-005 synthetic OpenSearch evaluation (identity half; metrics run in evaluation-opensearch)"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "gte_threshold",
+          "metric": "routing_accuracy",
+          "threshold": 0.95
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "routing-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/routing_gold.jsonl",
+          "sha256": "8a837749d5c37b37adb26ad1f8f161b4c145b2471be60b1a49273b19467edd62"
+        }
+      ],
+      "min_cases": 86,
+      "slice_id": "routing_accuracy",
+      "title": "HBIM-040 routing accuracy recomputed through the real router"
+    },
+    {
+      "checks": [],
+      "classification": "integrity",
+      "corpus_id": "parser-gold-v1",
+      "delegated_to": "backend-unit",
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/parser_gold.jsonl",
+          "sha256": "e4b7a24b7bb0041117878f4466d2a8e6826845599b077e521c5654b3432ca87a"
+        }
+      ],
+      "min_cases": 96,
+      "slice_id": "parser_gold_integrity",
+      "title": "HBIM-041 parser gold integrity (behaviour gated in test_parser_gold.py)"
+    },
+    {
+      "checks": [],
+      "classification": "integrity",
+      "corpus_id": "semantic-gold-canonical-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/baselines/semantic_model_quality.json",
+          "sha256": "9016ca0c5e89a946dc85efde135b5aa78b60b4b6cd39dca195743d986713aad8"
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "semantic_gold_integrity",
+      "title": "HBIM-005B semantic gold files match the artifact-declared checksums"
+    },
+    {
+      "checks": [],
+      "classification": "artifact",
+      "corpus_id": "semantic-gold-canonical-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/baselines/semantic_model_quality.json",
+          "sha256": "9016ca0c5e89a946dc85efde135b5aa78b60b4b6cd39dca195743d986713aad8"
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "semantic_model_baseline",
+      "title": "HBIM-005B semantic model quality artifact (recomputation is manual_live)"
+    },
+    {
+      "checks": [],
+      "classification": "artifact",
+      "corpus_id": "semantic-gold-canonical-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/baselines/dimension_decision.json",
+          "sha256": "353b115e9b6f4a3049a1b9ba225722f1d932d1c098328903fbfab0cb339cafd0"
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "dimension_decision",
+      "title": "HBIM-031 dimension decision artifact + chain to semantic artifact"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "gates_all_passed"
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "g1_margin",
+          "threshold": 0.0
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "g2_margin",
+          "threshold": 0.0
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "semantic-gold-canonical-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/baselines/reranker_decision.json",
+          "sha256": "cb74b6434daaf5698f936f517f84eb2a4e041575a42de34fffe2b451539d3fa1"
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "reranker_decision",
+      "title": "HBIM-051 reranker decision: chain + recorded gates re-verified numerically"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "citation_validity"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "claim_citation_coverage"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "support_validity"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "abstention_correctness"
+        },
+        {
+          "comparator": "exact_zero",
+          "metric": "false_answer_rate"
+        },
+        {
+          "comparator": "exact",
+          "metric": "mismatch_count",
+          "reference": 0
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "grounding-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/grounding_gold.jsonl",
+          "sha256": "e42e2cec8aa906d91548a4972b3cb23b136f75648db2db8837fb019699adc594"
+        }
+      ],
+      "min_cases": 29,
+      "slice_id": "grounding_gold",
+      "title": "HBIM-053 grounding gold recomputed through the real validation pipeline"
+    },
+    {
+      "checks": [],
+      "classification": "unit_delegated",
+      "corpus_id": "none",
+      "delegated_to": "backend-unit",
+      "execution": "unit_delegated",
+      "inputs": [
+        {
+          "path": "backend/tests/test_api_pagination_snapshot.py",
+          "sha256": null
+        },
+        {
+          "path": "backend/tests/test_evidence_pack.py",
+          "sha256": null
+        },
+        {
+          "path": "backend/tests/test_evidence_api.py",
+          "sha256": null
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "snapshot_evidence_integrity",
+      "title": "HBIM-051/052 snapshot + EvidencePack integrity (95 tests in backend-unit)"
+    },
+    {
+      "checks": [],
+      "classification": "manual_live",
+      "corpus_id": "none",
+      "delegated_to": null,
+      "execution": "manual_live",
+      "inputs": [],
+      "min_cases": null,
+      "slice_id": "live_service_suites",
+      "title": "GPU/model/reranker/residency live suites (markers 37/19/15/10); operator-run"
+    },
+    {
+      "checks": [],
+      "classification": "unavailable_future",
+      "corpus_id": "none",
+      "delegated_to": null,
+      "execution": "unavailable_future",
+      "inputs": [],
+      "min_cases": null,
+      "slice_id": "document_retrieval",
+      "title": "blocked on HBIM-070 document ingestion"
+    },
+    {
+      "checks": [],
+      "classification": "unavailable_future",
+      "corpus_id": "none",
+      "delegated_to": null,
+      "execution": "unavailable_future",
+      "inputs": [],
+      "min_cases": null,
+      "slice_id": "graph_retrieval",
+      "title": "blocked on HBIM-079+ graph pipeline"
+    },
+    {
+      "checks": [],
+      "classification": "unavailable_future",
+      "corpus_id": "none",
+      "delegated_to": null,
+      "execution": "unavailable_future",
+      "inputs": [],
+      "min_cases": null,
+      "slice_id": "multimodal_retrieval",
+      "title": "blocked on HBIM-090+ multimodal milestones"
+    }
+  ]
+}
