@@ -101,22 +101,6 @@ Se não houver resultados, indica que nada foi encontrado.
 IMPORTANTE: Sempre que apresentares um URL ou caminho de ficheiro (ex: https://... ou docs/...), formata-o OBRIGATORIAMENTE como hiperligação Markdown: [texto descritivo](url_ou_caminho). NUNCA uses backticks nem texto simples para URLs ou caminhos.
 """)
 
-# ── Filtro LLM de relevância (batch) ──────────────────────────────────
-FILTER_RESULTS_BATCH = textwrap.dedent("""\
-O utilizador perguntou: "{user_input}"
-
-Estes resultados foram devolvidos pela pesquisa:
-{results}
-
-Para CADA resultado (identificado pelo índice [1], [2], etc.), decide se é relevante para a pergunta do utilizador.
-Retorna JSON: {{"relevant_indices": [1, 3, 5]}} — lista dos índices dos resultados relevantes.
-Se nenhum for relevante, retorna {{"relevant_indices": []}}.
-
-[Regras]
-- Relevante = o tipo (ifc_class), nome, material, localização, métricas ou propriedades correspondem ao que o utilizador pediu.
-- Em caso de dúvida, considera relevante.
-""")
-
 DETAIL_RESPONSE_FORMAT = textwrap.dedent("""\
 Pergunta do utilizador: "{user_input}"
 

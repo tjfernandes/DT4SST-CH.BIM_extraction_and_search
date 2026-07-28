@@ -631,9 +631,11 @@ REMOVED_PROMPTS = (
     "CLASSIFY_INTENT", "EXTRACT_IFC_CLASS", "EXTRACT_FILTERS",
     "EXTRACT_CONDITIONS", "EXTRACT_AGGREGATION", "EXTRACT_DETAIL_REF",
     "IFC_CLASS_TABLE",
+    # HBIM-051 §18: the destructive LLM relevance filter is gone too.
+    "FILTER_RESULTS_BATCH",
 )
 KEPT_PROMPTS = (
-    "REWRITE_QUERY", "EXTRACT_EMBEDDING_QUERY", "FILTER_RESULTS_BATCH",
+    "REWRITE_QUERY", "EXTRACT_EMBEDDING_QUERY",
     "FINAL_RESPONSE_FORMAT", "DETAIL_RESPONSE_FORMAT", "AGGREGATION_RESPONSE_FORMAT",
 )
 
@@ -650,7 +652,7 @@ def test_removed_prompts_are_gone_and_kept_prompts_remain() -> None:
         assert name not in main_source, name
 
 
-def test_main_has_exactly_seven_get_response_call_sites() -> None:
+def test_main_has_exactly_six_get_response_call_sites() -> None:
     tree = ast.parse((BACKEND / "api" / "main.py").read_text(encoding="utf-8"))
     count = sum(
         1
@@ -659,7 +661,8 @@ def test_main_has_exactly_seven_get_response_call_sites() -> None:
         and isinstance(node.func, ast.Name)
         and node.func.id == "get_response"
     )
-    assert count == 7  # rewrite, embedding, chat, detail, aggregation, filter, final
+    # HBIM-051 §18.3 item 4: the LLM relevance filter is gone.
+    assert count == 6  # rewrite, embedding, chat, detail, aggregation, final
 
 
 # =========================================================================== #
@@ -670,7 +673,7 @@ class _FakeMessage:
         self.content = content
 
 
-_JSON_REPLY = '{"relevant_indices": [1], "embedding_query": "q"}'
+_JSON_REPLY = '{"embedding_query": "q"}'
 _HIT = {"_id": "el-1", "_source": {"ifc_class": "IfcWall", "name": "W1"}}
 
 
@@ -685,9 +688,9 @@ def chat(monkeypatch):
         llm_calls.append((prompt, is_json))
         events.append(("llm", prompt))
         if is_json:
-            # The parsing bomb: after HBIM-041 the only JSON-mode prompts left
-            # are the relevance filter and the embedding-query builder.
-            assert ("relevant_indices" in prompt) or ("embedding_query" in prompt), (
+            # The parsing bomb: after HBIM-051 the only JSON-mode prompt left
+            # is the embedding-query builder (the LLM relevance filter is gone).
+            assert "embedding_query" in prompt, (
                 "unexpected JSON LLM call — a parsing prompt survived:\n" + prompt[:400]
             )
             return _FakeMessage(_JSON_REPLY)
@@ -724,9 +727,9 @@ def _parser_events(events: list[tuple[str, Any]]) -> list[dict]:
     "message,kwargs,expected_llm_calls",
     [
         ("bom dia", {}, 1),                                       # chat
-        ("paredes de betao", {}, 2),                              # structured
+        ("paredes de betao", {}, 1),                              # structured
         ("quantas paredes existem?", {}, 1),                      # aggregation
-        ("estruturas antigas", {}, 3),                            # semantic
+        ("estruturas antigas", {}, 2),                            # semantic
         ("detalha o primeiro", {"result_ids": ["el-1", "el-2"]}, 1),  # detail
     ],
 )
@@ -827,10 +830,10 @@ def test_pagination_never_calls_the_parser(chat, monkeypatch) -> None:
 @pytest.mark.parametrize(
     "message,expected_route,expected_llm_calls",
     [
-        ("o que suporta o telhado", "graph", 2),          # degraded -> structured
-        ("mostra uma fotografia da fachada", "multimodal", 3),  # degraded -> semantic
-        ("abre o pdf do relatorio", "document_hybrid", 3),      # degraded -> semantic
-        ("mostra 0AInvalidWALL0000000a1", "exact_lookup", 2),   # D2 -> structured
+        ("o que suporta o telhado", "graph", 1),          # degraded -> structured
+        ("mostra uma fotografia da fachada", "multimodal", 2),  # degraded -> semantic
+        ("abre o pdf do relatorio", "document_hybrid", 2),      # degraded -> semantic
+        ("mostra 0AInvalidWALL0000000a1", "exact_lookup", 1),   # D2 -> structured
     ],
 )
 def test_degraded_routes_also_run_without_parsing_llm(

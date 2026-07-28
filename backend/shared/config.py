@@ -445,3 +445,222 @@ class EmbeddingSettings(BaseSettings):
                 "EMBEDDING_SERVICE_ALLOW_NON_LOOPBACK is explicitly enabled"
             )
         return self
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-051 — Qwen3-Reranker-8B isolated service (vLLM) + hybrid activation
+# --------------------------------------------------------------------------- #
+class RerankerConfigurationError(RuntimeError):
+    """Configuração inválida do serviço de reranking (HBIM-051).
+
+    Não deriva de ValueError de propósito: erros de validador embrulhados em
+    ValidationError anexam o input bruto (que poderia incluir o token).
+    """
+
+
+class RerankerSettings(BaseSettings):
+    """Definições do serviço isolado Qwen3-Reranker-8B (HBIM-051 §9.1).
+
+    Segmentadas: não exigem OpenSearch nem LLM. Nunca instanciadas no import;
+    o token nunca aparece em ``repr``, mensagens de erro ou logs.
+    ``score_threshold`` transporta o t* decidido pelo protocolo out-of-fold
+    (§13.4) — o artefacto ``reranker_decision.json`` é a proveniência; o
+    runtime transporta apenas o número (nunca lê caminhos de ``eval/``).
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    base_url: str = Field(
+        default="http://127.0.0.1:8082", validation_alias=AliasChoices("RERANKER_BASE_URL")
+    )
+    model_id: str = Field(
+        default="Qwen/Qwen3-Reranker-8B",
+        validation_alias=AliasChoices("RERANKER_MODEL_ID"),
+    )
+    model_revision: str = Field(
+        default="77d193c791ed757ca307ee72715aa132723da912",
+        validation_alias=AliasChoices("RERANKER_MODEL_REVISION"),
+    )
+    instruction: str = Field(
+        default=(
+            "Given a query about a historic building information model, "
+            "retrieve the building elements that satisfy it"
+        ),
+        validation_alias=AliasChoices("RERANKER_INSTRUCTION"),
+    )
+    batch_size: int = Field(default=32, validation_alias=AliasChoices("RERANKER_BATCH_SIZE"))
+    connect_timeout_s: float = Field(
+        default=5.0, validation_alias=AliasChoices("RERANKER_CONNECT_TIMEOUT_S")
+    )
+    read_timeout_s: float = Field(
+        default=120.0, validation_alias=AliasChoices("RERANKER_READ_TIMEOUT_S")
+    )
+    max_retries: int = Field(default=2, validation_alias=AliasChoices("RERANKER_MAX_RETRIES"))
+    backoff_base_s: float = Field(
+        default=0.5, validation_alias=AliasChoices("RERANKER_BACKOFF_BASE_S")
+    )
+    readiness_timeout_s: float = Field(
+        default=600.0, validation_alias=AliasChoices("RERANKER_READINESS_TIMEOUT_S")
+    )
+    auth_token: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("RERANKER_AUTH_TOKEN")
+    )
+    allow_non_loopback: bool = Field(
+        default=False, validation_alias=AliasChoices("RERANKER_ALLOW_NON_LOOPBACK")
+    )
+    # §13.8: o default replica a decisão committed em reranker_decision.json
+    # (modo accept_all/numeric + valor). Em accept_all o score_threshold é
+    # inerte (0.0) e nunca consultado.
+    score_threshold_mode: Literal["numeric", "accept_all"] = Field(
+        default="accept_all", validation_alias=AliasChoices("RERANKER_SCORE_THRESHOLD_MODE")
+    )
+    score_threshold: float = Field(
+        default=0.0, validation_alias=AliasChoices("RERANKER_SCORE_THRESHOLD")
+    )
+
+    @property
+    def effective_threshold(self) -> float | None:
+        """None em accept_all (§13.1); o valor numérico caso contrário."""
+        return None if self.score_threshold_mode == "accept_all" else self.score_threshold
+
+    @field_validator("model_id")
+    @classmethod
+    def _reranker_model_id_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise RerankerConfigurationError("RERANKER_MODEL_ID must not be empty")
+        return value
+
+    @field_validator("instruction")
+    @classmethod
+    def _reranker_instruction_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise RerankerConfigurationError("RERANKER_INSTRUCTION must not be empty")
+        return value
+
+    @field_validator("model_revision")
+    @classmethod
+    def _reranker_revision_is_pinned(cls, value: str) -> str:
+        # Floating refs (main/latest/branch names) are forbidden: a moving
+        # revision silently changes every score and the committed threshold.
+        if not _HEX40.match(value.strip().lower()):
+            raise RerankerConfigurationError(
+                "RERANKER_MODEL_REVISION must be a pinned 40-character commit sha"
+            )
+        return value.strip().lower()
+
+    @field_validator("batch_size")
+    @classmethod
+    def _reranker_batch_in_range(cls, value: int) -> int:
+        if isinstance(value, bool) or not 1 <= value <= 128:
+            raise RerankerConfigurationError("RERANKER_BATCH_SIZE must be in [1, 128]")
+        return value
+
+    @field_validator("max_retries")
+    @classmethod
+    def _reranker_retries_in_range(cls, value: int) -> int:
+        if not 0 <= value <= 5:
+            raise RerankerConfigurationError("RERANKER_MAX_RETRIES must be in [0, 5]")
+        return value
+
+    @field_validator("score_threshold")
+    @classmethod
+    def _reranker_threshold_in_range(cls, value: float) -> float:
+        if isinstance(value, bool) or not 0.0 <= value <= 1.0:
+            raise RerankerConfigurationError("RERANKER_SCORE_THRESHOLD must be in [0.0, 1.0]")
+        return value
+
+    @field_validator("connect_timeout_s", "read_timeout_s", "backoff_base_s", "readiness_timeout_s")
+    @classmethod
+    def _reranker_positive(cls, value: float, info: ValidationInfo) -> float:
+        if value <= 0:
+            raise RerankerConfigurationError(f"{info.field_name} must be > 0")
+        return value
+
+    @model_validator(mode="after")
+    def _reranker_validate_url(self) -> "RerankerSettings":
+        parts = urlsplit(self.base_url)
+        if parts.scheme not in ("http", "https"):
+            raise RerankerConfigurationError("RERANKER_BASE_URL must use http or https")
+        if not parts.hostname:
+            raise RerankerConfigurationError("RERANKER_BASE_URL must contain a host")
+        if parts.hostname not in _LOOPBACK_EMBEDDING_HOSTS and not self.allow_non_loopback:
+            raise RerankerConfigurationError(
+                "RERANKER_BASE_URL must be loopback unless "
+                "RERANKER_ALLOW_NON_LOOPBACK is explicitly enabled"
+            )
+        return self
+
+
+class HybridActivationSettings(BaseSettings):
+    """Ativação restrita e fail-closed do caminho híbrido reranked (§19).
+
+    Default **desligado**: sem esta flag o endpoint comporta-se exatamente como
+    antes de HBIM-051. Nunca instanciadas no import.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    enabled: bool = Field(default=False, validation_alias=AliasChoices("HYBRID_ACTIVATION_ENABLED"))
+    canonical_index: str = Field(
+        default="hbim_elements", validation_alias=AliasChoices("HYBRID_CANONICAL_INDEX")
+    )
+    page_size: int = Field(default=10, validation_alias=AliasChoices("HYBRID_PAGE_SIZE"))
+    # §19.3 v6 — dedicated snapshot-signing secret (NEVER an API key) and TTL.
+    snapshot_signing_secret: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("HYBRID_SNAPSHOT_SIGNING_SECRET")
+    )
+    snapshot_ttl_seconds: int = Field(
+        default=3600, validation_alias=AliasChoices("HYBRID_SNAPSHOT_TTL_SECONDS")
+    )
+
+    @field_validator("canonical_index")
+    @classmethod
+    def _hybrid_index_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise RerankerConfigurationError("HYBRID_CANONICAL_INDEX must not be empty")
+        return value
+
+    @field_validator("page_size")
+    @classmethod
+    def _hybrid_page_in_range(cls, value: int) -> int:
+        if isinstance(value, bool) or not 1 <= value <= 50:
+            raise RerankerConfigurationError("HYBRID_PAGE_SIZE must be in [1, 50]")
+        return value
+
+    @field_validator("snapshot_ttl_seconds")
+    @classmethod
+    def _hybrid_snapshot_ttl_in_range(cls, value: int) -> int:
+        if isinstance(value, bool) or not 60 <= value <= 86400:
+            raise RerankerConfigurationError(
+                "HYBRID_SNAPSHOT_TTL_SECONDS must be in [60, 86400]"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _hybrid_snapshot_secret_is_required_when_enabled(self) -> "HybridActivationSettings":
+        secret = self.snapshot_signing_secret
+        if secret is not None and len(secret.get_secret_value()) < 32:
+            raise RerankerConfigurationError(
+                "HYBRID_SNAPSHOT_SIGNING_SECRET must be at least 32 characters"
+            )
+        if self.enabled and secret is None:
+            raise RerankerConfigurationError(
+                "HYBRID_ACTIVATION_ENABLED=true requires HYBRID_SNAPSHOT_SIGNING_SECRET"
+            )
+        return self

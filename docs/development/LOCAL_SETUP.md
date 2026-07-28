@@ -743,8 +743,82 @@ Notas operacionais:
   qualidade;
 - os hashes do gold são reverificados antes de qualquer modelo; filtros
   estruturais são idênticos nas duas fontes (um único construtor canónico);
-- a rota `Route.HYBRID_SEMANTIC` continua fechada; `/chat` **não** é híbrido e
-  `FILTER_RESULTS_BATCH` mantém-se (removido em HBIM-051).
+- a rota `Route.HYBRID_SEMANTIC` continua fechada por omissão; a ativação
+  restrita (fail-closed) e o reranker são de **HBIM-051** (secção seguinte);
+  `FILTER_RESULTS_BATCH` foi **removido** em HBIM-051.
+
+## Serviço isolado Qwen3-Reranker-8B (HBIM-051)
+
+Reranker cross-encoder servido por **vLLM v0.25.1** (imagem pinada por digest),
+modelo `Qwen/Qwen3-Reranker-8B` @ `77d193c791ed757ca307ee72715aa132723da912`
+(BF16, `--runner pooling`, overrides seq-cls oficiais, template de score
+oficial pinado por sha256), **apenas loopback** `127.0.0.1:8082`, com
+`VLLM_BATCH_INVARIANT=1` (scores determinísticos independentes do batching).
+
+```bash
+cd deploy/reranker
+docker compose config --quiet          # validação estática
+docker compose up -d                   # arrancar (download ~16 GB na primeira vez)
+curl -s http://127.0.0.1:8082/health   # 200 quando o modelo está carregado
+curl -s http://127.0.0.1:8082/v1/models | head -c 300   # identidade servida
+docker compose down                    # parar (só o operador; nunca código do repo)
+```
+
+Notas operacionais:
+
+- a cache Hugging Face monta a RAIZ `${HBIM_HF_HOME:-~/.cache/huggingface}` —
+  variável **distinta** de `HBIM_HF_CACHE` (HBIM-030), que aponta para a
+  SUBpasta `hub/` do TEI; trocar as duas derrota a cache do modelo;
+- coexistência estática com o serviço de embeddings provada por medição
+  (`nvidia-smi`), orçamento utilizável = 90 % da VRAM física; **não** há gestor
+  de residência (HBIM-032);
+- cliente tipado: `models/reranker_qwen3.py` (lazy, import-safe, retries
+  determinísticos sem jitter, erros sem texto); settings `RERANKER_*` em
+  `shared/config.py`;
+- o score servido é usado **verbatim** (`σ(logit_yes − logit_no)` ∈ (0,1));
+  nenhuma transformação no cliente.
+
+Avaliação reranked no gold imutável (TEI + reranker ativos; OpenSearch
+efémero):
+
+```bash
+cd backend
+EMBEDDING_SERVICE_MODEL_REVISION=1d8ad4ca9b3dd8059ad90a75d4983776a23d44af \
+  conda run -n hbim-rag python -m eval.rerank_eval --ephemeral --write-report
+```
+
+Suite live (falha, nunca skip, com `HBIM_REQUIRE_RERANKER_SERVICE=1`):
+
+```bash
+conda run -n hbim-rag python -m pytest backend/tests/integration/test_rerank_apply.py \
+  -q -o addopts="" -m reranker_service
+```
+
+Ativação do caminho híbrido reranked no `/chat` (§19 da spec): **desligada por
+omissão**; requer `HYBRID_ACTIVATION_ENABLED=1`, um
+`HYBRID_SNAPSHOT_SIGNING_SECRET` dedicado (mínimo 32 caracteres — nunca uma
+API key) **e** um alias canónico `hbim_elements` com o espaço de embeddings de
+HBIM-031. Sem reranker saudável, identidade validada e preflight `_meta`
+aprovado, o pedido degrada para o caminho legacy — **nunca** existe fallback
+RRF-cru. O limiar de aceitação (`RERANKER_SCORE_THRESHOLD_MODE` /
+`RERANKER_SCORE_THRESHOLD`) tem como default o resultado decidido pelo
+protocolo out-of-fold committed em
+`backend/eval/baselines/reranker_decision.json`.
+
+Paginação com **snapshot assinado** (§19.3, determinismo v6): a pesquisa
+inicial congela a ordem aceite completa num token HMAC-SHA256
+(`hs1.<payload>.<assinatura>`, TTL `HYBRID_SNAPSHOT_TTL_SECONDS`, default
+3600 s, intervalo [60, 86400]); cada página é uma fatia exata desse snapshot e
+**nunca** re-executa embedding, retrieval ou reranking. Um token inválido,
+expirado ou com identidades desatualizadas falha fechado com uma mensagem
+determinística. Rodar o secret invalida todos os snapshots em circulação
+(comportamento operacional documentado, não um defeito). O token transporta
+apenas ids e identidades — nunca texto de query/documentos, scores ou vetores.
+Nota de honestidade (§10.1): execuções independentes da mesma pesquisa podem
+permutar documentos quase-empatados, incluindo na fronteira do top-10; a
+estabilidade garantida é **por snapshot**, e a deriva entre execuções é medida
+e reportada como diagnóstico — nunca se afirma determinismo de ranking entre
+execuções.
 
 ## Serviços locais de desenvolvimento (Docker Compose)
 

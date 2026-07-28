@@ -1,0 +1,84 @@
+# HBIM-051 — isolated Qwen3-Reranker-8B service (vLLM, spec §7).
+#
+# Contract (spec §6, §7, §7.1, §8, §21):
+#   - pinned image tag AND digest; never `latest`
+#   - pinned 40-hex model revision; never a floating ref
+#   - the official Qwen3-Reranker seq-cls overrides and score template, verbatim
+#   - GPU reserved via the NVIDIA driver, bounded at --gpu-memory-utilization 0.30
+#   - host exposure limited to LOOPBACK (127.0.0.1) only
+#   - model cache lives OUTSIDE the repository (HBIM_HF_HOME, NOT the HBIM-030
+#     HBIM_HF_CACHE variable — that one points at the *hub* subdirectory)
+#   - healthcheck proves the server answers /health (python3; the image has no curl)
+#   - VLLM_BATCH_INVARIANT=1: deterministic scores regardless of batching
+#   - no privileged mode, no host networking, no embedded credentials
+
+services:
+  reranker:
+    image: vllm/vllm-openai:v0.25.1@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089
+    container_name: hbim-reranker-qwen3
+    command:
+      - --model=Qwen/Qwen3-Reranker-8B
+      - --revision=77d193c791ed757ca307ee72715aa132723da912
+      - --served-model-name=Qwen/Qwen3-Reranker-8B
+      - --runner=pooling
+      - --hf_overrides={"architectures":["Qwen3ForSequenceClassification"],"classifier_from_token":["no","yes"],"is_original_qwen3_reranker":true}
+      - --chat-template=/templates/qwen3_reranker.jinja
+      - --dtype=bfloat16
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.30
+      # Spec §10: "no prefix-cache-dependent scoring path is enabled". With the
+      # cache on (vLLM default), a cold first request and a warm repeat take
+      # different kernel paths and can differ at the 6th decimal — measured as
+      # a run-A/run-B masked mismatch before this flag was added.
+      - --no-enable-prefix-caching
+      # Spec §10 v2: disable CUDA graphs entirely (vllm/config/model.py@v0.25.1:
+      # "If True, we will disable CUDA graph and always execute the model in
+      # eager mode"). Removes capture-vs-replay warm-up transients — the
+      # residual run-to-run drift measured after prefix caching was disabled.
+      - --enforce-eager
+      # Spec §10 v4: pin the attention backend EXPLICITLY (the same field
+      # vLLM's own determinism suite parametrises) instead of trusting auto-
+      # selection. FLASH_ATTN is the measured-quality configuration (G1/G2
+      # margins established under it); the TRITON_ATTN alternative was trialed
+      # and showed the same cross-run drift magnitude, so it offers no
+      # determinism advantage to justify unmeasured quality.
+      - --attention-config={"backend":"FLASH_ATTN"}
+    environment:
+      # Batch-invariant kernels: identical scores for identical pairs, whatever
+      # the co-batched load (spec §10).
+      VLLM_BATCH_INVARIANT: "1"
+      # The model is public; never attach the host's stored HF token from the
+      # mounted cache root (a stale token 401s anonymous-able downloads — the
+      # HBIM-005B `token=False` precedent, applied at service level). This is
+      # token hygiene, not a credential.
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
+    ports:
+      # Loopback ONLY. Never bind 0.0.0.0 or a routable interface.
+      - "127.0.0.1:8082:8000"
+    volumes:
+      # Hugging Face cache root, OUTSIDE the repository. Distinct from the
+      # HBIM-030 HBIM_HF_CACHE (which is the hub/ SUBdirectory for TEI /data).
+      - ${HBIM_HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface
+      - ./qwen3_reranker.jinja:/templates/qwen3_reranker.jinja:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      # /health returns 200 only once the engine is up. python3 is guaranteed
+      # in the vLLM image; curl is not.
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+      start_period: 300s
+    restart: unless-stopped
