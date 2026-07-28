@@ -561,17 +561,158 @@ def test_seam_fails_closed_when_an_active_manager_raises() -> None:
         ops.get_residency_manager = original  # type: ignore[assignment]
 
 
-def test_router_module_bytes_are_untouched_by_this_milestone() -> None:
-    """`retrieval/router.py` is protected: HEAD must equal main's version."""
-    import subprocess
+#: The router's complete accepted import surface (HBIM-040: standard library
+#: only). Hand-written from the accepted contract — never read back from the
+#: module under test — so widening the module's imports fails this guard.
+_ROUTER_ALLOWED_IMPORTS = frozenset(
+    {"__future__", "dataclasses", "enum", "re", "types", "typing", "unicodedata"}
+)
 
-    committed = subprocess.run(
-        ["git", "show", "main:backend/retrieval/router.py"],
-        capture_output=True,
-        cwd=str(BACKEND.parent),
-        check=True,
-    ).stdout
-    assert (BACKEND / "retrieval" / "router.py").read_bytes() == committed
+#: Module roots the router may never reach, directly or by alias.
+_ROUTER_FORBIDDEN_IMPORT_ROOTS = frozenset(
+    {
+        "models",
+        "api",
+        "shared",
+        "eval",
+        "ingestion",
+        "canonical",
+        "opensearchpy",
+        "neo4j",
+        "httpx",
+        "requests",
+        "urllib",
+        "socket",
+        "ssl",
+        "subprocess",
+        "os",
+        "pathlib",
+        "asyncio",
+        "threading",
+        "docker",
+        "pydantic",
+        "pydantic_settings",
+        "fastapi",
+        "starlette",
+        "openai",
+        "torch",
+        "importlib",
+    }
+)
+
+#: Names that would betray residency, lifecycle or environment coupling.
+_ROUTER_FORBIDDEN_NAMES = frozenset(
+    {
+        "ensure_profile",
+        "profile_for_route",
+        "ResidencyManager",
+        "ResidencyProfile",
+        "get_residency_manager",
+        "build_residency_manager",
+        "getenv",
+        "environ",
+        "socket",
+        "Popen",
+        "check_output",
+        "import_module",
+        "__import__",
+    }
+)
+
+
+def _router_tree() -> "ast.Module":
+    return ast.parse((BACKEND / "retrieval" / "router.py").read_text(encoding="utf-8"))
+
+
+def test_router_imports_only_its_accepted_standard_library_surface() -> None:
+    """HBIM-040 purity, proven against the CURRENT source.
+
+    Durable by construction: it inspects the repository as checked out, so it
+    holds in a detached CI checkout, a shallow clone and a source archive with
+    no branch refs at all.
+    """
+    imported: set[str] = set()
+    for node in ast.walk(_router_tree()):
+        if isinstance(node, ast.Import):
+            # ``alias.name`` is the real module even when aliased
+            # (``import socket as s`` still reports ``socket``).
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:  # a relative import would leave the stdlib surface
+                raise AssertionError("router must not use relative imports")
+            imported.add(node.module or "")
+    roots = {name.split(".")[0] for name in imported}
+    assert roots <= _ROUTER_ALLOWED_IMPORTS, sorted(roots - _ROUTER_ALLOWED_IMPORTS)
+
+
+def test_router_imports_no_residency_settings_api_or_network_module() -> None:
+    for node in ast.walk(_router_tree()):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        else:
+            continue
+        for name in names:
+            root = name.split(".")[0]
+            assert root not in _ROUTER_FORBIDDEN_IMPORT_ROOTS, name
+            assert "residency" not in name, name
+
+
+def test_router_contains_no_lifecycle_environment_or_dynamic_import_call() -> None:
+    """No ensure_profile, manager construction, socket, subprocess, env access
+    or dynamic import can hide in the router — including behind an alias."""
+    tree = _router_tree()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            assert node.id not in _ROUTER_FORBIDDEN_NAMES, node.id
+        if isinstance(node, ast.Attribute):
+            assert node.attr not in _ROUTER_FORBIDDEN_NAMES, node.attr
+    source = (BACKEND / "retrieval" / "router.py").read_text(encoding="utf-8")
+    for forbidden in ("ensure_profile", "residency", "importlib", "__import__"):
+        assert forbidden not in source, forbidden
+
+
+def test_route_to_profile_mapping_lives_outside_the_router() -> None:
+    """§9: the mapping is residency's, not the router's."""
+    import models.residency as residency
+
+    import retrieval.router as router
+
+    assert hasattr(residency, "profile_for_route")
+    assert not hasattr(router, "profile_for_route")
+    assert not hasattr(router, "ensure_profile")
+    # The router exports exactly its accepted public surface.
+    assert "profile_for_route" not in router.__all__
+    assert "ResidencyProfile" not in router.__all__
+
+
+def test_router_public_surface_is_unchanged() -> None:
+    """A pin on the accepted HBIM-040 export list and route vocabulary."""
+    import retrieval.router as router
+
+    assert list(router.__all__) == [
+        "GLOBAL_ID_RE",
+        "ROUTE_PRECEDENCE",
+        "TERMS_VERSION",
+        "Route",
+        "RouteSignals",
+        "RouterContext",
+        "RoutingDecision",
+        "fold_text",
+        "normalize_query",
+        "route",
+    ]
+    assert [member.value for member in router.Route] == [
+        "exact_lookup",
+        "aggregation",
+        "structured",
+        "graph",
+        "multimodal",
+        "document_hybrid",
+        "hybrid_semantic",
+        "chat",
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -627,38 +768,183 @@ def test_both_manifests_carry_exact_ownership_labels() -> None:
         }, directory
 
 
-def test_manifest_change_is_labels_only_versus_main() -> None:
-    """Structurally, the ONLY difference from main is the `labels` mapping.
+#: The COMPLETE accepted deployment contract of both manifests, hand-written
+#: from HBIM-030/HBIM-051 plus this milestone's §24 ownership labels. It is an
+#: independent oracle: nothing here is derived from the parsed file under test,
+#: so weakening an image digest, model revision, flag, port, volume, env,
+#: healthcheck or restart policy fails the comparison. Being an EXACT whole-
+#: service equality, it also fails on any unexpected added key (`privileged`,
+#: `network_mode`, a Docker-socket volume, a new lifecycle flag).
+_GPU_RESERVATION = {
+    "resources": {
+        "reservations": {
+            "devices": [{"capabilities": ["gpu"], "count": 1, "driver": "nvidia"}]
+        }
+    }
+}
 
-    Compared as parsed YAML, so image, digest, command flags, environment,
-    ports, volumes, deploy and healthcheck are all proven untouched.
-    """
-    import subprocess
+_EXPECTED_MANIFESTS: dict[str, dict[str, object]] = {
+    "embeddings": {
+        "image": (
+            "ghcr.io/huggingface/text-embeddings-inference:120-1.9"
+            "@sha256:aedf3b34836dc57289583142adcf2b93836cda0736ac8e6ce43691b9c2c67170"
+        ),
+        "container_name": "hbim-embeddings-qwen3",
+        "labels": {
+            "com.hbim.project": "hbim-rag",
+            "com.hbim.service": "embeddings",
+            "com.hbim.milestone": "HBIM-030",
+        },
+        "command": [
+            f"--model-id={EMB_MODEL}",
+            f"--revision={EMB_REV}",
+            "--dtype=float16",
+            "--max-client-batch-size=64",
+            "--max-batch-tokens=16384",
+            "--auto-truncate",
+        ],
+        "ports": ["127.0.0.1:8081:80"],
+        "volumes": ["${HBIM_HF_CACHE:-${HOME}/.cache/huggingface/hub}:/data"],
+        "deploy": _GPU_RESERVATION,
+        "healthcheck": {
+            "test": ["CMD-SHELL", "curl -sf http://localhost:80/health || exit 1"],
+            "interval": "10s",
+            "timeout": "5s",
+            "retries": 90,
+            "start_period": "60s",
+        },
+        "restart": "unless-stopped",
+    },
+    "reranker": {
+        "image": (
+            "vllm/vllm-openai:v0.25.1"
+            "@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089"
+        ),
+        "container_name": "hbim-reranker-qwen3",
+        "labels": {
+            "com.hbim.project": "hbim-rag",
+            "com.hbim.service": "reranker",
+            "com.hbim.milestone": "HBIM-051",
+        },
+        "command": [
+            f"--model={RERANK_MODEL}",
+            f"--revision={RERANK_REV}",
+            f"--served-model-name={RERANK_MODEL}",
+            "--runner=pooling",
+            '--hf_overrides={"architectures":["Qwen3ForSequenceClassification"],'
+            '"classifier_from_token":["no","yes"],"is_original_qwen3_reranker":true}',
+            "--chat-template=/templates/qwen3_reranker.jinja",
+            "--dtype=bfloat16",
+            "--max-model-len=8192",
+            "--gpu-memory-utilization=0.30",
+            "--no-enable-prefix-caching",
+            "--enforce-eager",
+            '--attention-config={"backend":"FLASH_ATTN"}',
+        ],
+        "environment": {
+            "VLLM_BATCH_INVARIANT": "1",
+            "HF_HUB_DISABLE_IMPLICIT_TOKEN": "1",
+        },
+        "ports": ["127.0.0.1:8082:8000"],
+        "volumes": [
+            "${HBIM_HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface",
+            "./qwen3_reranker.jinja:/templates/qwen3_reranker.jinja:ro",
+        ],
+        "deploy": _GPU_RESERVATION,
+        "healthcheck": {
+            "test": [
+                "CMD",
+                "python3",
+                "-c",
+                "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("
+                "'http://localhost:8000/health', timeout=5).status == 200 else 1)",
+            ],
+            "interval": "10s",
+            "timeout": "10s",
+            "retries": 120,
+            "start_period": "300s",
+        },
+        "restart": "unless-stopped",
+    },
+}
 
+
+def _manifest_service(directory: str) -> dict:
     import yaml
 
-    for directory in ("reranker", "embeddings"):
-        relative = f"deploy/{directory}/docker-compose.yml"
-        committed = yaml.safe_load(
-            subprocess.run(
-                ["git", "show", f"main:{relative}"],
-                capture_output=True,
-                cwd=str(BACKEND.parent),
-                check=True,
-                text=True,
-            ).stdout
-        )
-        current = yaml.safe_load(
-            (BACKEND.parent / relative).read_text(encoding="utf-8")
-        )
-        assert "labels" not in committed["services"][directory], directory
-        added = current["services"][directory].pop("labels")
-        assert set(added) == {
-            "com.hbim.project",
-            "com.hbim.service",
-            "com.hbim.milestone",
-        }
-        assert current == committed, directory
+    path = BACKEND.parent / "deploy" / directory / "docker-compose.yml"
+    manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert set(manifest) == {"services"}, directory
+    assert set(manifest["services"]) == {directory}, directory
+    return manifest["services"][directory]
+
+
+@pytest.mark.parametrize("directory", ["embeddings", "reranker"])
+def test_manifest_matches_the_complete_accepted_deployment_contract(
+    directory: str,
+) -> None:
+    """Durable replacement for the former branch-relative byte comparison.
+
+    Exact whole-service equality against an independent expected structure, so
+    it is valid in a detached CI checkout, a shallow clone, a source archive
+    and on any branch — and it still catches every field the branch-relative
+    diff used to cover, plus unexpected added keys.
+    """
+    assert _manifest_service(directory) == _EXPECTED_MANIFESTS[directory]
+
+
+@pytest.mark.parametrize("directory", ["embeddings", "reranker"])
+def test_manifest_has_no_privileged_host_network_or_docker_socket(
+    directory: str,
+) -> None:
+    service = _manifest_service(directory)
+    for forbidden_key in (
+        "privileged",
+        "network_mode",
+        "cap_add",
+        "pid",
+        "userns_mode",
+        "security_opt",
+        "devices",
+    ):
+        assert forbidden_key not in service, (directory, forbidden_key)
+    for volume in service.get("volumes", []):
+        assert "docker.sock" not in volume, volume
+    # Loopback only: never a routable bind.
+    for binding in service["ports"]:
+        assert binding.startswith("127.0.0.1:"), binding
+
+
+@pytest.mark.parametrize("directory", ["embeddings", "reranker"])
+def test_manifest_exposes_no_lifecycle_or_dev_mode_flag(directory: str) -> None:
+    """§7: sleep mode stays disabled; no development endpoint is opened."""
+    service = _manifest_service(directory)
+    rendered = " ".join(service["command"])
+    for forbidden in (
+        "--enable-sleep-mode",
+        "VLLM_SERVER_DEV_MODE",
+        "--enable-auto-tool",
+        "--api-server-count",
+    ):
+        assert forbidden not in rendered, (directory, forbidden)
+    assert "VLLM_SERVER_DEV_MODE" not in service.get("environment", {})
+
+
+def test_expected_manifest_oracle_is_not_derived_from_the_files() -> None:
+    """Anti-tautology: the oracle must be literal, not read back from disk.
+
+    Mutating the parsed manifest must break the comparison — proving the
+    expected structure is an independent constant.
+    """
+    import copy
+
+    mutated = copy.deepcopy(_EXPECTED_MANIFESTS["reranker"])
+    mutated["image"] = "vllm/vllm-openai:v0.25.1@sha256:" + "0" * 64
+    assert _manifest_service("reranker") != mutated
+    mutated = copy.deepcopy(_EXPECTED_MANIFESTS["embeddings"])
+    assert isinstance(mutated["command"], list)
+    mutated["command"] = [*mutated["command"], "--enable-sleep-mode"]
+    assert _manifest_service("embeddings") != mutated
 
 
 # --------------------------------------------------------------------------- #
@@ -764,3 +1050,67 @@ def test_absent_gpu_probe_reports_no_drift_rather_than_zero_usage() -> None:
     status = asyncio.run(control.reconcile())
     assert status.reconciliation_drift_mib is None
     assert status.reconciliation_reason is ReasonCode.OK
+
+
+def test_router_import_guard_actually_detects_an_aliased_import() -> None:
+    """Hostile check on the guard itself: `import socket as s` must be caught.
+
+    The guard reads ``alias.name`` (the real module), not ``alias.asname``, so
+    aliasing cannot smuggle a forbidden import past it.
+    """
+    sneaky = ast.parse(
+        "import socket as s\n"
+        "from models.residency import ensure_profile as _ep\n"
+        "import importlib as _il\n"
+    )
+    imported: set[str] = set()
+    for node in ast.walk(sneaky):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+    roots = {name.split(".")[0] for name in imported}
+    # Every one of these must be rejected by the same predicates the real
+    # guards use — proving the guards are not vacuous.
+    assert not roots <= _ROUTER_ALLOWED_IMPORTS
+    assert roots & _ROUTER_FORBIDDEN_IMPORT_ROOTS == {"socket", "models", "importlib"}
+
+
+def test_router_name_guard_actually_detects_a_lifecycle_call() -> None:
+    """The forbidden-name predicate must reject a planted lifecycle call."""
+    planted = ast.parse("def route(q):\n    return ensure_profile('P-Online-Text')\n")
+    hits = {
+        node.id
+        for node in ast.walk(planted)
+        if isinstance(node, ast.Name) and node.id in _ROUTER_FORBIDDEN_NAMES
+    }
+    assert hits == {"ensure_profile"}
+
+
+def test_expected_manifest_agrees_with_the_independent_pin_literal() -> None:
+    """Two separately hand-written oracles must agree.
+
+    ``_PRE_MIGRATION_PINS`` was captured from the pre-migration manifest and
+    ``_EXPECTED_MANIFESTS`` was written from the accepted contract. If either
+    had been lazily copied from the file under test, a drift in the other would
+    not be caught — their agreement is the anti-tautology signal.
+    """
+    reranker = _EXPECTED_MANIFESTS["reranker"]
+    assert reranker["image"] == _PRE_MIGRATION_PINS["image"]
+    assert _PRE_MIGRATION_PINS["image_digest"] in str(reranker["image"])
+    command = reranker["command"]
+    assert isinstance(command, list)
+    assert f"--model={_PRE_MIGRATION_PINS['model_id']}" in command
+    assert f"--revision={_PRE_MIGRATION_PINS['model_revision']}" in command
+    assert f"--dtype={_PRE_MIGRATION_PINS['dtype']}" in command
+    assert f"--max-model-len={_PRE_MIGRATION_PINS['max_model_len']}" in command
+    assert (
+        f"--gpu-memory-utilization={_PRE_MIGRATION_PINS['gpu_memory_utilization']}"
+        in command
+    )
+    assert _PRE_MIGRATION_PINS["enforce_eager"] in command
+    assert _PRE_MIGRATION_PINS["no_prefix_caching"] in command
+    assert reranker["ports"] == [_PRE_MIGRATION_PINS["port_binding"]]
+    environment = reranker["environment"]
+    assert isinstance(environment, dict)
+    assert environment["VLLM_BATCH_INVARIANT"] == _PRE_MIGRATION_PINS["batch_invariant"]
