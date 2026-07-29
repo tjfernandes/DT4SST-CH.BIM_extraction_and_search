@@ -1,0 +1,137 @@
+{
+  "artifact": "ocr_decision",
+  "backend": {
+    "env": "VLLM_BATCH_INVARIANT=1 HF_HUB_OFFLINE=1 HF_HUB_DISABLE_IMPLICIT_TOKEN=1 VLLM_USE_V2_MODEL_RUNNER=0",
+    "flags": "--dtype=bfloat16 --max-model-len=8192 --gpu-memory-utilization=0.042 --max-num-seqs=8 --no-enable-prefix-caching --enforce-eager",
+    "image": "vllm/vllm-openai:v0.25.1",
+    "image_digest": "sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+    "port_binding": "127.0.0.1:8083"
+  },
+  "client": {
+    "paddleocr": "3.7.0",
+    "paddlepaddle": "3.3.1 (CPU)",
+    "paddlex": "3.7.2",
+    "pipeline_config": "vl_rec_backend=vllm-server vl_rec_api_model_name=PaddlePaddle/PaddleOCR-VL use_doc_orientation_classify=False use_doc_unwarping=False use_chart_recognition=False",
+    "pipeline_version": "v1"
+  },
+  "gates": {
+    "G_cer_le_bar": {
+      "bar": 0.05,
+      "measured": 0.020833,
+      "passed": true
+    },
+    "G_cold_latency_le_bar": {
+      "bar": 240.0,
+      "measured": 153.03,
+      "passed": true
+    },
+    "G_unique_term_recovered": {
+      "bar": true,
+      "measured": true,
+      "passed": true
+    },
+    "G_vram_peak_le_budget": {
+      "bar": 5120,
+      "measured": 4426.0,
+      "passed": true
+    },
+    "G_warm_latency_le_bar": {
+      "bar": 10.0,
+      "measured": 5.35,
+      "passed": true
+    },
+    "G_wer_le_bar": {
+      "bar": 0.2,
+      "measured": 0.111111,
+      "passed": true
+    }
+  },
+  "generated_by": "python -m eval.ocr_eval measure",
+  "gold": {
+    "make_scanned_pdf.py": "34efbb423085d32d16af50907daff0e28101471378d9930a690aa0a29edbdc3c",
+    "ocr_gold.jsonl": "bd3f7bfdd367ca3eef8fc82e4b935fb0b1b3d7e5065ded8937dd58ee54656e0c"
+  },
+  "hardware": {
+    "compute_capability": "12.0",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+    "platform": "WSL2 (VLLM_USE_V2_MODEL_RUNNER=0: the V2 runner needs UVA/pinned host memory, unavailable on WSL2)",
+    "vram_total_mib": 97887
+  },
+  "measurements": {
+    "cold_latency_s": [
+      61.79,
+      65.72,
+      68.06,
+      153.03
+    ],
+    "repeat_stability": {
+      "fixture_runs_content_identical": true,
+      "note": "Two full runs over the committed fixtures: transcripts, block counts and bboxes byte-identical; only wall-clock differed. VRAM idle/peak measured in an isolated GPU window (empty baseline 2446 MiB, drift 3 MiB across the cycle); one earlier probe cycle observed a single near-tie diacritic flip on a since-replaced title word ('Ańlise' family), recorded as the known nondeterminism boundary of the recognition stage."
+    },
+    "vram_budget_mib": 5120,
+    "vram_idle_mib": 4410,
+    "vram_peak_mib": 4426,
+    "warm_latency_s": [
+      1.93,
+      2.06,
+      2.11,
+      2.13,
+      2.15,
+      2.28,
+      2.3,
+      2.32,
+      2.41,
+      2.45,
+      2.45,
+      2.47,
+      2.51,
+      2.52,
+      2.55,
+      2.77,
+      3.04,
+      5.35
+    ]
+  },
+  "milestone": "HBIM-071",
+  "model": {
+    "layout_model": "PP-DocLayoutV2",
+    "layout_sha256": {
+      "config.json": "e1a25a0cbdc59c3668bc96467ecca6b9747eca29ff26d90282f452adc89df21f",
+      "inference.json": "91457e49ff891231d3f10bf17f393cc7545b588cc3453869ce4c179cea194e9b",
+      "inference.pdiparams": "45404a84c9fdf91d7bbc94bd47ac4c03649bda84167de04c62bff4726657869a",
+      "inference.yml": "93100e0fb2cd76b9d246a853deea85e191d8333b2cfca7be76e82e4c4ebfa819"
+    },
+    "licence": "Apache-2.0",
+    "model_safetensors_sha256": "3085f1042e184f68f8a412aa0f64f2c4b8562989598bbfba326aaa11fc685de8",
+    "repo": "PaddlePaddle/PaddleOCR-VL",
+    "revision": "f54aa90d389e98361cf295b7f4544bfb7452996d"
+  },
+  "quality": {
+    "cer_worst": 0.020833,
+    "pages": [
+      {
+        "cer": 0.020833,
+        "fixture": "scanned",
+        "page_number": 1,
+        "term_recovered": true,
+        "wer": 0.111111
+      },
+      {
+        "cer": 0.0,
+        "fixture": "scanned",
+        "page_number": 2,
+        "term_recovered": null,
+        "wer": 0.0
+      },
+      {
+        "cer": 0.0,
+        "fixture": "mixed",
+        "page_number": 2,
+        "term_recovered": null,
+        "wer": 0.0
+      }
+    ],
+    "term_recovered_all": true,
+    "wer_worst": 0.111111
+  }
+}

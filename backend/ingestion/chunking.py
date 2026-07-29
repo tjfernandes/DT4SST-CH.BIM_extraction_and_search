@@ -4,6 +4,11 @@ Pure and total: the same blocks and the same `CHUNKER_VERSION` always produce
 byte-identical chunks and ids. No LLM, no tokenizer, no model, no randomness,
 no clock. Size is measured in **characters**, so nothing is ever downloaded
 merely to split text.
+
+HBIM-071 §24 adds region propagation ONLY: every text decision (split points,
+sizes, overlap, merging, ordering) is untouched — the OCR provenance of each
+contributing block rides alongside the buffer and lands on the draft, so a
+native-only input produces byte-identical chunks with empty regions.
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
-from ingestion.document_blocks import ParsedBlock, ParsedPdf
+from ingestion.document_blocks import BlockRegion, ParsedBlock, ParsedPdf
 
 __all__ = [
     "CHUNK_MAX_CHARS",
@@ -21,6 +26,7 @@ __all__ = [
     "MAX_SECTION_TITLE_CHARS",
     "MIN_CHUNK_CHARS",
     "ChunkDraft",
+    "RegionContribution",
     "SectionedBlock",
     "assign_sections",
     "chunk_blocks",
@@ -80,6 +86,14 @@ class SectionedBlock:
 
 
 @dataclass(frozen=True)
+class RegionContribution:
+    """§24 — one OCR region that contributed text to a chunk."""
+
+    page_number: int
+    region: BlockRegion
+
+
+@dataclass(frozen=True)
 class ChunkDraft:
     """A chunk before identity assignment (ids need the revision — §11)."""
 
@@ -90,6 +104,7 @@ class ChunkDraft:
     section_title: str | None
     section_path: tuple[str, ...]
     text: str
+    regions: tuple[RegionContribution, ...] = ()
 
     @property
     def char_count(self) -> int:
@@ -154,24 +169,64 @@ def _overlap_tail(text: str) -> str:
     return tail[space + 1 :] if space != -1 else tail
 
 
+def _dedup_consecutive(
+    contributions: tuple[RegionContribution, ...],
+) -> tuple[RegionContribution, ...]:
+    """§24 — a region repeated by adjacent pieces contributes one entry."""
+    out: list[RegionContribution] = []
+    for item in contributions:
+        if out and (
+            out[-1].page_number == item.page_number
+            and out[-1].region.region_index == item.region.region_index
+        ):
+            continue
+        out.append(item)
+    return tuple(out)
+
+
+def _overlap_contributions(
+    buf: list[str], buf_regions: list[tuple[RegionContribution, ...]], overlap: str
+) -> tuple[RegionContribution, ...]:
+    """The regions whose text supplied the overlap tail, in original order."""
+    remaining = len(overlap)
+    picked: list[tuple[RegionContribution, ...]] = []
+    for piece, entries in zip(reversed(buf), reversed(buf_regions), strict=True):
+        if remaining <= 0:
+            break
+        picked.append(entries)
+        remaining -= len(piece) + 1  # +1 for the join separator
+    flat: list[RegionContribution] = []
+    for entries in reversed(picked):
+        flat.extend(entries)
+    return tuple(flat)
+
+
 def chunk_blocks(parsed: ParsedPdf) -> tuple[ChunkDraft, ...]:
-    """§13 — the whole algorithm. Deterministic for a fixed input and version."""
+    """§13 — the whole algorithm. Deterministic for a fixed input and version.
+
+    HBIM-071: region bookkeeping is strictly additive — no text decision reads
+    it, so native-only inputs chunk byte-identically to HBIM-070.
+    """
     sectioned = assign_sections(parsed)
     if not sectioned:
         return ()
 
     drafts: list[ChunkDraft] = []
     buf: list[str] = []
+    buf_regions: list[tuple[RegionContribution, ...]] = []
     pages: list[int] = []
     current_section: SectionedBlock | None = None
 
     def flush() -> None:
-        nonlocal buf, pages
+        nonlocal buf, buf_regions, pages
         if not buf or current_section is None:
-            buf, pages = [], []
+            buf, buf_regions, pages = [], [], []
             return
         text = "\n".join(buf).strip()
         if text:
+            contributions: list[RegionContribution] = []
+            for entries in buf_regions:
+                contributions.extend(entries)
             drafts.append(
                 ChunkDraft(
                     chunk_index=0,  # assigned document-wide at the end
@@ -181,9 +236,10 @@ def chunk_blocks(parsed: ParsedPdf) -> tuple[ChunkDraft, ...]:
                     section_title=current_section.section_title,
                     section_path=current_section.section_path,
                     text=text,
+                    regions=_dedup_consecutive(tuple(contributions)),
                 )
             )
-        buf, pages = [], []
+        buf, buf_regions, pages = [], [], []
 
     for item in sectioned:
         section_changed = (
@@ -194,10 +250,17 @@ def chunk_blocks(parsed: ParsedPdf) -> tuple[ChunkDraft, ...]:
             flush()  # §13 step 4 — sections close chunks; pages do not
         current_section = item
 
+        block_entry: tuple[RegionContribution, ...] = ()
+        if item.block.region is not None:
+            block_entry = (
+                RegionContribution(item.block.page_number, item.block.region),
+            )
         for piece in _hard_split(item.text):
             candidate = len(piece) + (1 + sum(len(b) for b in buf) if buf else 0)
             if buf and candidate > CHUNK_TARGET_CHARS:
                 previous = "\n".join(buf).strip()
+                previous_buf = list(buf)
+                previous_regions = list(buf_regions)
                 flush()
                 overlap = _overlap_tail(previous)
                 # The overlap is context, not content: it may never push the
@@ -206,7 +269,11 @@ def chunk_blocks(parsed: ParsedPdf) -> tuple[ChunkDraft, ...]:
                     len(overlap) + 1 + len(piece) <= CHUNK_MAX_CHARS
                 ):
                     buf.append(overlap)
+                    buf_regions.append(
+                        _overlap_contributions(previous_buf, previous_regions, overlap)
+                    )
             buf.append(piece)
+            buf_regions.append(block_entry)
             pages.append(item.block.page_number)
     flush()
 
@@ -220,6 +287,7 @@ def chunk_blocks(parsed: ParsedPdf) -> tuple[ChunkDraft, ...]:
             section_title=d.section_title,
             section_path=d.section_path,
             text=d.text,
+            regions=d.regions,
         )
         for index, d in enumerate(merged)
     )
@@ -247,6 +315,7 @@ def _merge_short_tail(drafts: list[ChunkDraft]) -> list[ChunkDraft]:
             section_title=previous.section_title,
             section_path=previous.section_path,
             text=previous.text + "\n" + last.text,
+            regions=_dedup_consecutive(previous.regions + last.regions),
         )
         out.pop()
     return out

@@ -578,12 +578,15 @@ def test_v1_mappings_remain_vector_free_and_only_elements_v2_carries_the_vector(
     # The four v1 mappings must stay byte-level vector-free forever.
     mappings = sorted((BACKEND / "canonical" / "mappings").glob("*.json"))
     assert [path.name for path in mappings] == [
-        # HBIM-070 §19.3 added chunks_v1 and documents_v2; neither carries a
-        # vector, so the "only elements_v2 is vectorised" claim is unchanged.
+        # HBIM-070 §19.3 added chunks_v1 and documents_v2; HBIM-071 §21 added
+        # chunks_v2 and documents_v3. None carries a vector, so the "only
+        # elements_v2 is vectorised" claim is unchanged.
         "chunks_v1.json",
+        "chunks_v2.json",
         "classification_facts_v1.json",
         "documents_v1.json",
         "documents_v2.json",
+        "documents_v3.json",
         "elements_v1.json",
         "elements_v2.json",
         "property_facts_v1.json",

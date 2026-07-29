@@ -1115,6 +1115,45 @@ def test_only_two_integer_family_fields_exist_in_the_five_mappings() -> None:
     }
 
 
+def test_integer_family_sweep_over_every_registered_mapping_version() -> None:
+    """HBIM-071 §36 — the sweep extends past the defaults: every version in
+    the closed table is covered, so chunk v2's region indices and the v3
+    document's OCR counter cannot dodge the range guards."""
+    found: dict[str, str] = {}
+    for record_type, versions in il._MAPPING_VERSIONS.items():
+        for version in versions:
+            mapping = il.load_mapping(record_type, version)
+            for path, kind in _collect_numeric_types(mapping).items():
+                found[f"{record_type}.v{version}.{path}"] = kind
+    v1_defaults = {
+        "element.v1.materials.ordinal": "integer",
+        "property_fact.v1.value_integer": "long",
+        "chunk.v1.chunk_index": "integer",
+        "chunk.v1.page_number": "integer",
+        "chunk.v1.page_span": "integer",
+        "chunk.v1.section_index": "integer",
+        "chunk.v1.char_count": "integer",
+    }
+    assert found == v1_defaults | {
+        "element.v2.materials.ordinal": "integer",
+        "document.v2.byte_size": "long",
+        "document.v2.chunk_count": "integer",
+        "document.v2.page_count": "integer",
+        "document.v3.byte_size": "long",
+        "document.v3.chunk_count": "integer",
+        "document.v3.page_count": "integer",
+        # HBIM-071 §21 — the OCR provenance integers.
+        "document.v3.ocr_page_count": "integer",
+        "chunk.v2.chunk_index": "integer",
+        "chunk.v2.page_number": "integer",
+        "chunk.v2.page_span": "integer",
+        "chunk.v2.section_index": "integer",
+        "chunk.v2.char_count": "integer",
+        "chunk.v2.page_regions.page_number": "integer",
+        "chunk.v2.page_regions.region_index": "integer",
+    }
+
+
 # =========================================================================== #
 # 49-51. Duplicates
 # =========================================================================== #

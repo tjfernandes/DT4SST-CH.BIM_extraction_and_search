@@ -47,10 +47,12 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_sixteen_slices() -> None:
+def test_committed_policy_loads_and_has_the_nineteen_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
-    assert len(policy.slices) == 16  # HBIM-070 added three document slices
+    # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
+    # more (document_ocr_merge, ocr_decision, ocr_live_suite).
+    assert len(policy.slices) == 19
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -167,8 +169,10 @@ def real_report() -> dict:
 
 def test_real_tree_passes_every_gated_slice(real_report) -> None:
     assert real_report["exit_code"] == 0
+    # HBIM-071: +2 passed (document_ocr_merge, ocr_decision), +1 manual
+    # (ocr_live_suite).
     assert real_report["counts"] == {
-        "passed": 11, "failed": 0, "delegated": 1, "manual": 1, "unavailable": 3,
+        "passed": 13, "failed": 0, "delegated": 1, "manual": 2, "unavailable": 3,
     }
 
 
@@ -190,6 +194,27 @@ def test_real_tree_grounding_slice_reproduces_the_exact_metrics(real_report) -> 
     assert all(c["passed"] for c in grounding["checks"])
 
 
+def test_real_tree_ocr_merge_slice_replays_exactly(real_report) -> None:
+    merge = next(s for s in real_report["slices"] if s["slice_id"] == "document_ocr_merge")
+    values = {c["metric"]: c["value"] for c in merge["checks"]}
+    assert values == {
+        "merge_chunk_accuracy": 1.0, "ocr_flag_accuracy": 1.0,
+        "region_propagation_accuracy": 1.0, "confidence_accuracy": 1.0,
+        "mismatch_count": 0.0,
+    }
+    assert all(c["passed"] for c in merge["checks"])
+
+
+def test_real_tree_ocr_decision_margins_are_recomputed(real_report) -> None:
+    decision = next(s for s in real_report["slices"] if s["slice_id"] == "ocr_decision")
+    values = {c["metric"]: c["value"] for c in decision["checks"]}
+    assert values["gates_all_passed"] == 1.0
+    for metric in ("vram_margin_mib", "warm_margin_s",
+                   "cold_margin_s", "cer_margin", "wer_margin"):
+        assert values[metric] >= 0.0, metric
+    assert all(c["passed"] for c in decision["checks"])
+
+
 def test_future_slices_are_unavailable_never_green(real_report) -> None:
     for slice_id in ("document_retrieval", "graph_retrieval", "multimodal_retrieval"):
         record = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
@@ -200,6 +225,8 @@ def test_future_slices_are_unavailable_never_green(real_report) -> None:
 def test_manual_and_delegated_statuses(real_report) -> None:
     live = next(s for s in real_report["slices"] if s["slice_id"] == "live_service_suites")
     assert live["status"] == "manual"
+    ocr_live = next(s for s in real_report["slices"] if s["slice_id"] == "ocr_live_suite")
+    assert ocr_live["status"] == "manual" and ocr_live["checks"] == []
     unit = next(s for s in real_report["slices"] if s["slice_id"] == "snapshot_evidence_integrity")
     assert unit["status"] == "delegated" and unit["delegated_to"] == "backend-unit"
     hbim005 = next(s for s in real_report["slices"] if s["slice_id"] == "hbim005_opensearch")
@@ -471,7 +498,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 16   # every registered slice, none skipped
+    assert len(report["slices"]) == 19   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #

@@ -17,13 +17,20 @@ from pydantic import ValidationError
 
 from canonical.documents import (
     CHUNK_SCHEMA_VERSION,
+    CHUNK_SCHEMA_VERSION_V2,
     DOCUMENT_SCHEMA_VERSION,
+    DOCUMENT_SCHEMA_VERSION_V2,
+    AnyChunkRecord,
     AnyDocumentRecord,
+    ChunkPageRegion,
     DocumentChunk,
+    DocumentChunkV2,
     ParsedDocument,
+    ParsedDocumentV2,
     ParseStatus,
     chunk_id,
     document_id,
+    ocr_revision_id,
     revision_id,
 )
 from canonical.schema import DocumentRef
@@ -131,9 +138,11 @@ def test_page_numbering_is_one_based_and_spans_ordered() -> None:
     assert chunk(page_number=2, page_span=(2, 3)).page_span == (2, 3)
 
 
-def test_parse_status_taxonomy_is_exactly_the_four() -> None:
+def test_parse_status_taxonomy_is_exactly_the_five() -> None:
+    # HBIM-071 §20 — exactly one member joined: parsed_with_ocr.
     assert sorted(s.value for s in ParseStatus) == [
-        "ocr_required", "parse_failed", "parsed", "unsupported_encrypted",
+        "ocr_required", "parse_failed", "parsed", "parsed_with_ocr",
+        "unsupported_encrypted",
     ]
 
 
@@ -270,3 +279,176 @@ def test_records_round_trip_through_their_own_jsonl() -> None:
     assert ParsedDocument.model_validate(json.loads(doc.model_dump_json())) == doc
     piece = chunk()
     assert DocumentChunk.model_validate(json.loads(piece.model_dump_json())) == piece
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-071 §18/§21/§22 — v2 successors
+# --------------------------------------------------------------------------- #
+def region(**overrides: object) -> ChunkPageRegion:
+    payload: dict[str, object] = {
+        "page_number": 2, "region_index": 1,
+        "x0": 0.081571, "y0": 0.081231, "x1": 0.529305, "y1": 0.108593,
+    }
+    payload.update(overrides)
+    return ChunkPageRegion.model_validate(payload)
+
+
+def parsed_document_v2(**overrides: object) -> ParsedDocumentV2:
+    payload: dict[str, object] = {
+        "schema_version": DOCUMENT_SCHEMA_VERSION_V2,
+        "document_id": "doc_1", "project_id": "p", "uri": "doc://u",
+        "title": None, "document_type": "report",
+        "content_checksum": "sha256:" + "a" * 64,
+        "revision_id": "rev_1", "byte_size": 10, "page_count": 2,
+        "chunk_count": 1, "parse_status": ParseStatus.PARSED_WITH_OCR,
+        "parser_name": "docling-pypdfium2", "parser_version": "2.115.0",
+        "chunker_version": "hbim-070-chunker-v1", "language": None,
+        "ocr_page_count": 1, "ocr_engine": "paddleocr-vl",
+        "ocr_engine_version": "3.7.0",
+    }
+    payload.update(overrides)
+    return ParsedDocumentV2.model_validate(payload)
+
+
+def chunk_v2(**overrides: object) -> DocumentChunkV2:
+    payload: dict[str, object] = {
+        "schema_version": CHUNK_SCHEMA_VERSION_V2, "chunk_id": "ch_1",
+        "document_id": "doc_1", "project_id": "p", "revision_id": "rev_1",
+        "chunk_index": 0, "page_number": 2, "page_span": (2, 2),
+        "section_path": ("S",), "section_title": "S", "section_index": 0,
+        "text": "texto ocr", "char_count": 9,
+        "parser_name": "docling-pypdfium2", "parser_version": "2.115.0",
+        "chunker_version": "hbim-070-chunker-v1",
+        "ocr": True, "page_regions": (region(),), "confidence": 0.91,
+    }
+    payload.update(overrides)
+    return DocumentChunkV2.model_validate(payload)
+
+
+def test_v2_schema_versions_are_pinned() -> None:
+    assert DOCUMENT_SCHEMA_VERSION_V2 == "hbim-071-document-v2"
+    assert CHUNK_SCHEMA_VERSION_V2 == "hbim-071-chunk-v2"
+    # HBIM-070 literals are untouched (§21 — historical ids never move).
+    assert DOCUMENT_SCHEMA_VERSION == "hbim-070-document-v1"
+    assert CHUNK_SCHEMA_VERSION == "hbim-070-chunk-v1"
+
+
+def test_v2_rejects_wrong_versions_and_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        parsed_document_v2(schema_version="hbim-070-document-v1")
+    with pytest.raises(ValidationError):
+        chunk_v2(schema_version="hbim-070-chunk-v1")
+    with pytest.raises(ValidationError):
+        chunk_v2(unexpected="x")
+
+
+def test_v2_document_invariants() -> None:
+    with pytest.raises(ValidationError):
+        parsed_document_v2(parse_status=ParseStatus.PARSED)      # §20
+    with pytest.raises(ValidationError):
+        parsed_document_v2(ocr_page_count=0)                     # v2 ⇒ ≥1 OCR page
+    with pytest.raises(ValidationError):
+        parsed_document_v2(ocr_page_count=3)                     # > page_count
+    with pytest.raises(ValidationError):
+        parsed_document_v2(ocr_page_count=True)                  # bool trap
+    with pytest.raises(ValidationError):
+        parsed_document_v2(ocr_engine="")                        # engine identity
+    with pytest.raises(ValidationError):
+        parsed_document_v2(ocr_engine=None)
+
+
+def test_v2_chunk_ocr_consistency() -> None:
+    # ocr=False ⇒ no regions, no confidence; ocr=True ⇒ ≥1 region (§19/§24).
+    native = chunk_v2(ocr=False, page_regions=(), confidence=None)
+    assert native.page_regions == ()
+    with pytest.raises(ValidationError):
+        chunk_v2(ocr=False, page_regions=(region(),), confidence=None)
+    with pytest.raises(ValidationError):
+        chunk_v2(ocr=False, page_regions=(), confidence=0.5)
+    with pytest.raises(ValidationError):
+        chunk_v2(ocr=True, page_regions=(), confidence=None)
+    with pytest.raises(ValidationError):
+        chunk_v2(ocr=1)  # strict bool, never int
+    with pytest.raises(ValidationError):
+        chunk_v2(confidence=1.5)
+    with pytest.raises(ValidationError):
+        chunk_v2(confidence=True)
+    assert chunk_v2(confidence=None).confidence is None  # reported, not invented
+
+
+def test_chunk_page_region_validation() -> None:
+    with pytest.raises(ValidationError):
+        region(x0=0.6, x1=0.5)                                  # inverted
+    with pytest.raises(ValidationError):
+        region(y0=0.2, y1=0.2)                                  # degenerate
+    with pytest.raises(ValidationError):
+        region(x0=-0.1)
+    with pytest.raises(ValidationError):
+        region(x1=1.1)
+    with pytest.raises(ValidationError):
+        region(x0=0.1234567)                                    # 7 decimals
+    with pytest.raises(ValidationError):
+        region(x0=float("nan"))
+    with pytest.raises(ValidationError):
+        region(page_number=0)
+    with pytest.raises(ValidationError):
+        region(page_number=True)
+    with pytest.raises(ValidationError):
+        region(region_index=-1)
+
+
+def test_v2_records_round_trip() -> None:
+    doc = parsed_document_v2()
+    assert ParsedDocumentV2.model_validate(json.loads(doc.model_dump_json())) == doc
+    piece = chunk_v2()
+    assert DocumentChunkV2.model_validate(json.loads(piece.model_dump_json())) == piece
+
+
+def test_document_union_extends_left_to_right() -> None:
+    v2_payload = json.loads(parsed_document_v2().model_dump_json())
+    assert isinstance(AnyDocumentRecord.model_validate(v2_payload).root, ParsedDocumentV2)
+    v1_payload = json.loads(parsed_document().model_dump_json())
+    validated = AnyDocumentRecord.model_validate(v1_payload).root
+    assert type(validated) is ParsedDocument
+    assert isinstance(AnyDocumentRecord.model_validate(LEGACY_LINE).root, DocumentRef)
+
+
+def test_chunk_union_discriminates_and_delegates() -> None:
+    v2_payload = json.loads(chunk_v2().model_dump_json())
+    record = AnyChunkRecord.model_validate(v2_payload)
+    assert isinstance(record.root, DocumentChunkV2)
+    assert record.chunk_id == "ch_1"          # HBIM-022 getattr contract
+    v1_payload = json.loads(chunk().model_dump_json())
+    v1_record = AnyChunkRecord.model_validate(v1_payload)
+    assert type(v1_record.root) is DocumentChunk
+    with pytest.raises(AttributeError):
+        _ = v1_record.definitely_not_a_field
+    with pytest.raises(ValidationError):
+        AnyChunkRecord.model_validate({"chunk_id": "ch_1"})
+
+
+def test_v1_payload_never_upgrades_and_v2_never_degrades() -> None:
+    v1_payload = json.loads(chunk().model_dump_json())
+    with pytest.raises(ValidationError):
+        DocumentChunkV2.model_validate(v1_payload)
+    v2_payload = json.loads(chunk_v2().model_dump_json())
+    with pytest.raises(ValidationError):
+        DocumentChunk.model_validate(v2_payload)   # extra="forbid"
+
+
+def test_ocr_revision_id_derivation_and_stability() -> None:
+    got = ocr_revision_id("doc_1", "sha256:ab", "docling-pypdfium2", "2.115.0",
+                          "chunker-v1", "repo@rev/3.7.0/pypdfium2/png/rgb/200dpi")
+    expected = "rev_" + _netstring_sha(
+        ["hbim-071-ocr-revision", "doc_1", "sha256:ab", "docling-pypdfium2",
+         "2.115.0", "chunker-v1", "repo@rev/3.7.0/pypdfium2/png/rgb/200dpi"]
+    )
+    assert got == expected
+    # A model/raster change flows through the fingerprint → new revision (§22).
+    assert got != ocr_revision_id("doc_1", "sha256:ab", "docling-pypdfium2",
+                                  "2.115.0", "chunker-v1", "other-fp")
+    # Born-digital derivation is a different label → never collides.
+    assert got != revision_id("doc_1", "sha256:ab", "docling-pypdfium2",
+                              "2.115.0", "chunker-v1")
+    with pytest.raises(ValueError):
+        ocr_revision_id("d", "sha256:ab", "p", "1", "c", "")

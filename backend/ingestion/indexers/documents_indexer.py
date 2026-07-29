@@ -5,6 +5,12 @@ HBIM-070 §10 widened the accepted line shape to the compatibility union
 projects **byte-identically to before**, while an ingested ``ParsedDocument``
 projects the richer v2 fields. ``IndexerSpec.model`` still binds exactly one
 type, so HBIM-022's contract is unchanged.
+
+HBIM-071 §21 extends the union left-to-right with ``ParsedDocumentV2``; its OCR
+fields (``ocr_page_count``, ``ocr_engine``, ``ocr_engine_version``) are always
+non-null by schema, so the same ``prune_nulls`` projection emits them for the
+v3 mapping with no further branching (``ParsedDocumentV2`` subclasses
+``ParsedDocument``, so the ``linked_element_ids`` branch below covers both).
 """
 
 from __future__ import annotations

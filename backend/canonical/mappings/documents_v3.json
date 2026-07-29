@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "canonical_schema_versions": [
+      "1.0",
+      "hbim-070-document-v1",
+      "hbim-071-document-v2"
+    ],
+    "created_by": "HBIM-071",
+    "mapping_version": "3",
+    "record_type": "document"
+  },
+  "_source": {
+    "enabled": true
+  },
+  "dynamic": "strict",
+  "properties": {
+    "byte_size": {
+      "type": "long"
+    },
+    "checksum": {
+      "type": "keyword"
+    },
+    "chunk_count": {
+      "type": "integer"
+    },
+    "chunker_version": {
+      "type": "keyword"
+    },
+    "content_checksum": {
+      "type": "keyword"
+    },
+    "document_id": {
+      "type": "keyword"
+    },
+    "document_type": {
+      "type": "keyword"
+    },
+    "language": {
+      "type": "keyword"
+    },
+    "linked_element_ids": {
+      "type": "keyword"
+    },
+    "ocr_engine": {
+      "type": "keyword"
+    },
+    "ocr_engine_version": {
+      "type": "keyword"
+    },
+    "ocr_page_count": {
+      "type": "integer"
+    },
+    "page_count": {
+      "type": "integer"
+    },
+    "parse_status": {
+      "type": "keyword"
+    },
+    "parser_name": {
+      "type": "keyword"
+    },
+    "parser_version": {
+      "type": "keyword"
+    },
+    "project_id": {
+      "type": "keyword"
+    },
+    "revision_id": {
+      "type": "keyword"
+    },
+    "schema_version": {
+      "type": "keyword"
+    },
+    "source": {
+      "dynamic": "strict",
+      "properties": {
+        "checksum": {
+          "type": "keyword"
+        },
+        "external_id": {
+          "type": "keyword"
+        },
+        "ifc_schema": {
+          "type": "keyword"
+        },
+        "revision": {
+          "type": "keyword"
+        },
+        "source_id": {
+          "type": "keyword"
+        }
+      },
+      "type": "object"
+    },
+    "title": {
+      "fields": {
+        "keyword": {
+          "ignore_above": 256,
+          "type": "keyword"
+        }
+      },
+      "type": "text"
+    },
+    "uri": {
+      "type": "keyword"
+    }
+  }
+}

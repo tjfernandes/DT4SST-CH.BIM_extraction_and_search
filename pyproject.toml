@@ -16,6 +16,7 @@ markers = [
     "reranker_service: exige o servico local Qwen3-Reranker (HBIM-051); correr com -m reranker_service",
     "residency_service: exige os servicos locais de embeddings+reranker para o gestor de residencia (HBIM-032); correr com -m residency_service",
     "docling_parser: exige a dependencia minima docling-slim (HBIM-070); correr com -m docling_parser",
+    "ocr_service: exige requirements-ocr.txt e o servico vLLM PaddleOCR-VL local (HBIM-071); correr com -m ocr_service",
 ]
 
 [tool.ruff]
@@ -123,15 +124,25 @@ module = [
     "ingestion.document_blocks",
     "ingestion.chunking",
     "ingestion.indexers.elements_dense",
+    "ingestion.page_regions",
+    "ingestion.page_classifier",
+    "ingestion.rasterize",
+    "ingestion.ocr_engine",
+    "eval.ocr_eval",
 ]
 disallow_untyped_defs = true
 
 # Legacy (fora do gate bloqueante; verificação informativa, adoção gradual —
-# nunca silenciado com ignore_errors global).
+# nunca silenciado com ignore_errors global). `warn_unused_ignores` fica
+# desligado APENAS aqui: HBIM-071 passou a seguir `document_parser` a partir
+# de `eval.ocr_eval`, e os `# type: ignore[no-untyped-def]` históricos destes
+# módulos legacy são redundantes sob esta secção (que já desliga essa
+# verificação) — os módulos do gate bloqueante mantêm o aviso.
 [[tool.mypy.overrides]]
 module = ["api.main", "api.search", "api.prompts", "ingestion.*"]
 check_untyped_defs = false
 disallow_untyped_defs = false
+warn_unused_ignores = false
 
 # HBIM-053: `api.responses` (gated) imports `api.search` lazily for the LLM
 # client factory, which would drag this legacy module into the blocking gate
@@ -162,5 +173,9 @@ module = [
     "sentence_transformers.*",
     "torch",
     "torch.*",
+    "paddleocr",
+    "paddleocr.*",
+    "paddlex",
+    "paddlex.*",
 ]
 ignore_missing_imports = true

@@ -247,3 +247,91 @@ def test_assign_sections_preserves_reading_order() -> None:
 def test_normalize_rejects_non_strings() -> None:
     with pytest.raises(TypeError):
         normalize_text(None)  # type: ignore[arg-type]
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-071 §24 — region propagation (additive; the text algorithm is untouched)
+# --------------------------------------------------------------------------- #
+def _regioned_block(page: int, index: int, text: str, region_index: int,
+                    confidence: float | None = 0.9) -> ParsedBlock:
+    from ingestion.document_blocks import BlockRegion
+    from ingestion.page_regions import PageRect
+
+    top = round(0.05 + region_index * 0.1, 6)
+    return ParsedBlock(
+        page_number=page, block_index=index, text=text,
+        region=BlockRegion(
+            region_index=region_index,
+            rect=PageRect(x0=0.1, y0=top, x1=0.9, y1=round(top + 0.08, 6)),
+            confidence=confidence,
+        ),
+    )
+
+
+def _one_page(*blocks: ParsedBlock) -> ParsedPdf:
+    page = ParsedPage(page_number=1, width=595.0, height=842.0, blocks=blocks)
+    return ParsedPdf(1, (page,), "p", "1")
+
+
+def test_native_blocks_produce_empty_regions() -> None:
+    drafts = chunk_blocks(pdf(("Título", "corpo do texto nativo.")))
+    assert all(d.regions == () for d in drafts)
+
+
+def test_regions_ride_along_without_changing_the_text() -> None:
+    plain = chunk_blocks(pdf(("Título", "corpo um.", "corpo dois.")))
+    regioned = chunk_blocks(_one_page(
+        ParsedBlock(1, 0, "Título"),
+        _regioned_block(1, 1, "corpo um.", 1),
+        _regioned_block(1, 2, "corpo dois.", 2),
+    ))
+    assert [d.text for d in regioned] == [d.text for d in plain]
+    assert [d.page_span for d in regioned] == [d.page_span for d in plain]
+    assert [(c.page_number, c.region.region_index) for c in regioned[0].regions] == [
+        (1, 1), (1, 2)
+    ]
+
+
+def test_heading_regions_never_contribute() -> None:
+    drafts = chunk_blocks(_one_page(
+        _regioned_block(1, 0, "Título Regional", 0),
+        _regioned_block(1, 1, "corpo da secção.", 1),
+    ))
+    assert len(drafts) == 1
+    assert [c.region.region_index for c in drafts[0].regions] == [1]
+
+
+def test_hard_split_pieces_repeat_the_region_rect() -> None:
+    long_text = " ".join(f"palavra{i:03d}" for i in range(320))
+    drafts = chunk_blocks(_one_page(_regioned_block(1, 0, long_text, 0)))
+    assert len(drafts) >= 2
+    for draft in drafts:
+        assert [c.region.region_index for c in draft.regions] == [0]
+
+
+def test_consecutive_duplicate_contributions_dedup_to_one_entry() -> None:
+    # Overlap tail + next piece of the SAME region must not double the entry.
+    long_text = " ".join(f"palavra{i:03d}" for i in range(320))
+    drafts = chunk_blocks(_one_page(_regioned_block(1, 0, long_text, 0)))
+    tail = drafts[-1]
+    assert len(tail.regions) == 1
+
+
+def test_multi_page_chunk_carries_entries_for_both_pages() -> None:
+    page_one = ParsedPage(1, 595.0, 842.0, (_regioned_block(1, 0, "continua sem título.", 0),))
+    page_two = ParsedPage(2, 595.0, 842.0, (_regioned_block(2, 0, "termina aqui mesmo.", 0),))
+    drafts = chunk_blocks(ParsedPdf(2, (page_one, page_two), "p", "1"))
+    assert len(drafts) == 1
+    assert drafts[0].page_span == (1, 2)
+    assert [(c.page_number, c.region.region_index) for c in drafts[0].regions] == [
+        (1, 0), (2, 0)
+    ]
+
+
+def test_short_tail_merge_concatenates_regions() -> None:
+    body = " ".join(f"parte{i:03d}" for i in range(200))
+    drafts = chunk_blocks(_one_page(
+        _regioned_block(1, 0, body + ".", 0),
+        _regioned_block(1, 1, "resto curto final.", 1),
+    ))
+    assert [c.region.region_index for c in drafts[-1].regions][-1] == 1

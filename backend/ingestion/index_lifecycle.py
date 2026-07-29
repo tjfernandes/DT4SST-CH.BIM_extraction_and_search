@@ -174,10 +174,12 @@ _MAPPING_VERSIONS: Mapping[str, Mapping[str, str]] = MappingProxyType(
         "classification_fact": MappingProxyType({"1": "classification_facts_v1.json"}),
         # HBIM-070 §17: v1 stays the registry default so no deployment changes
         # silently; v2 is the additive successor carrying the ingestion fields.
+        # HBIM-071 §21: document v3 / chunk v2 carry the OCR provenance; the
+        # defaults remain unchanged and the OCR path selects them explicitly.
         "document": MappingProxyType(
-            {"1": "documents_v1.json", "2": "documents_v2.json"}
+            {"1": "documents_v1.json", "2": "documents_v2.json", "3": "documents_v3.json"}
         ),
-        "chunk": MappingProxyType({"1": "chunks_v1.json"}),
+        "chunk": MappingProxyType({"1": "chunks_v1.json", "2": "chunks_v2.json"}),
     }
 )
 
