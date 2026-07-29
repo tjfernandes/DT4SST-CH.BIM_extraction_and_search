@@ -373,3 +373,263 @@ def test_env_file_is_never_read_in_parse_only_mode(sample, tmp_path, monkeypatch
     monkeypatch.setattr(os, "getenv", lambda *a, **k: pytest.fail("env read"))
     result = ingest(sample)
     assert result.document.page_count == 2
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-071 §20/§22/§23/§25/§27 — the OCR state machine (fake engine; no paddle)
+# --------------------------------------------------------------------------- #
+from canonical.documents import (  # noqa: E402
+    CHUNK_SCHEMA_VERSION_V2,
+    DOCUMENT_SCHEMA_VERSION_V2,
+    DocumentChunkV2,
+    ParsedDocumentV2,
+)
+from eval.fixtures.make_scanned_pdf import (  # noqa: E402
+    SCANNED_UNIQUE_TERM,
+    build_mixed_pdf,
+    build_scanned_pdf,
+)
+from ingestion.ocr_engine import OcrOutputError, OcrRegion  # noqa: E402
+from ingestion.page_regions import PageRect  # noqa: E402
+from ingestion.rasterize import PageRaster  # noqa: E402
+
+
+class FakeOcrEngine:
+    """Declares its identity so records and revisions stay truthful (§22)."""
+
+    engine_name = "fake-ocr"
+    engine_version = "0.1"
+    fingerprint = "fake-repo@rev0/0.1/pypdfium2/png/rgb/200dpi"
+
+    def __init__(self, regions_by_page=None, fail_on_page=None):
+        self.regions_by_page = regions_by_page or {}
+        self.fail_on_page = fail_on_page
+        self.recognized_pages: list[int] = []
+
+    def recognize(self, raster: PageRaster) -> tuple[OcrRegion, ...]:
+        if self.fail_on_page == raster.page_number:
+            raise OcrOutputError("synthetic page failure")
+        self.recognized_pages.append(raster.page_number)
+        return self.regions_by_page.get(raster.page_number, ())
+
+
+def _region(index: int, text: str, confidence: float | None = 0.9) -> OcrRegion:
+    top = round(0.1 + index * 0.12, 6)
+    return OcrRegion(
+        region_index=index,
+        rect=PageRect(x0=0.1, y0=top, x1=0.88, y1=round(top + 0.1, 6)),
+        text=text,
+        confidence=confidence,
+    )
+
+
+SCANNED_REGIONS = {
+    1: (
+        _region(0, "Relatório de Conservação", 0.95),
+        _region(1, f"O termo de controlo é {SCANNED_UNIQUE_TERM} nesta página.", 0.91),
+    ),
+    2: (
+        _region(0, "Registo de Materiais", 0.94),
+        _region(1, "As amostras foram registadas em obra.", 0.88),
+    ),
+}
+
+
+def scanned_ingest(tmp_path: Path, engine, pages=((), ()), name="scan.pdf", **kw):
+    build_scanned_pdf(tmp_path / name)
+    return ingest_document(
+        pdf=tmp_path / name, input_root=tmp_path, project_id="proj-a",
+        uri="doc://reports/scan1", parser=FakeParser(pages=pages),
+        ocr_engine=engine, raster_out=tmp_path / "rasters", **kw
+    )
+
+
+def test_scanned_document_emits_v2_records_with_ocr_status(tmp_path: Path) -> None:
+    engine = FakeOcrEngine(SCANNED_REGIONS)
+    result = scanned_ingest(tmp_path, engine)
+    document = result.document
+    assert isinstance(document, ParsedDocumentV2)
+    assert document.schema_version == DOCUMENT_SCHEMA_VERSION_V2
+    assert document.parse_status is ParseStatus.PARSED_WITH_OCR
+    assert document.ocr_page_count == 2
+    assert (document.ocr_engine, document.ocr_engine_version) == ("fake-ocr", "0.1")
+    assert engine.recognized_pages == [1, 2]
+    assert all(isinstance(c, DocumentChunkV2) for c in result.chunks)
+    assert all(c.schema_version == CHUNK_SCHEMA_VERSION_V2 for c in result.chunks)
+    ocr_chunks = [c for c in result.chunks if c.ocr]
+    assert ocr_chunks and all(c.page_regions for c in ocr_chunks)
+    carrying = [c for c in result.chunks if SCANNED_UNIQUE_TERM in c.text]
+    assert len(carrying) == 1 and carrying[0].ocr
+    assert result.media_manifest is not None and result.media_manifest.is_file()
+
+
+def test_mixed_document_streams_stay_page_disjoint(tmp_path: Path) -> None:
+    engine = FakeOcrEngine({2: SCANNED_REGIONS[2]})
+    build_mixed_pdf(tmp_path / "mixed.pdf")
+    result = ingest_document(
+        pdf=tmp_path / "mixed.pdf", input_root=tmp_path, project_id="proj-a",
+        uri="doc://reports/mixed1", parser=FakeParser(pages=(PAGE_ONE, ())),
+        ocr_engine=engine, raster_out=tmp_path / "rasters",
+    )
+    assert engine.recognized_pages == [2]      # never the native page
+    assert result.document.ocr_page_count == 1
+    native = [c for c in result.chunks if not c.ocr]
+    ocr = [c for c in result.chunks if c.ocr]
+    assert native and ocr
+    assert all(c.page_regions == () and c.confidence is None for c in native)
+    assert all(c.page_span[0] >= 2 for c in ocr)      # OCR text only from page 2
+    assert all(c.page_span[1] <= 1 for c in native)   # native text only from page 1
+    assert UNIQUE_TERM in "".join(c.text for c in native)
+
+
+def test_partial_ocr_failure_publishes_nothing(tmp_path: Path) -> None:
+    engine = FakeOcrEngine(SCANNED_REGIONS, fail_on_page=2)
+    with pytest.raises(OcrOutputError):
+        scanned_ingest(tmp_path, engine)
+    # §25 — the pre-written rasters and media manifest were removed.
+    raster_dir = tmp_path / "rasters"
+    assert not list(raster_dir.glob("*.png"))
+    assert not (raster_dir / "media_manifest.jsonl").exists()
+
+
+def test_all_pages_empty_after_ocr_is_a_parse_failure(tmp_path: Path) -> None:
+    from ingestion.document_parser import DocumentParseError
+
+    with pytest.raises(DocumentParseError, match="no publishable text"):
+        scanned_ingest(tmp_path, FakeOcrEngine({}))
+
+
+def test_ocr_revision_binds_the_engine_fingerprint(tmp_path: Path) -> None:
+    first = scanned_ingest(tmp_path, FakeOcrEngine(SCANNED_REGIONS), name="a.pdf")
+
+    class OtherEngine(FakeOcrEngine):
+        fingerprint = "fake-repo@rev1/0.2/pypdfium2/png/rgb/200dpi"
+
+    second = ingest_document(
+        pdf=tmp_path / "a.pdf", input_root=tmp_path, project_id="proj-a",
+        uri="doc://reports/scan1", parser=FakeParser(pages=((), ())),
+        ocr_engine=OtherEngine(SCANNED_REGIONS), raster_out=tmp_path / "r2",
+    )
+    assert first.document.revision_id != second.document.revision_id
+    assert first.document.document_id == second.document.document_id
+
+
+def test_born_digital_output_is_byte_identical_with_and_without_engine(
+    sample: Path, tmp_path: Path
+) -> None:
+    """§21 — an engine on a fully native document changes nothing at all."""
+    plain = ingest(sample)
+    with_engine = ingest(
+        sample, ocr_engine=FakeOcrEngine(SCANNED_REGIONS),
+        raster_out=tmp_path / "never-used",
+    )
+    a, b = tmp_path / "a", tmp_path / "b"
+    write_outputs(plain, a)
+    write_outputs(with_engine, b)
+    for name in ("documents.jsonl", "chunks.jsonl"):
+        assert (a / name).read_bytes() == (b / name).read_bytes()
+    assert plain.document.schema_version == "hbim-070-document-v1"
+    assert not (tmp_path / "never-used").exists()  # no raster side effects
+    assert plain.manifest.to_dict() == with_engine.manifest.to_dict()
+    assert "ocr_page_count" not in plain.manifest.to_dict()
+
+
+def test_max_ocr_pages_bound_is_typed_never_truncation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ingestion.document_ingestor as module
+
+    monkeypatch.setattr(module, "MAX_OCR_PAGES_PER_DOCUMENT", 1)
+    with pytest.raises(DocumentInputError, match="OCR pages"):
+        scanned_ingest(tmp_path, FakeOcrEngine(SCANNED_REGIONS))
+
+
+def test_raster_out_is_required_on_the_ocr_path(tmp_path: Path) -> None:
+    build_scanned_pdf(tmp_path / "scan.pdf")
+    with pytest.raises(DocumentInputError, match="raster_out"):
+        ingest_document(
+            pdf=tmp_path / "scan.pdf", input_root=tmp_path, project_id="proj-a",
+            uri="doc://reports/scan1", parser=FakeParser(pages=((), ())),
+            ocr_engine=FakeOcrEngine(SCANNED_REGIONS), raster_out=None,
+        )
+
+
+def test_ocr_manifest_gains_exactly_the_four_safe_fields(tmp_path: Path) -> None:
+    result = scanned_ingest(tmp_path, FakeOcrEngine(SCANNED_REGIONS))
+    payload = result.manifest.to_dict()
+    base_keys = {
+        "manifest_version", "document_id", "revision_id", "content_checksum",
+        "byte_size", "page_count", "chunk_count", "parse_status", "parser_name",
+        "parser_version", "chunker_version", "tables_reconstructed", "indexed",
+    }
+    assert set(payload) == base_keys | {
+        "native_page_count", "ocr_page_count", "ocr_engine", "ocr_engine_version",
+    }
+    assert payload["manifest_version"] == MANIFEST_VERSION
+    assert payload["native_page_count"] == 0 and payload["ocr_page_count"] == 2
+    raw = json.dumps(payload, ensure_ascii=False)
+    assert SCANNED_UNIQUE_TERM not in raw and "Relatório" not in raw
+
+
+def test_chunk_confidence_is_min_and_never_invented(tmp_path: Path) -> None:
+    # All three short body regions land in ONE sectionless chunk: page 2's
+    # region reports no confidence, so the chunk's confidence is None (§19 —
+    # a minimum over partially-missing values would be an invention).
+    with_gap = {
+        1: (_region(0, "primeira frase completa.", 0.93),
+            _region(1, "segunda frase completa.", 0.72)),
+        2: (_region(0, "terceira frase completa.", None),),
+    }
+    result = scanned_ingest(tmp_path, FakeOcrEngine(with_gap))
+    assert len(result.chunks) == 1
+    assert result.chunks[0].confidence is None
+
+    # With every region reporting, the chunk carries the MINIMUM.
+    complete = {
+        1: (_region(0, "primeira frase completa.", 0.93),
+            _region(1, "segunda frase completa.", 0.72)),
+        2: (_region(0, "terceira frase completa.", 0.88),),
+    }
+    result = scanned_ingest(tmp_path, FakeOcrEngine(complete), name="scan2.pdf")
+    assert len(result.chunks) == 1
+    assert result.chunks[0].confidence == 0.72
+
+
+def test_cli_ocr_flag_without_the_paddle_stack_exits_3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§26 — real CLI, real scanned fixture, no paddle installed here: the
+    dependency error surfaces at first recognition and fails closed."""
+    build_scanned_pdf(tmp_path / "scan.pdf")
+    out = tmp_path / "out"
+    monkeypatch.chdir(tmp_path)
+    rc = main([
+        "ingest", "--input-root", str(tmp_path), "--pdf", str(tmp_path / "scan.pdf"),
+        "--project-id", "proj-a", "--uri", "doc://reports/scan1",
+        "--out", str(out), "--ocr",
+    ])
+    assert rc == 3
+    assert not (out / "documents.jsonl").exists()
+    assert not (out / "chunks.jsonl").exists()
+
+
+def test_cli_rejects_a_non_loopback_ocr_server(tmp_path: Path, sample: Path) -> None:
+    rc = main([
+        "ingest", "--input-root", str(sample), "--pdf", str(sample / "doc.pdf"),
+        "--project-id", "proj-a", "--uri", "doc://reports/r1",
+        "--out", str(tmp_path / "out"), "--ocr",
+        "--ocr-server-url", "http://opensearch.example.test:8083/v1",
+    ])
+    assert rc == 2
+
+
+def test_cli_no_ocr_default_never_touches_the_engine(sample: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    rc = main([
+        "ingest", "--input-root", str(sample), "--pdf", str(sample / "doc.pdf"),
+        "--project-id", "proj-a", "--uri", "doc://reports/r1", "--out", str(out),
+    ])
+    assert rc == 0
+    lines = (out / "documents.jsonl").read_text(encoding="utf-8").splitlines()
+    assert json.loads(lines[0])["schema_version"] == "hbim-070-document-v1"
+    assert not (out / "rasters").exists()

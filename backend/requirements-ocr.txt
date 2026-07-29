@@ -1,0 +1,13 @@
+# HBIM-071 §8/§10 — the isolated OCR stack. Operator/live-suite only:
+# standard CI NEVER installs this file (negative-checked in tests).
+#
+# The [doc-parser] extra is required: pipeline creation enforces the
+# paddlex[ocr] extras group at runtime (measured in session 2 — bare
+# paddleocr==3.7.0 raises DependencyError). The pinned versions are exactly
+# the §8 table; the extra only adds CPU-side third-party dependencies.
+#
+# paddlepaddle-gpu is FORBIDDEN everywhere (C-2): recognition runs on the
+# digest-pinned vLLM service; the layout stage runs on CPU paddle.
+paddleocr[doc-parser]==3.7.0
+paddlex==3.7.2
+paddlepaddle==3.3.1

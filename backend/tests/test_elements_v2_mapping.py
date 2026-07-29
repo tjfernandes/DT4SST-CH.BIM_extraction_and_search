@@ -129,15 +129,26 @@ def test_load_mapping_versioned() -> None:
 def test_load_mapping_unknown_version_fails_closed() -> None:
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
         il.load_mapping("element", "3")
-    # HBIM-070 registered document v2; the loader stays closed for the rest.
+    # HBIM-070 registered document v2; HBIM-071 registered document v3 and
+    # chunk v2. The loader stays closed immediately past the table.
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
-        il.load_mapping("document", "3")
+        il.load_mapping("document", "4")
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
-        il.load_mapping("chunk", "2")
+        il.load_mapping("chunk", "3")
     document_v2 = il.load_mapping("document", "2")
     assert document_v2["_meta"]["mapping_version"] == "2"
     assert document_v2["_meta"]["record_type"] == "document"
     assert document_v2["dynamic"] == "strict"
+    document_v3 = il.load_mapping("document", "3")
+    assert document_v3["_meta"]["mapping_version"] == "3"
+    assert document_v3["_meta"]["created_by"] == "HBIM-071"
+    assert document_v3["dynamic"] == "strict"
+    assert "hbim-071-document-v2" in document_v3["_meta"]["canonical_schema_versions"]
+    chunk_v2 = il.load_mapping("chunk", "2")
+    assert chunk_v2["_meta"]["mapping_version"] == "2"
+    assert chunk_v2["_meta"]["record_type"] == "chunk"
+    assert chunk_v2["dynamic"] == "strict"
+    assert chunk_v2["properties"]["page_regions"]["dynamic"] == "strict"
 
 
 def test_index_settings_knn_flag_rendering() -> None:

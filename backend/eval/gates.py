@@ -626,6 +626,91 @@ def _eval_document_indexability(entry: Slice, outcome: SliceOutcome, root: Path)
         _apply_checks(entry, outcome, report)
 
 
+_OCR_GOLD_CATEGORIES = (
+    "pure_scanned", "mixed_precedence", "multi_region_chunk", "hard_split_repeat",
+    "empty_ocr_page", "confidence_min", "multi_page_regions",
+    "heading_region_excluded", "live_transcript",
+)
+
+
+def _eval_document_ocr_merge(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-071 §32 — replay the recorded OCR-region gold through the real
+    merge/region/chunk logic. Pure: no paddle import anywhere on this path."""
+    from eval.ocr_eval import category_counts, evaluate, load_gold
+
+    gold = load_gold(root / "backend/eval/dataset/ocr_gold.jsonl")
+    _enforce_min_cases(entry, outcome, len(gold))
+    counts = category_counts(gold)
+    if set(counts) != set(_OCR_GOLD_CATEGORIES):
+        outcome.fail("ocr gold category set drifted")
+        return
+    report = evaluate(gold)
+    metrics: dict[str, object] = {
+        "merge_chunk_accuracy": report["merge_chunk_accuracy"],
+        "ocr_flag_accuracy": report["ocr_flag_accuracy"],
+        "region_propagation_accuracy": report["region_propagation_accuracy"],
+        "confidence_accuracy": report["confidence_accuracy"],
+        "mismatch_count": report["mismatch_count"],
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
+_OCR_DECISION_GATES = (
+    ("G_vram_peak_le_budget", "vram_margin_mib"),
+    ("G_warm_latency_le_bar", "warm_margin_s"),
+    ("G_cold_latency_le_bar", "cold_margin_s"),
+    ("G_cer_le_bar", "cer_margin"),
+    ("G_wer_le_bar", "wer_margin"),
+)
+
+
+def _eval_ocr_decision(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-071 §32 — chain to the recorded gold + numeric re-verification,
+    exactly the §12.7 reranker pattern: a tampered artifact claiming
+    passed=true over failing numbers is caught by recomputed margins."""
+    payload = _load_json(root / "backend/eval/baselines/ocr_decision.json", outcome)
+    if payload is None:
+        return
+    declared = payload.get("gold", {})
+    for name, relative in (
+        ("ocr_gold.jsonl", "backend/eval/dataset/ocr_gold.jsonl"),
+        ("make_scanned_pdf.py", "backend/eval/fixtures/make_scanned_pdf.py"),
+    ):
+        recorded = declared.get(name)
+        actual = sha256_of(root / relative)
+        matched = recorded == actual
+        outcome.integrity.append(
+            {"path": relative, "expected_sha256": "chained-in-ocr-decision",
+             "ok": matched}
+        )
+        if not matched:
+            outcome.fail(f"ocr_decision chain to {name} broken")
+    if outcome.status == "fail":
+        return
+
+    gates = payload.get("gates", {})
+    if not gates:
+        outcome.fail("ocr_decision records no gates")
+        return
+    all_passed = all(bool(g.get("passed")) for g in gates.values())
+    term = gates.get("G_unique_term_recovered", {})
+    if term.get("measured") is not True:
+        all_passed = False
+    metrics: dict[str, object] = {"gates_all_passed": 1.0 if all_passed else 0.0}
+    for name, metric in _OCR_DECISION_GATES:
+        record = gates.get(name)
+        if not isinstance(record, dict):
+            outcome.fail(f"ocr_decision gate {name} missing")
+            return
+        try:
+            margin = float(record["bar"]) - float(record["measured"])
+        except (KeyError, TypeError, ValueError):
+            outcome.fail(f"ocr_decision gate {name} has no numeric evidence")
+            return
+        metrics[metric] = margin
+    _apply_checks(entry, outcome, metrics)
+
+
 def _eval_unit_delegated(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     """§4 C-3 — presence only; content is the backend-unit job's contract."""
     for pin in entry.inputs:
@@ -661,8 +746,11 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "document_ingestion": _eval_document_ingestion,
     "document_chunking": _eval_document_chunking,
     "document_indexability": _eval_document_indexability,
+    "document_ocr_merge": _eval_document_ocr_merge,
+    "ocr_decision": _eval_ocr_decision,
     "snapshot_evidence_integrity": _eval_unit_delegated,
     "live_service_suites": _eval_manual,
+    "ocr_live_suite": _eval_manual,
     "document_retrieval": _eval_unavailable,
     "graph_retrieval": _eval_unavailable,
     "multimodal_retrieval": _eval_unavailable,

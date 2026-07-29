@@ -372,6 +372,105 @@
       "min_cases": 8,
       "slice_id": "document_indexability",
       "title": "HBIM-070 indexable term provenance; the BM25 half runs in integration-opensearch"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "merge_chunk_accuracy"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "ocr_flag_accuracy"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "region_propagation_accuracy"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "confidence_accuracy"
+        },
+        {
+          "comparator": "exact",
+          "metric": "mismatch_count",
+          "reference": 0
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "ocr-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/ocr_gold.jsonl",
+          "sha256": "bd3f7bfdd367ca3eef8fc82e4b935fb0b1b3d7e5065ded8937dd58ee54656e0c"
+        },
+        {
+          "path": "backend/eval/fixtures/make_scanned_pdf.py",
+          "sha256": "34efbb423085d32d16af50907daff0e28101471378d9930a690aa0a29edbdc3c"
+        }
+      ],
+      "min_cases": 11,
+      "slice_id": "document_ocr_merge",
+      "title": "HBIM-071 recorded OCR regions replayed through the real merge/region/chunk logic"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "gates_all_passed"
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "vram_margin_mib",
+          "threshold": 0.0
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "warm_margin_s",
+          "threshold": 0.0
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "cold_margin_s",
+          "threshold": 0.0
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "cer_margin",
+          "threshold": 0.0
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "wer_margin",
+          "threshold": 0.0
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "ocr-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/baselines/ocr_decision.json",
+          "sha256": "19643ff58eeb90d114f04a785487196278b59b04014cda23b3ffb2e696d1b400"
+        }
+      ],
+      "min_cases": null,
+      "slice_id": "ocr_decision",
+      "title": "HBIM-071 OCR decision: chain to recorded gold + recorded gates re-verified numerically"
+    },
+    {
+      "checks": [],
+      "classification": "manual_live",
+      "corpus_id": "none",
+      "delegated_to": null,
+      "execution": "manual_live",
+      "inputs": [],
+      "min_cases": null,
+      "slice_id": "ocr_live_suite",
+      "title": "HBIM-071 live OCR suite (marker ocr_service; GPU + loopback vLLM); operator-run"
     }
   ]
 }

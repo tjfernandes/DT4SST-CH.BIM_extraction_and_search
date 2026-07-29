@@ -136,8 +136,13 @@ jobs:
           backend/eval/hybrid_eval.py
           backend/eval/gates.py
           backend/eval/document_eval.py
+          backend/eval/ocr_eval.py
           backend/canonical/documents.py
           backend/ingestion/document_blocks.py
+          backend/ingestion/page_regions.py
+          backend/ingestion/page_classifier.py
+          backend/ingestion/rasterize.py
+          backend/ingestion/ocr_engine.py
           backend/ingestion/chunking.py
           backend/ingestion/indexers/elements_dense.py
 
@@ -218,7 +223,7 @@ jobs:
       - name: Run OpenSearch integration tests (Testcontainers)
         # gpu_service is deselected: it needs the local GPU embedding service
         # (HBIM-030), not OpenSearch, and never runs in CI.
-        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service and not docling_parser"
+        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service and not docling_parser and not ocr_service"
 
   evaluation-opensearch:
     runs-on: ubuntu-latest
