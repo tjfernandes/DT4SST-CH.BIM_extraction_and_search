@@ -2,6 +2,85 @@
 
 ## Last completed issue
 
+HBIM-060 — versioned regression gates for every currently delivered evaluation
+slice: a machine-readable policy (`backend/eval/gates_policy.json`,
+`hbim-060-policy-v1`), a pure deterministic runner (`backend/eval/gates.py`,
+report `hbim-060-report-v1`) and a fail-closed CI job.
+
+## Status of HBIM-060
+
+**Complete for the current phase**: every delivered evaluation slice is
+registered and gated, and the extension protocol for future milestones is
+documented in the committed specification (§30).
+
+### Registered slices (13)
+
+Blocking/gated: `hbim005_opensearch` (identity half pure; metric half runs in
+the existing `evaluation-opensearch` job against the human-approved
+`current_system.json`), `routing_accuracy` (recomputed through the real router,
+`gte_threshold 0.95` on the 86-case gold), `reranker_decision` (artifact chain
+plus numeric re-verification of the recorded G1/G2 gates), `grounding_gold`
+(recomputed through the real HBIM-053 pipeline: four `exact_one` metrics,
+`false_answer_rate` **exact zero**, zero mismatches, category minima).
+Integrity: `parser_gold_integrity`, `semantic_gold_integrity`,
+`semantic_model_baseline`, `dimension_decision`. Delegated:
+`snapshot_evidence_integrity` (95 tests in `backend-unit`). Manual:
+`live_service_suites` (markers 37/19/15/10; operator-run, never CI). Future,
+never green: `document_retrieval`, `graph_retrieval`, `multimodal_retrieval`.
+
+### Guarantees
+
+- **Integrity precedes quality.** Every input is sha256-pinned in the policy;
+  a mismatch fails the slice before any metric is computed. Artifact chains
+  (`dimension_decision` → `semantic_model_quality`, `reranker_decision` →
+  `dimension_decision`) are re-verified, and a tampered artifact claiming
+  `passed: true` over failing numbers is caught numerically.
+- **Closed comparator algebra.** `exact`, `exact_one`, `exact_zero`,
+  `gte_threshold`, `gte_baseline_minus_tolerance`,
+  `lte_baseline_plus_tolerance`. Direction is always explicit; every tolerance
+  is explicitly `0.0`; missing or non-finite values fail, never pass.
+- **Four disjoint corpus identities** (HBIM-005 synthetic legacy, semantic
+  gold canonical, grounding gold, live suites) — no metric ever crosses them,
+  and **no global quality score exists anywhere**.
+- **Human-approved baselines.** The gates CLI has no write flag at all
+  (structurally tested). A new baseline requires a human-run candidate, review,
+  and a coupled policy-pin update; CI is compare-only.
+- **Deterministic reports.** Canonical JSON + Markdown, byte-identical across
+  runs, no timestamps/paths/host data. Exit codes: 0 pass, 1 regression,
+  2 configuration error.
+- **Fail-closed CI.** New pure `regression-gates` job (no Docker, no model, no
+  GPU, no network — proven at runtime under socket/subprocess bombs), report
+  uploaded even on failure; `evaluation-opensearch` unchanged.
+- **Negative proof.** Controlled regressions through the real CLI on tampered
+  tmp copies: dataset byte flip, edited baseline metric, removed gold category,
+  case-count shrink, broken artifact chain, forged `passed: true` — all exit
+  non-zero with the exact failure recorded.
+
+### Decisions of record
+
+- **nDCG is not added to the HBIM-005 payload** (spec §4 C-1): its qrels are
+  binary (grade 1 only), so nDCG adds no discrimination there; nDCG gating
+  lives on the graded semantic gold where it already decides
+  (`dimension_decision`, `reranker_decision` G1). `current_system.json` stays
+  byte-identical.
+- The stale `known_gaps` note in `run_eval.py` was corrected: both recorded
+  gaps were fixed by HBIM-042 (verified in `api/search.py`).
+- Raw-RRF and BM25 remain diagnostics per HBIM-050 and are not gated.
+
+### Explicit non-scope
+
+No live model/GPU in standard CI; no automatic baseline approval; no
+document/graph/multimodal gate until HBIM-070/079+/090+ deliver those
+backends; no production behaviour change (all production packages
+byte-identical).
+
+### Next issue
+
+HBIM-070 — document ingestion (Docling) + chunking. Its evaluation arrives as
+new policy slices under the committed extension protocol.
+
+## Previous issue
+
 HBIM-053 — grounded responses: result answers are now generated **only** from a
 bounded projection of the internal HBIM-052 EvidencePack, every rendered claim
 carries a structurally validated citation, and anything that fails validation
@@ -112,10 +191,9 @@ isolation unchanged at 37/19/15/10, Ruff clean, mypy clean over 64 source files.
   `document_chunk`, `graph_path` and `media_item` remain non-emittable.
 - The question itself is still produced by the pre-existing LLM rewrite seam.
 
-### Next issue
+### Next issue (as of HBIM-053)
 
-HBIM-060 — expand the evaluation harness and apply CI regression gates,
-inheriting `grounding_gold.jsonl` and the four grounding metrics.
+HBIM-060 — regression gates. **Now complete**; see the section above.
 
 ## Previous issue
 

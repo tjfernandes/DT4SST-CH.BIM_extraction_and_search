@@ -134,7 +134,30 @@ jobs:
           backend/eval/dim_selector.py
           backend/eval/dim_benchmark.py
           backend/eval/hybrid_eval.py
+          backend/eval/gates.py
           backend/ingestion/indexers/elements_dense.py
+
+  regression-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install dependencies (runtime + dev; sem requirements-ml.txt)
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Run regression gates (HBIM-060; pure slices, fail-closed, no Docker)
+        run: python -m eval.gates run --ci --report-dir eval/reports/gates
+        working-directory: backend
+      - name: Upload gates report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-gates-report
+          path: backend/eval/reports/gates/**
 
   frontend:
     runs-on: ubuntu-latest

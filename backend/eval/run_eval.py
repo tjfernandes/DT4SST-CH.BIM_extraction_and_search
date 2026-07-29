@@ -186,8 +186,12 @@ def compute_sections(dataset: Dataset, outcomes: Sequence[QueryOutcome]) -> dict
         "latency": latency,
         "semantic_model_quality": SEMANTIC_MODEL_NOTE,
         "known_gaps": {
-            "material_storey_filters_ignored": "current element query ignores material/storey (HBIM-042)",
-            "classification_aggregation_broken": "classification aggregation targets text-in-nested (HBIM-042)",
+            # HBIM-060 §4 C-2: the two pre-HBIM-042 gaps recorded here
+            # (material/storey ignored; classification aggregation broken)
+            # were fixed by HBIM-042 (`lexical_filter_clauses`,
+            # `classification_aggregation` in api/search.py) and verified
+            # against the code on 2026-07-28.
+            "resolved_hbim042": "material/storey filters and classification aggregation fixed by HBIM-042",
         },
     }
 
