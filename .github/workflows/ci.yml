@@ -135,7 +135,28 @@ jobs:
           backend/eval/dim_benchmark.py
           backend/eval/hybrid_eval.py
           backend/eval/gates.py
+          backend/eval/document_eval.py
+          backend/canonical/documents.py
+          backend/ingestion/document_blocks.py
+          backend/ingestion/chunking.py
           backend/ingestion/indexers/elements_dense.py
+
+  document-parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install dependencies (runtime + dev; sem requirements-ml.txt)
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Real Docling PDFium parse (HBIM-070; offline, no model weights)
+        run: python -m pytest backend/tests -q -o addopts="" -m docling_parser
+        env:
+          HF_HUB_OFFLINE: "1"
 
   regression-gates:
     runs-on: ubuntu-latest
@@ -197,7 +218,7 @@ jobs:
       - name: Run OpenSearch integration tests (Testcontainers)
         # gpu_service is deselected: it needs the local GPU embedding service
         # (HBIM-030), not OpenSearch, and never runs in CI.
-        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service"
+        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service and not docling_parser"
 
   evaluation-opensearch:
     runs-on: ubuntu-latest

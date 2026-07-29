@@ -1,26 +1,36 @@
-"""HBIM-022 — ``document`` projection (``documents.jsonl`` -> ``documents_v1``).
+"""HBIM-022 — ``document`` projection (``documents.jsonl`` -> the document index).
 
-Thin by design. No document content, pages, OCR or chunks (HBIM-070).
+HBIM-070 §10 widened the accepted line shape to the compatibility union
+``AnyDocumentRecord``: a legacy IFC-produced ``DocumentRef`` still validates and
+projects **byte-identically to before**, while an ingested ``ParsedDocument``
+projects the richer v2 fields. ``IndexerSpec.model`` still binds exactly one
+type, so HBIM-022's contract is unchanged.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from canonical.schema import DocumentRef
+from canonical.documents import AnyDocumentRecord, ParsedDocument
 from ingestion.indexers.common import prune_nulls
 
 RECORD_TYPE = "document"
-MODEL = DocumentRef
+MODEL = AnyDocumentRecord
 ID_FIELD = "document_id"
 INPUT_FILENAME = "documents.jsonl"
 
 
-def project(record: DocumentRef) -> dict[str, Any]:
-    """Canonical ``DocumentRef`` -> the document ``documents_v1`` accepts.
+def project(record: AnyDocumentRecord) -> dict[str, Any]:
+    """Project whichever member validated.
 
-    ``linked_element_ids`` already arrives deduplicated and ordered from the
-    model validator and is preserved as an array, including when empty.
+    A ``DocumentRef`` takes exactly the pre-HBIM-070 path (``prune_nulls`` over
+    the model dump), so historical documents index identically. A
+    ``ParsedDocument`` adds the ingestion fields the v2 mapping declares;
+    ``linked_element_ids`` is emitted as an array even when empty, matching the
+    legacy behaviour.
     """
-    projected: dict[str, Any] = prune_nulls(record.model_dump(mode="json"))
+    inner = record.root if isinstance(record, AnyDocumentRecord) else record
+    projected: dict[str, Any] = prune_nulls(inner.model_dump(mode="json"))
+    if isinstance(inner, ParsedDocument):
+        projected["linked_element_ids"] = list(inner.linked_element_ids)
     return projected

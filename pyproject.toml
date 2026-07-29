@@ -15,6 +15,7 @@ markers = [
     "model_service: exige modelos de embedding reais locais (HBIM-005B: zembed + Qwen); correr com -m model_service",
     "reranker_service: exige o servico local Qwen3-Reranker (HBIM-051); correr com -m reranker_service",
     "residency_service: exige os servicos locais de embeddings+reranker para o gestor de residencia (HBIM-032); correr com -m residency_service",
+    "docling_parser: exige a dependencia minima docling-slim (HBIM-070); correr com -m docling_parser",
 ]
 
 [tool.ruff]
@@ -117,6 +118,10 @@ module = [
     "eval.dim_benchmark",
     "eval.hybrid_eval",
     "eval.gates",
+    "eval.document_eval",
+    "canonical.documents",
+    "ingestion.document_blocks",
+    "ingestion.chunking",
     "ingestion.indexers.elements_dense",
 ]
 disallow_untyped_defs = true

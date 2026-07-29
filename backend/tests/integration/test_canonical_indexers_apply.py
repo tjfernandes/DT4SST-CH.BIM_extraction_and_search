@@ -41,6 +41,7 @@ EDGE_CASE_FILES = {
     "property_facts.jsonl": "property_value_variants.jsonl",
     "classification_facts.jsonl": "classification_facts_edge_cases.jsonl",
     "documents.jsonl": "documents_edge_cases.jsonl",
+    "chunks.jsonl": "chunks_edge_cases.jsonl",   # HBIM-070 §19.4
 }
 
 
@@ -128,7 +129,7 @@ def write_input(tmp_path: Path, *, edge_cases: bool = False, **overrides: str | 
 def create_targets(client: OpenSearch, physical_version: int = 1) -> dict[str, str]:
     """Create the four physical indices through the HBIM-021 lifecycle."""
     results = il.create_all(client, physical_version)
-    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 4
+    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 5  # HBIM-070: +chunk
     return {r.record_type: r.physical_index for r in results}
 
 
@@ -184,7 +185,7 @@ def test_index_four_jsonl_with_counts_and_round_trip(
     reports = run_index(opensearch_client, input_dir)
 
     assert all(report.ok for report in reports)
-    assert [r.state for r in reports] == [common.IndexState.VERIFIED] * 4
+    assert [r.state for r in reports] == [common.IndexState.VERIFIED] * 5  # HBIM-070: +chunk
 
     for record_type, physical in targets.items():
         expected = projected_documents(input_dir, record_type)

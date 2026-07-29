@@ -99,6 +99,9 @@ RECORD_TYPES: tuple[str, ...] = (
     "property_fact",
     "classification_fact",
     "document",
+    # HBIM-070 §19: appended LAST so the historical four remain the exact
+    # prefix and every ordering assertion keeps its meaning.
+    "chunk",
 )
 
 _REGISTRY: Mapping[str, RecordTypeSpec] = MappingProxyType(
@@ -111,6 +114,7 @@ _REGISTRY: Mapping[str, RecordTypeSpec] = MappingProxyType(
             "classification_fact", "hbim_classification_facts", "classification_facts_v1.json"
         ),
         "document": RecordTypeSpec("document", "hbim_documents", "documents_v1.json"),
+        "chunk": RecordTypeSpec("chunk", "hbim_chunks", "chunks_v1.json"),
     }
 )
 
@@ -168,7 +172,12 @@ _MAPPING_VERSIONS: Mapping[str, Mapping[str, str]] = MappingProxyType(
         ),
         "property_fact": MappingProxyType({"1": "property_facts_v1.json"}),
         "classification_fact": MappingProxyType({"1": "classification_facts_v1.json"}),
-        "document": MappingProxyType({"1": "documents_v1.json"}),
+        # HBIM-070 §17: v1 stays the registry default so no deployment changes
+        # silently; v2 is the additive successor carrying the ingestion fields.
+        "document": MappingProxyType(
+            {"1": "documents_v1.json", "2": "documents_v2.json"}
+        ),
+        "chunk": MappingProxyType({"1": "chunks_v1.json"}),
     }
 )
 

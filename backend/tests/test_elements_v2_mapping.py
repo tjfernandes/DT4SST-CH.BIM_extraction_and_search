@@ -129,8 +129,15 @@ def test_load_mapping_versioned() -> None:
 def test_load_mapping_unknown_version_fails_closed() -> None:
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
         il.load_mapping("element", "3")
+    # HBIM-070 registered document v2; the loader stays closed for the rest.
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
-        il.load_mapping("document", "2")  # only element has a v2
+        il.load_mapping("document", "3")
+    with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
+        il.load_mapping("chunk", "2")
+    document_v2 = il.load_mapping("document", "2")
+    assert document_v2["_meta"]["mapping_version"] == "2"
+    assert document_v2["_meta"]["record_type"] == "document"
+    assert document_v2["dynamic"] == "strict"
 
 
 def test_index_settings_knn_flag_rendering() -> None:

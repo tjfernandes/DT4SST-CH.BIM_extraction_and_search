@@ -19,3 +19,8 @@ tqdm==4.67.1
 
 # HBIM-030: HTTP client for the isolated Qwen3 embedding service (production dep).
 httpx~=0.28.1
+
+# HBIM-070 §7: born-digital PDF ingestion. MIT. Deliberately the minimal
+# extras — `models-local` (torch/HuggingFace/docling-ibm-models) is NOT
+# pulled, so the PDFium backend runs offline with no model weights.
+docling-slim[convert-core,format-pdf-pypdfium2]==2.115.0

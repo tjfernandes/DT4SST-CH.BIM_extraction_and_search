@@ -272,48 +272,41 @@ def run_index(
 # =========================================================================== #
 # 1-4. Registry and layout
 # =========================================================================== #
-def test_registry_is_exactly_four_record_types() -> None:
-    assert registry.RECORD_TYPES == ("element", "property_fact", "classification_fact", "document")
+def test_registry_is_exactly_five_record_types() -> None:
+    # HBIM-070 §19: chunk appended LAST; the historical four stay the prefix.
+    assert registry.RECORD_TYPES == (
+        "element", "property_fact", "classification_fact", "document", "chunk"
+    )
     assert registry.RECORD_TYPES is il.RECORD_TYPES
 
 
-#: Tokens that would mean chunks actually leaked into the package. Deliberately
-#: specific: ``chunk_size``/``max_chunk_bytes`` are legitimate bulk parameters and
-#: prose like "no chunks" must stay allowed, so a bare "chunk" is NOT forbidden.
-FORBIDDEN_CHUNK_TOKENS = (
-    "chunkrecord",
-    "chunk_record",
-    "chunks_v1",
-    "chunks.jsonl",
-    "chunks_indexer",
-    "hbim_chunks",
-    '"chunk"',
-    "'chunk'",
-)
+def test_chunk_indexer_is_registered_last() -> None:
+    """HBIM-070 §19.2 — inverted guard for the indexer-registry layer.
 
+    Chunks were deliberately absent before this milestone; the binding must now
+    exist, be exactly last, and agree with the lifecycle registry.
+    """
+    from ingestion.indexers import chunks_indexer
 
-def test_no_chunks_anywhere_in_the_package() -> None:
-    assert "chunk" not in registry.RECORD_TYPES
+    assert registry.RECORD_TYPES[:4] == (
+        "element", "property_fact", "classification_fact", "document"
+    )
+    assert registry.RECORD_TYPES[4] == "chunk"
+    assert registry.RECORD_TYPES == il.RECORD_TYPES  # both registries agree
+
+    spec = registry.get_indexer_spec("chunk")
+    assert spec.record_type == "chunk"
+    assert spec.input_filename == "chunks.jsonl"
+    assert spec.id_field == "chunk_id"
+    assert spec.alias == "hbim_chunks"
+    assert spec.model is chunks_indexer.MODEL
+
+    # the registry stays closed against everything still unregistered
     with pytest.raises(registry.UnknownRecordTypeError):
-        registry.get_indexer_spec("chunk")
+        registry.get_indexer_spec("media")
+
     package_dir = BACKEND / "ingestion" / "indexers"
-    scanned = 0
-    for module in sorted(package_dir.glob("*.py")):
-        text = module.read_text(encoding="utf-8").lower()
-        for token in FORBIDDEN_CHUNK_TOKENS:
-            assert token not in text, (module.name, token)
-        scanned += 1
-    # 10 since HBIM-031 added elements_dense.py; the new module is scanned by
-    # this guard (and by the alias-literal guard below) like every other.
-    assert scanned == 10  # the whole package really was scanned
-
-
-def test_forbidden_chunk_token_scan_can_actually_fail() -> None:
-    """Guard the guard: the token list must reject a real chunk leak."""
-    leaked = 'record_type = "chunk"\nfrom canonical import ChunkRecord\n'.lower()
-    assert any(token in leaked for token in FORBIDDEN_CHUNK_TOKENS)
-    clean = "max_chunk_bytes = 10 * 1024 * 1024  # no chunks in this issue\n".lower()
-    assert not any(token in clean for token in FORBIDDEN_CHUNK_TOKENS)
+    assert len(sorted(package_dir.glob("*.py"))) == 11  # +chunks_indexer.py
 
 
 def test_input_filenames_come_from_a_closed_registry() -> None:
@@ -322,6 +315,7 @@ def test_input_filenames_come_from_a_closed_registry() -> None:
         "property_facts.jsonl",
         "classification_facts.jsonl",
         "documents.jsonl",
+        "chunks.jsonl",
     )
     for record_type in registry.RECORD_TYPES:
         spec = registry.get_indexer_spec(record_type)
@@ -359,7 +353,7 @@ def test_missing_input_file_raises_missing_input_file_error(tmp_path: Path) -> N
     with pytest.raises(common.MissingInputFileError) as excinfo:
         common.validate_all(specs, input_dir, reports)
     assert excinfo.value.record_type == "document"
-    assert len(excinfo.value.reports) == 4
+    assert len(excinfo.value.reports) == 5
 
 
 def test_zero_byte_file_is_valid_local_input(tmp_path: Path) -> None:
@@ -743,7 +737,7 @@ def test_id_is_the_record_identity_field_verbatim(tmp_path: Path) -> None:
     input_dir = write_dir(tmp_path)
     expected_prefix = {
         "element": "el_", "property_fact": "pf_",
-        "classification_fact": "cf_", "document": "doc_",
+        "classification_fact": "cf_", "document": "doc_", "chunk": "ch_",
     }
     for record_type in il.RECORD_TYPES:
         spec = registry.get_indexer_spec(record_type)
@@ -1103,7 +1097,7 @@ def _collect_numeric_types(node: Any, path: str = "") -> dict[str, str]:
     return found
 
 
-def test_only_two_integer_family_fields_exist_in_the_four_mappings() -> None:
+def test_only_two_integer_family_fields_exist_in_the_five_mappings() -> None:
     """A future mapping with new integer fields must extend the range guards."""
     found: dict[str, str] = {}
     for record_type in il.RECORD_TYPES:
@@ -1112,6 +1106,12 @@ def test_only_two_integer_family_fields_exist_in_the_four_mappings() -> None:
     assert found == {
         "element.materials.ordinal": "integer",
         "property_fact.value_integer": "long",
+        # HBIM-070 §18 — the chunk mapping's integer provenance fields.
+        "chunk.chunk_index": "integer",
+        "chunk.page_number": "integer",
+        "chunk.page_span": "integer",
+        "chunk.section_index": "integer",
+        "chunk.char_count": "integer",
     }
 
 
@@ -1687,7 +1687,7 @@ def test_zero_records_with_empty_target_succeeds(tmp_path: Path) -> None:
     doc = next(r for r in snapshot if r.record_type == "document")
     assert doc.ok is True
     assert (doc.expected_count, doc.actual_count, doc.bulk_batches) == (0, 0, 0)
-    assert client.count_calls("refresh") == 4
+    assert client.count_calls("refresh") == 5
 
 
 def test_zero_records_with_populated_target_fails_verification(tmp_path: Path) -> None:
@@ -1781,7 +1781,7 @@ def test_state_transitions_are_coherent(tmp_path: Path) -> None:
     client = FakeClient()
     client.seed_all_targets()
     _reports, snapshot = run_index(client, input_dir)
-    assert [r.state for r in snapshot] == [common.IndexState.VERIFIED] * 4
+    assert [r.state for r in snapshot] == [common.IndexState.VERIFIED] * 5
 
 
 def test_states_after_a_verification_abort(tmp_path: Path) -> None:
@@ -1866,7 +1866,7 @@ def test_cli_validate_succeeds_without_a_client(tmp_path: Path, capsys, monkeypa
     assert code == cli.EXIT_OK
     out = capsys.readouterr().out
     assert "NOT checked" in out
-    assert out.count("state=validated") == 4
+    assert out.count("state=validated") == 5
 
 
 def test_cli_validate_one_record_type(tmp_path: Path, capsys) -> None:
@@ -1882,14 +1882,14 @@ def test_cli_validate_one_record_type(tmp_path: Path, capsys) -> None:
     assert payload["reports"][0]["batch_size"] is None
 
 
-def test_cli_validate_without_record_type_requires_all_four(tmp_path: Path, capsys) -> None:
+def test_cli_validate_without_record_type_requires_all_five(tmp_path: Path, capsys) -> None:
     input_dir = write_dir(tmp_path, classification_fact=None)
     code = cli.main(["validate", "--input-dir", str(input_dir), "--json"])
     assert code == cli.EXIT_FAILURE
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["type"] == "MissingInputFileError"
     assert payload["error"]["record_type"] == "classification_fact"
-    assert len(payload["reports"]) == 4
+    assert len(payload["reports"]) == 5
 
 
 def test_cli_dry_run_does_not_build_a_client(tmp_path: Path, capsys, monkeypatch) -> None:
@@ -1954,7 +1954,7 @@ def test_cli_client_construction_failure_is_exit_2_with_json(
     assert code == cli.EXIT_USAGE
     payload = json.loads(captured.out)
     assert payload["error"]["type"] == "RuntimeError"
-    assert len(payload["reports"]) == 4
+    assert len(payload["reports"]) == 5
     assert "SENSITIVE-CONFIG-DETAIL" not in captured.out
     assert "SENSITIVE-CONFIG-DETAIL" not in captured.err
 
@@ -1989,7 +1989,7 @@ def test_json_is_parseable_on_every_failure_path(
     assert set(payload["error"]) == {
         "type", "record_type", "line_number", "_id", "target_index", "error_type"
     }
-    assert len(payload["reports"]) == 4
+    assert len(payload["reports"]) == 5
     assert captured.out.strip().count("\n") == 0  # no human text on stdout
 
 
@@ -2023,7 +2023,7 @@ def test_cli_keyboard_interrupt_reports_and_exits_1(
     assert code == cli.EXIT_FAILURE
     payload = json.loads(captured.out)
     assert payload["error"]["type"] == "KeyboardInterrupt"
-    assert len(payload["reports"]) == 4
+    assert len(payload["reports"]) == 5
     assert "Traceback" not in captured.err
 
 
@@ -2133,6 +2133,7 @@ def test_indexing_fixtures_directory_is_synthetic_and_valid() -> None:
         "elements_edge_cases.jsonl",
         "classification_facts_edge_cases.jsonl",
         "documents_edge_cases.jsonl",
+        "chunks_edge_cases.jsonl",   # HBIM-070 §19.4: fifth record type
     }
     assert {p.name for p in INDEXING_FIXTURES.glob("*.jsonl")} == expected
     for path in sorted(INDEXING_FIXTURES.glob("*.jsonl")):
@@ -2150,6 +2151,7 @@ def indexing_fixture_dir(tmp_path: Path) -> Path:
         "property_facts.jsonl": "property_value_variants.jsonl",
         "classification_facts.jsonl": "classification_facts_edge_cases.jsonl",
         "documents.jsonl": "documents_edge_cases.jsonl",
+        "chunks.jsonl": "chunks_edge_cases.jsonl",
     }
     for canonical_name, fixture_name in mapping.items():
         (target / canonical_name).write_bytes((INDEXING_FIXTURES / fixture_name).read_bytes())

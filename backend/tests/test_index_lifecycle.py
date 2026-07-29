@@ -127,8 +127,11 @@ def _mapping(record_type: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Registry / aliases / no chunks
 # --------------------------------------------------------------------------- #
-def test_registry_is_exactly_four_record_types() -> None:
-    assert il.RECORD_TYPES == ("element", "property_fact", "classification_fact", "document")
+def test_registry_is_exactly_five_record_types() -> None:
+    # HBIM-070 §19: chunk appended LAST; the historical four stay the prefix.
+    assert il.RECORD_TYPES == (
+        "element", "property_fact", "classification_fact", "document", "chunk"
+    )
     assert set(il.RECORD_TYPES) == {il.get_spec(rt).record_type for rt in il.RECORD_TYPES}
 
 
@@ -146,10 +149,20 @@ def test_aliases_are_exact_and_do_not_reuse_bim_elements() -> None:
     assert all(a.startswith("hbim_") for a in aliases)
 
 
-def test_no_chunks_record_type() -> None:
-    assert "chunk" not in il.RECORD_TYPES
+def test_chunk_is_the_fifth_record_type() -> None:
+    """HBIM-070 §19.2 — the inverted guard: chunk exists and is exactly last."""
+    assert il.RECORD_TYPES[:4] == (
+        "element", "property_fact", "classification_fact", "document"
+    )
+    assert il.RECORD_TYPES[4] == "chunk"
+    assert len(il.RECORD_TYPES) == 5
+    spec = il.get_spec("chunk")
+    assert spec.alias == "hbim_chunks"
+    assert spec.mapping_filename == "chunks_v1.json"
+    assert il.physical_index_name("chunk", 1) == "hbim_chunks_v1"
+    # the registry stays closed against everything that is still unregistered
     with pytest.raises(il.UnknownRecordTypeError):
-        il.get_spec("chunk")
+        il.get_spec("media")
 
 
 def test_registry_maps_to_committed_mapping_files() -> None:
@@ -181,8 +194,10 @@ def test_invalid_physical_versions_rejected(bad: object) -> None:
 
 
 def test_physical_name_rejects_unknown_record_type() -> None:
+    # HBIM-070 registered `chunk`; the registry stays closed against everything
+    # else, so the guard now uses a genuinely unknown record type.
     with pytest.raises(il.UnknownRecordTypeError):
-        il.physical_index_name("chunk", 1)
+        il.physical_index_name("media", 1)
 
 
 # --------------------------------------------------------------------------- #
@@ -429,9 +444,9 @@ def test_promote_all_first_promotion_single_update_aliases_call() -> None:
     client = FakeClient()
     il.create_all(client, 1)
     results = il.promote_all(client, 1)
-    assert client.count("update_aliases") == 1  # ONE call for the four aliases
+    assert client.count("update_aliases") == 1  # ONE call for the five aliases
     body = next(c[1] for c in client.calls if c[0] == "update_aliases")
-    assert len(body["actions"]) == 4  # four add actions
+    assert len(body["actions"]) == 5  # five add actions (HBIM-070)
     assert all(r.outcome is il.PromoteOutcome.PROMOTED for r in results)
     for rt in il.RECORD_TYPES:
         alias = il.get_spec(rt).alias
@@ -447,7 +462,7 @@ def test_promote_all_swap_is_one_call_with_eight_actions() -> None:
     il.promote_all(client, 2)
     assert client.count("update_aliases") == 1
     body = next(c[1] for c in client.calls if c[0] == "update_aliases")
-    assert len(body["actions"]) == 8  # four remove + four add
+    assert len(body["actions"]) == 10  # five remove + five add (HBIM-070)
 
 
 def test_promote_all_fails_before_mutation_when_any_target_missing() -> None:

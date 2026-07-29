@@ -1,0 +1,65 @@
+{
+  "_meta": {
+    "canonical_schema_versions": [
+      "hbim-070-chunk-v1"
+    ],
+    "created_by": "HBIM-070",
+    "mapping_version": "1",
+    "record_type": "chunk"
+  },
+  "_source": {
+    "enabled": true
+  },
+  "dynamic": "strict",
+  "properties": {
+    "char_count": {
+      "type": "integer"
+    },
+    "chunk_id": {
+      "type": "keyword"
+    },
+    "chunk_index": {
+      "type": "integer"
+    },
+    "chunker_version": {
+      "type": "keyword"
+    },
+    "document_id": {
+      "type": "keyword"
+    },
+    "page_number": {
+      "type": "integer"
+    },
+    "page_span": {
+      "type": "integer"
+    },
+    "parser_name": {
+      "type": "keyword"
+    },
+    "parser_version": {
+      "type": "keyword"
+    },
+    "project_id": {
+      "type": "keyword"
+    },
+    "revision_id": {
+      "type": "keyword"
+    },
+    "schema_version": {
+      "type": "keyword"
+    },
+    "section_index": {
+      "type": "integer"
+    },
+    "section_path": {
+      "type": "keyword"
+    },
+    "section_title": {
+      "type": "keyword"
+    },
+    "text": {
+      "analyzer": "portuguese",
+      "type": "text"
+    }
+  }
+}

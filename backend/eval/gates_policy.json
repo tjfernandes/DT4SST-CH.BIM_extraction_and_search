@@ -261,7 +261,7 @@
       "inputs": [],
       "min_cases": null,
       "slice_id": "document_retrieval",
-      "title": "blocked on HBIM-070 document ingestion"
+      "title": "blocked on HBIM-073 document retrieval (HBIM-070 delivered ingestion and indexability)"
     },
     {
       "checks": [],
@@ -284,6 +284,94 @@
       "min_cases": null,
       "slice_id": "multimodal_retrieval",
       "title": "blocked on HBIM-090+ multimodal milestones"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "page_provenance_accuracy"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "parse_status_accuracy"
+        },
+        {
+          "comparator": "exact",
+          "metric": "mismatch_count",
+          "reference": 0
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "document-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/document_gold.jsonl",
+          "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
+        },
+        {
+          "path": "backend/eval/fixtures/make_synthetic_pdf.py",
+          "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
+        }
+      ],
+      "min_cases": 8,
+      "slice_id": "document_ingestion",
+      "title": "HBIM-070 born-digital ingestion: page provenance and OCR-required classification"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "chunk_determinism_accuracy"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "section_provenance_accuracy"
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "document-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/document_gold.jsonl",
+          "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
+        },
+        {
+          "path": "backend/eval/fixtures/make_synthetic_pdf.py",
+          "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
+        }
+      ],
+      "min_cases": 8,
+      "slice_id": "document_chunking",
+      "title": "HBIM-070 deterministic chunking replayed from the recorded block gold"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "indexable_term_accuracy"
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "document-gold-v1",
+      "delegated_to": "integration-opensearch",
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/document_gold.jsonl",
+          "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
+        },
+        {
+          "path": "backend/eval/fixtures/make_synthetic_pdf.py",
+          "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
+        }
+      ],
+      "min_cases": 8,
+      "slice_id": "document_indexability",
+      "title": "HBIM-070 indexable term provenance; the BM25 half runs in integration-opensearch"
     }
   ]
 }

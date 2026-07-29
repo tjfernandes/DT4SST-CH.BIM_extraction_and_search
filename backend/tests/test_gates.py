@@ -47,10 +47,10 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_thirteen_slices() -> None:
+def test_committed_policy_loads_and_has_the_sixteen_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
-    assert len(policy.slices) == 13
+    assert len(policy.slices) == 16  # HBIM-070 added three document slices
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -168,7 +168,7 @@ def real_report() -> dict:
 def test_real_tree_passes_every_gated_slice(real_report) -> None:
     assert real_report["exit_code"] == 0
     assert real_report["counts"] == {
-        "passed": 8, "failed": 0, "delegated": 1, "manual": 1, "unavailable": 3,
+        "passed": 11, "failed": 0, "delegated": 1, "manual": 1, "unavailable": 3,
     }
 
 
@@ -471,7 +471,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 13   # every registered slice, none skipped
+    assert len(report["slices"]) == 16   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #

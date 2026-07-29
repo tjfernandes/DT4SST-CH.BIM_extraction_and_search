@@ -2,6 +2,123 @@
 
 ## Last completed issue
 
+HBIM-070 — document ingestion: born-digital PDFs become versioned document
+records and deterministic, page- and section-provenanced chunks that are
+directly searchable in OpenSearch.
+
+## Status of HBIM-070
+
+**Complete.**
+
+### Parser and dependency
+
+`docling-slim[convert-core,format-pdf-pypdfium2]==2.115.0` (MIT), used through
+the **PDFium backend** behind a lazy project-owned adapter
+(`ingestion/document_parser.py`). The default layout-ML `DocumentConverter()`
+pipeline is deliberately **not** used: it requires `docling_ibm_models`, i.e.
+torch, HuggingFace and model downloads. The accepted path was measured parsing a
+two-page synthetic PDF with `socket.connect`, `create_connection` and
+`getaddrinfo` hard-blocked — no network, no weights. Ownership is asserted from
+package metadata, not from global absence: torch/accelerate/huggingface-hub
+exist locally only via `requirements-ml.txt`, which no HBIM-070 CI job installs.
+
+### Scope, schemas and identities
+
+Supported input is one local born-digital PDF (`%PDF-` magic, ≤ 32 MiB,
+≤ 500 pages), confined to a declared `--input-root`; URLs, schemes, symlink
+escape and traversal are rejected. Versions: document `hbim-070-document-v1`,
+chunk `hbim-070-chunk-v1`, chunker `hbim-070-chunker-v1`, manifest
+`hbim-070-manifest-v1`. `document_id` reuses HBIM-010's derivation;
+`revision_id` binds document + streamed sha256 + parser + chunker versions;
+`chunk_id` binds document + revision + index. No UUID, clock, path or
+OpenSearch-generated id.
+
+### Provenance and chunking
+
+Pages are **1-based**; a chunk records `page_number` and a truthful
+`page_span`. Sections come from a deterministic ML-free heading rule; repeated
+titles open distinct sections. Chunking is character-based (target 1200, max
+1600, overlap 150, min 80) with hard splits and section-bounded overlap — no
+tokenizer is downloaded. A text-free document yields `parse_status =
+ocr_required`, zero chunks and CLI exit 3: never a silently successful empty
+document.
+
+### Mappings, lifecycle and indexing
+
+The mapping set is closed at seven files; `documents_v1.json` is
+**byte-identical** and remains the registry default. `documents_v2.json` and
+`chunks_v1.json` are additive and strict. The lifecycle and indexer registries
+expanded from four record types to **five**, with `chunk` appended last so the
+historical four remain the exact prefix. Legacy `DocumentRef` JSONL still
+validates and projects byte-identically through the `AnyDocumentRecord` union.
+
+Two contracts were added to make this work, both closed in the specification:
+
+- **Explicit mapping-version propagation** (§19.6): `preflight_target` and
+  `index_all` accept an optional per-record mapping version. Omitted means
+  exactly the historical default, so every existing caller is unchanged;
+  `ParsedDocument` ingestion selects `{"document": "2"}` explicitly. No
+  fallback, no inference from the target or the records.
+- **Document-scoped atomic chunk replacement** (§19.7): HBIM-022's generic
+  whole-index exact-count invariant is **preserved and still default**; a
+  dedicated `replace_document_chunks` compares only within one `document_id`.
+  It writes the complete new set, verifies **every** incoming chunk's id and
+  exact source, then computes explicit sorted stale ids, deletes only those
+  (no `delete_by_query`, ownership re-checked), and requires exact scoped set
+  equality before the document record is published.
+
+Unchanged re-ingestion is a no-op; changed content leaves **zero** active stale
+chunks; another document in the same index is byte-untouched; retry converges
+because ids are content-derived.
+
+### Direct searchability
+
+Proven against loopback Testcontainers OpenSearch, un-mocked: after real Docling
+ingestion, a **direct BM25 query** for `ZZQXPTARGA` returns exactly one chunk
+with the expected `chunk_id`, `document_id`, `page_number == 1` and section
+`Relatório de Conservação`. No `/chat`, router, hybrid retrieval or EvidencePack
+is involved.
+
+### Evaluation
+
+`backend/eval/dataset/document_gold.jsonl` — 8 hand-authored synthetic cases
+across 8 categories. The gold stores the **recorded block sequence as input**
+and independently authored expectations; the real-Docling test separately proves
+the adapter yields that sequence, so neither side generates the other's expected
+values. Three new HBIM-060 slices (`document_ingestion`, `document_chunking`,
+`document_indexability`) all report 1.0. `document_retrieval` remains
+`unavailable_future`; only its blocker wording was corrected to name HBIM-073.
+
+### Test evidence
+
+Unit 2086; real-Docling marker suite 10; OpenSearch document/chunk suite 12; CI
+integration selector 85; HBIM-060 gates exit 0 over 16 slices; Ruff clean; mypy
+clean over 69 source files.
+
+### Explicit non-scope
+
+**No OCR. No bounding boxes. No page rasterisation or media.** No automatic,
+fuzzy or LLM entity linking — `linked_element_ids` is populated only from
+explicit `--link-element-id` arguments. No embeddings and no vector field in the
+chunk mapping. **No `document_hybrid` route, no router change, no EvidencePack
+document emission, no user-facing document citations** — `document_chunk`
+remains non-emittable. Document retrieval remains unavailable until HBIM-073.
+
+### Limitations
+
+Born-digital PDFs only; scans fail closed pending HBIM-071. Reading order is
+whatever the PDFium backend returns — multi-column layouts are not re-ordered,
+by design. Section detection is a documented heuristic at depth 1. Tables and
+lists are flattened to text. Language is caller-declared, never detected.
+Indexability is proven by direct BM25 only; retrieval quality is HBIM-073.
+
+### Next issue
+
+HBIM-071 — OCR (PaddleOCR-VL), page rasterisation and bounding boxes, entered
+through `ParseStatus.OCR_REQUIRED`.
+
+## Previous issue
+
 HBIM-060 — versioned regression gates for every currently delivered evaluation
 slice: a machine-readable policy (`backend/eval/gates_policy.json`,
 `hbim-060-policy-v1`), a pure deterministic runner (`backend/eval/gates.py`,
@@ -74,10 +191,9 @@ document/graph/multimodal gate until HBIM-070/079+/090+ deliver those
 backends; no production behaviour change (all production packages
 byte-identical).
 
-### Next issue
+### Next issue (as of HBIM-060)
 
-HBIM-070 — document ingestion (Docling) + chunking. Its evaluation arrives as
-new policy slices under the committed extension protocol.
+HBIM-070 — document ingestion. **Now complete**; see the section above.
 
 ## Previous issue
 
