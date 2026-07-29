@@ -167,6 +167,19 @@ def test_missing_dependency_is_typed(tmp_path: Path) -> None:
     with pytest.raises(OcrDependencyError):
         made.recognize(raster(tmp_path))
 
+def test_standard_integration_ci_deselects_live_ocr_service() -> None:
+    workflow = (
+        BACKEND.parent / ".github" / "workflows" / "ci.yml"
+    ).read_text(encoding="utf-8")
+
+    integration_job = workflow.split(
+        "  integration-opensearch:", 1
+    )[1].split(
+        "\n  evaluation-opensearch:", 1
+    )[0]
+
+    assert "not ocr_service" in integration_job
+
 
 # --------------------------------------------------------------------------- #
 # Construction (§11/§27)

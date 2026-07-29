@@ -223,7 +223,7 @@ jobs:
       - name: Run OpenSearch integration tests (Testcontainers)
         # gpu_service is deselected: it needs the local GPU embedding service
         # (HBIM-030), not OpenSearch, and never runs in CI.
-        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service and not docling_parser"
+        run: python -m pytest backend/tests -q -o addopts="" -m "integration and not gpu_service and not model_service and not docling_parser and not ocr_service"
 
   evaluation-opensearch:
     runs-on: ubuntu-latest
