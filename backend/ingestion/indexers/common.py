@@ -27,7 +27,8 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, NoReturn, Protocol
+from types import MappingProxyType
+from typing import Any, Callable, Mapping, NoReturn, Protocol
 
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
@@ -894,8 +895,17 @@ def preflight_target(
     allow_live_target: bool,
     require_empty: bool,
     reports: Sequence[IndexReport] = (),
+    mapping_version: str | None = None,
 ) -> TargetPreflight:
-    """Fail-closed validation of one physical target, before any write."""
+    """Fail-closed validation of one physical target, before any write.
+
+    HBIM-070 §19.6 — ``mapping_version`` selects the *committed mapping
+    contract* to expect; it is independent of ``physical_version``, which
+    selects the concrete index name. ``None`` keeps exactly the historical
+    behaviour (the registry default). An unsupported version raises
+    ``MappingLoadError`` before any remote write. There is no fallback and the
+    version is never inferred from the live target.
+    """
     spec = il.get_spec(record_type)
     physical = il.physical_index_name(record_type, physical_version)
 
@@ -921,7 +931,8 @@ def preflight_target(
             reports=reports,
         )
 
-    if not il.is_mapping_compatible(il.load_mapping(record_type), effective):
+    expected = il.load_mapping(record_type, mapping_version)
+    if not il.is_mapping_compatible(expected, effective):
         raise IncompatibleTargetMappingError(
             f"target index mapping is incompatible with the {record_type!r} contract",
             record_type=record_type,
@@ -1229,6 +1240,7 @@ def index_all(
     *,
     allow_live_target: bool = False,
     require_empty: bool = False,
+    mapping_versions: Mapping[str, str] | None = None,
 ) -> None:
     """Preflight everything, confirm every digest, then index and verify in order.
 
@@ -1238,6 +1250,13 @@ def index_all(
     partial write.
     """
     # ---- Phase B: preflight every target before any write --------------------
+    # HBIM-070 §19.6 — frozen on entry so a caller cannot mutate the selector
+    # mid-run; an unregistered key is a configuration error raised before any
+    # bulk request is issued.
+    selected: Mapping[str, str] = MappingProxyType(dict(mapping_versions or {}))
+    for record_type in selected:
+        il.get_spec(record_type)  # raises UnknownRecordTypeError, pre-bulk
+
     preflights: dict[str, TargetPreflight] = {}
     for spec in specs:
         try:
@@ -1247,6 +1266,7 @@ def index_all(
                 physical_version,
                 allow_live_target=allow_live_target,
                 require_empty=require_empty,
+                mapping_version=selected.get(spec.record_type),
             )
         except IndexingError as exc:
             _fail(reports, spec.record_type, exc)

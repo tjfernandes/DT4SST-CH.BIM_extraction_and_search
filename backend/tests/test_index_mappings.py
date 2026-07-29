@@ -179,19 +179,32 @@ ALL_FILENAMES = list(FILENAMES)
 
 
 # --------------------------------------------------------------------------- #
-# 1–2. File set: exactly four, no chunks, no loader/__init__.py
+# 1–2. File set: exactly the committed closed set, no loader/__init__.py
 # --------------------------------------------------------------------------- #
 def test_mapping_file_set_is_exactly_the_four_v1_plus_elements_v2() -> None:
     # HBIM-031 added the single vector mapping `elements_v2.json` (selected
     # dimension; see eval/baselines/dimension_decision.json). Every assertion
     # in this module stays v1-scoped; v2 has its own dedicated suite
     # (test_elements_v2_mapping.py).
+    # HBIM-070 §19.3 added exactly two additive mappings; the set stays CLOSED.
     json_files = {p.name for p in MAPPINGS_DIR.glob("*.json")}
-    assert json_files == FILENAMES | {"elements_v2.json"}
+    assert json_files == FILENAMES | {
+        "elements_v2.json", "documents_v2.json", "chunks_v1.json"
+    }
 
 
-def test_no_chunks_no_loader_no_python_modules() -> None:
-    assert not (MAPPINGS_DIR / "chunks_v1.json").exists()  # deferred to HBIM-070
+def test_chunk_mapping_exists_and_no_loader_modules() -> None:
+    """HBIM-070 §19.2 — the inverted guard: the chunk mapping now exists."""
+    import json as _json
+
+    chunk_mapping = MAPPINGS_DIR / "chunks_v1.json"
+    assert chunk_mapping.exists()
+    body = _json.loads(chunk_mapping.read_text(encoding="utf-8"))
+    assert body["dynamic"] == "strict"
+    assert body["_meta"]["record_type"] == "chunk"
+    assert body["_meta"]["mapping_version"] == "1"
+    # §18 — a chunk mapping is never a vector mapping.
+    assert "knn_vector" not in chunk_mapping.read_text(encoding="utf-8")
     assert not (MAPPINGS_DIR / "__init__.py").exists()  # no importable subpackage
     assert list(MAPPINGS_DIR.glob("*.py")) == []  # no loader in HBIM-020
 

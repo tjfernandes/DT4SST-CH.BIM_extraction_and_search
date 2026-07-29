@@ -2,7 +2,7 @@
 
 Derives record types, aliases and physical index names from the HBIM-021
 registry (``index_lifecycle``); it never redeclares them. The only names owned
-here are the four canonical JSONL filenames — the HBIM-011 producer contract —
+here are the five canonical JSONL filenames — the HBIM-011 producer contract —
 which come from a closed table so no user-supplied path is ever accepted.
 
 This module imports ``common`` **and** the four indexers; ``common`` imports
@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ingestion import index_lifecycle as il
 from ingestion.indexers import (
+    chunks_indexer,
     classification_facts_indexer,
     documents_indexer,
     elements_indexer,
@@ -27,7 +28,8 @@ from ingestion.indexers import (
 from ingestion.indexers.common import IndexingError
 
 #: Deterministic processing order, straight from HBIM-021 (element,
-#: property_fact, classification_fact, document). There is no ``chunk``.
+#: property_fact, classification_fact, document, chunk). HBIM-070 appended
+#: ``chunk`` last, so the original four remain the exact prefix.
 RECORD_TYPES: tuple[str, ...] = il.RECORD_TYPES
 
 
@@ -67,6 +69,7 @@ _REGISTRY: Mapping[str, IndexerSpec] = MappingProxyType(
         property_facts_indexer.RECORD_TYPE: _spec(property_facts_indexer),
         classification_facts_indexer.RECORD_TYPE: _spec(classification_facts_indexer),
         documents_indexer.RECORD_TYPE: _spec(documents_indexer),
+        chunks_indexer.RECORD_TYPE: _spec(chunks_indexer),
     }
 )
 

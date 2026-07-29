@@ -42,6 +42,16 @@ DOCS: dict[str, dict[str, Any]] = {
         "schema_version": "1.0", "document_id": "doc_1", "project_id": "p1",
         "document_type": "report", "uri": "u1",
     },
+    # HBIM-070 §19: the fifth record. Synthetic, strict-mapping-valid.
+    "chunk": {
+        "schema_version": "hbim-070-chunk-v1", "chunk_id": "ch_1",
+        "document_id": "doc_1", "project_id": "p1", "revision_id": "rev_1",
+        "chunk_index": 0, "page_number": 1, "page_span": [1, 1],
+        "section_path": ["Seccao"], "section_title": "Seccao", "section_index": 0,
+        "text": "texto sintetico de teste", "char_count": 24,
+        "parser_name": "docling-pypdfium2", "parser_version": "2.115.0",
+        "chunker_version": "hbim-070-chunker-v1",
+    },
 }
 
 
@@ -85,7 +95,7 @@ def _alias_targets(client: OpenSearch, alias: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 def test_create_four_v1_with_valid_mappings_settings_and_meta(opensearch_client: OpenSearch) -> None:
     results = il.create_all(opensearch_client, 1)
-    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 4
+    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 5  # HBIM-070: +chunk
 
     for rt in il.RECORD_TYPES:
         physical = il.physical_index_name(rt, 1)
@@ -106,7 +116,7 @@ def test_repeated_create_is_idempotent(opensearch_client: OpenSearch) -> None:
     il.create_all(opensearch_client, 1)
     opensearch_client.index(index="hbim_elements_v1", id="keep", body=DOCS["element"], refresh=True)
     results = il.create_all(opensearch_client, 1)
-    assert [r.outcome for r in results] == [il.CreateOutcome.ALREADY_EXISTS_COMPATIBLE] * 4
+    assert [r.outcome for r in results] == [il.CreateOutcome.ALREADY_EXISTS_COMPATIBLE] * 5  # HBIM-070: +chunk
     # The pre-existing document survived (index was not recreated).
     assert opensearch_client.get(index="hbim_elements_v1", id="keep")["found"] is True
 

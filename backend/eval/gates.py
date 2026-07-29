@@ -587,6 +587,45 @@ def _eval_grounding(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     _apply_checks(entry, outcome, metrics)
 
 
+_DOCUMENT_GOLD_CATEGORIES = ('successful_ingestion', 'page_preservation', 'section_preservation', 'deterministic_chunking', 'unicode', 'hard_split', 'ocr_required', 'indexability')
+
+
+def _document_metrics(
+    entry: Slice, outcome: SliceOutcome, root: Path
+) -> dict[str, Any] | None:
+    """HBIM-070 — replay the recorded block gold through the real chunker."""
+    from eval.document_eval import category_counts, evaluate, load_gold
+
+    gold = load_gold(root / "backend/eval/dataset/document_gold.jsonl")
+    _enforce_min_cases(entry, outcome, len(gold))
+    counts = category_counts(gold)
+    if set(counts) != set(_DOCUMENT_GOLD_CATEGORIES):
+        outcome.fail("document gold category set drifted")
+        return None
+    report = evaluate(gold)
+    report["mismatch_count"] = float(len(report["mismatches"]))
+    return report
+
+
+def _eval_document_ingestion(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    report = _document_metrics(entry, outcome, root)
+    if report is not None:
+        _apply_checks(entry, outcome, report)
+
+
+def _eval_document_chunking(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    report = _document_metrics(entry, outcome, root)
+    if report is not None:
+        _apply_checks(entry, outcome, report)
+
+
+def _eval_document_indexability(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """Metric half is the loopback OpenSearch BM25 acceptance (delegated)."""
+    report = _document_metrics(entry, outcome, root)
+    if report is not None:
+        _apply_checks(entry, outcome, report)
+
+
 def _eval_unit_delegated(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     """§4 C-3 — presence only; content is the backend-unit job's contract."""
     for pin in entry.inputs:
@@ -619,6 +658,9 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "dimension_decision": _eval_dimension,
     "reranker_decision": _eval_reranker,
     "grounding_gold": _eval_grounding,
+    "document_ingestion": _eval_document_ingestion,
+    "document_chunking": _eval_document_chunking,
+    "document_indexability": _eval_document_indexability,
     "snapshot_evidence_integrity": _eval_unit_delegated,
     "live_service_suites": _eval_manual,
     "document_retrieval": _eval_unavailable,
