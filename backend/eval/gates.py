@@ -711,6 +711,45 @@ def _eval_ocr_decision(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     _apply_checks(entry, outcome, metrics)
 
 
+def _eval_entity_linking(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-072 §29 — replay the authored link gold through the real linker.
+
+    Pure: no service, no network, no model. Per-method precision is applied
+    independently so a fuzzy regression cannot hide behind the exact methods.
+    """
+    from eval.entity_linking_eval import (
+        CATEGORIES,
+        METHODS,
+        case_count,
+        category_counts,
+        evaluate,
+        load_gold,
+    )
+
+    gold = load_gold(root / "backend/eval/dataset/entity_linking_gold.jsonl")
+    _enforce_min_cases(entry, outcome, case_count(gold))
+    counts = category_counts(gold)
+    if set(counts) != set(CATEGORIES):
+        outcome.fail("entity-linking gold category set drifted")
+        return
+    report = evaluate(gold)
+    metrics: dict[str, object] = {
+        "false_positive_rate": report["false_positive_rate"],
+        "recall": report["recall"],
+        "ambiguity_rejection": report["ambiguity_rejection"],
+        "project_isolation": report["project_isolation"],
+        "outcome_accuracy": report["outcome_accuracy"],
+        "mismatch_count": report["mismatch_count"],
+    }
+    for method in METHODS:
+        metrics[f"precision_{method}"] = report[f"precision_{method}"]
+        # A method that never fired cannot certify anything: the corpus must
+        # exercise every rule it claims to gate.
+        if report["links_by_method"][method] == 0:
+            outcome.fail(f"entity-linking method {method} produced no link")
+    _apply_checks(entry, outcome, metrics)
+
+
 def _eval_unit_delegated(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     """§4 C-3 — presence only; content is the backend-unit job's contract."""
     for pin in entry.inputs:
@@ -748,6 +787,7 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "document_indexability": _eval_document_indexability,
     "document_ocr_merge": _eval_document_ocr_merge,
     "ocr_decision": _eval_ocr_decision,
+    "entity_linking": _eval_entity_linking,
     "snapshot_evidence_integrity": _eval_unit_delegated,
     "live_service_suites": _eval_manual,
     "ocr_live_suite": _eval_manual,

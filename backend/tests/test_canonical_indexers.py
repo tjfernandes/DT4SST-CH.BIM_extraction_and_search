@@ -1151,6 +1151,18 @@ def test_integer_family_sweep_over_every_registered_mapping_version() -> None:
         "chunk.v2.char_count": "integer",
         "chunk.v2.page_regions.page_number": "integer",
         "chunk.v2.page_regions.region_index": "integer",
+        # HBIM-072 §21 — the link provenance integers (nested).
+        "chunk.v3.chunk_index": "integer",
+        "chunk.v3.page_number": "integer",
+        "chunk.v3.page_span": "integer",
+        "chunk.v3.section_index": "integer",
+        "chunk.v3.char_count": "integer",
+        "chunk.v3.page_regions.page_number": "integer",
+        "chunk.v3.page_regions.region_index": "integer",
+        "chunk.v3.element_links.mentions.start": "integer",
+        "chunk.v3.element_links.mentions.end": "integer",
+        "chunk.v3.element_links.mentions.page_number": "integer",
+        "chunk.v3.element_links.mentions.region_index": "integer",
     }
 
 

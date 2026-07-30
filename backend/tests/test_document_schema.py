@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from canonical.documents import (
     CHUNK_SCHEMA_VERSION,
     CHUNK_SCHEMA_VERSION_V2,
+    CHUNK_SCHEMA_VERSION_V3,
     DOCUMENT_SCHEMA_VERSION,
     DOCUMENT_SCHEMA_VERSION_V2,
     AnyChunkRecord,
@@ -25,11 +26,17 @@ from canonical.documents import (
     ChunkPageRegion,
     DocumentChunk,
     DocumentChunkV2,
+    DocumentChunkV3,
+    ElementLink,
+    LinkMention,
+    LinkMethod,
     ParsedDocument,
     ParsedDocumentV2,
     ParseStatus,
     chunk_id,
     document_id,
+    link_revision_id,
+    linked_chunk_id,
     ocr_revision_id,
     revision_id,
 )
@@ -452,3 +459,181 @@ def test_ocr_revision_id_derivation_and_stability() -> None:
                               "2.115.0", "chunker-v1")
     with pytest.raises(ValueError):
         ocr_revision_id("d", "sha256:ab", "p", "1", "c", "")
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-072 §18/§21/§22 — element links and the v3 successor
+# --------------------------------------------------------------------------- #
+def mention(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {"start": 2, "end": 15, "text": "Muralha Norte",
+                                  "page_number": None, "region_index": None}
+    payload.update(overrides)
+    return payload
+
+
+def element_link(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "element_id": "el_" + "a" * 32, "method": "exact_name", "score": 1.0,
+        "runner_up_score": None, "mentions": [mention()], "ifc_class": "IfcWall",
+        "ifc_class_mentioned": False, "material_names_mentioned": [],
+        "location_levels_used": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def chunk_v3(**overrides: object) -> DocumentChunkV3:
+    links = overrides.pop("element_links", [element_link()])
+    ids = tuple(sorted({link["element_id"] for link in links}))
+    payload: dict[str, object] = {
+        "schema_version": CHUNK_SCHEMA_VERSION_V3, "chunk_id": "chl_1",
+        "document_id": "doc_1", "project_id": "p", "revision_id": "rev_1",
+        "chunk_index": 0, "page_number": 1, "page_span": (1, 1),
+        "section_path": ("S",), "section_title": "S", "section_index": 0,
+        "text": "A Muralha Norte cedeu.", "char_count": 22,
+        "parser_name": "docling-pypdfium2", "parser_version": "2.115.0",
+        "chunker_version": "hbim-070-chunker-v1",
+        "ocr": False, "page_regions": (), "confidence": None,
+        "base_chunk_id": "ch_1", "link_revision_id": "lrev_1",
+        "linker_version": "hbim-072-linker-v1",
+        "normalization_version": "hbim-072-normalization-v1",
+        "catalog_fingerprint": "cat_1",
+        "element_links": links, "linked_element_ids": ids,
+    }
+    payload.update(overrides)
+    return DocumentChunkV3.model_validate(payload)
+
+
+def test_v3_schema_version_is_pinned_and_historical_literals_untouched() -> None:
+    assert CHUNK_SCHEMA_VERSION_V3 == "hbim-072-chunk-v3"
+    assert CHUNK_SCHEMA_VERSION == "hbim-070-chunk-v1"
+    assert CHUNK_SCHEMA_VERSION_V2 == "hbim-071-chunk-v2"
+
+
+def test_v3_rejects_unknown_fields_and_wrong_versions() -> None:
+    with pytest.raises(ValidationError):
+        chunk_v3(unexpected="x")
+    with pytest.raises(ValidationError):
+        chunk_v3(schema_version="hbim-071-chunk-v2")
+
+
+def test_linked_element_ids_must_equal_the_link_records() -> None:
+    """§21 — manual document links can never drift into the derived field."""
+    with pytest.raises(ValidationError):
+        chunk_v3(linked_element_ids=("el_" + "b" * 32,))
+    with pytest.raises(ValidationError):
+        chunk_v3(linked_element_ids=())
+    with pytest.raises(ValidationError):
+        chunk_v3(linked_element_ids=("el_" + "a" * 32, "el_" + "b" * 32))
+
+
+def test_v3_rejects_a_duplicate_element_link() -> None:
+    with pytest.raises(ValidationError):
+        chunk_v3(element_links=[element_link(), element_link()])
+
+
+def test_v3_requires_links_sorted_by_first_mention() -> None:
+    late = element_link(element_id="el_" + "b" * 32,
+                        mentions=[mention(start=16, end=21, text="cedeu")])
+    early = element_link()
+    with pytest.raises(ValidationError):
+        chunk_v3(element_links=[late, early])
+    assert chunk_v3(element_links=[early, late]).element_links[0].mentions[0].start == 2
+
+
+def test_mention_span_must_slice_the_chunk_text_exactly() -> None:
+    with pytest.raises(ValidationError):
+        chunk_v3(element_links=[element_link(mentions=[mention(start=3)])])
+    with pytest.raises(ValidationError):
+        chunk_v3(element_links=[element_link(
+            mentions=[mention(start=200, end=213)])])
+
+
+def test_link_mention_validation() -> None:
+    with pytest.raises(ValidationError):
+        LinkMention.model_validate(mention(start=15, end=2))
+    with pytest.raises(ValidationError):
+        LinkMention.model_validate(mention(start=2, end=2))
+    with pytest.raises(ValidationError):
+        LinkMention.model_validate(mention(text="curto"))     # length mismatch
+    with pytest.raises(ValidationError):
+        LinkMention.model_validate(mention(start=True))
+    with pytest.raises(ValidationError):
+        LinkMention.model_validate(mention(page_number=-1))
+    with pytest.raises(ValidationError):
+        LinkMention.model_validate(mention(region_index=True))
+
+
+def test_element_link_validation() -> None:
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(mentions=[]))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(score=1.5))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(score=float("nan")))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(score=True))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(method="guessed"))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(ifc_class_mentioned=1))
+    # exact methods score exactly 1.0 and never carry a runner-up
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(score=0.9))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(runner_up_score=0.4))
+    # only exact_name_location records location levels
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(element_link(location_levels_used=["storey"]))
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(
+            element_link(method="exact_name_location", location_levels_used=[])
+        )
+    with pytest.raises(ValidationError):
+        ElementLink.model_validate(
+            element_link(method="exact_name_location", location_levels_used=["moon"])
+        )
+    fuzzy = ElementLink.model_validate(
+        element_link(method="fuzzy_name", score=0.92, runner_up_score=0.6)
+    )
+    assert fuzzy.method is LinkMethod.FUZZY_NAME
+
+
+def test_v3_round_trips_and_wins_the_union() -> None:
+    record = chunk_v3()
+    payload = json.loads(record.model_dump_json())
+    assert DocumentChunkV3.model_validate(payload) == record
+    assert isinstance(AnyChunkRecord.model_validate(payload).root, DocumentChunkV3)
+    assert AnyChunkRecord.model_validate(payload).chunk_id == "chl_1"
+    # v1 and v2 still validate to their own members
+    assert type(AnyChunkRecord.model_validate(
+        json.loads(chunk().model_dump_json())).root) is DocumentChunk
+    assert type(AnyChunkRecord.model_validate(
+        json.loads(chunk_v2().model_dump_json())).root) is DocumentChunkV2
+
+
+def test_v2_payload_never_upgrades_and_v3_never_degrades() -> None:
+    with pytest.raises(ValidationError):
+        DocumentChunkV3.model_validate(json.loads(chunk_v2().model_dump_json()))
+    with pytest.raises(ValidationError):
+        DocumentChunkV2.model_validate(json.loads(chunk_v3().model_dump_json()))
+
+
+def test_link_and_enriched_identities_are_deterministic() -> None:
+    revision = link_revision_id("rev_base", "cfg", "cat_1")
+    assert revision == link_revision_id("rev_base", "cfg", "cat_1")
+    assert revision.startswith("lrev_")
+    assert revision != link_revision_id("rev_other", "cfg", "cat_1")
+    assert revision != link_revision_id("rev_base", "cfg2", "cat_1")
+    assert revision != link_revision_id("rev_base", "cfg", "cat_2")
+
+    enriched = linked_chunk_id("ch_1", revision)
+    assert enriched == linked_chunk_id("ch_1", revision)
+    assert enriched.startswith("chl_")
+    assert enriched != linked_chunk_id("ch_2", revision)
+    assert enriched != "ch_1"          # §22 — never the base id
+    for bad in ("", None):
+        with pytest.raises((ValueError, TypeError)):
+            link_revision_id(bad, "cfg", "cat")  # type: ignore[arg-type]
+        with pytest.raises((ValueError, TypeError)):
+            linked_chunk_id(bad, revision)  # type: ignore[arg-type]

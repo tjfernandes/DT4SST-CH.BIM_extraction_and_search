@@ -34,6 +34,7 @@ from canonical.schema import DocumentRef
 __all__ = [
     "CHUNK_SCHEMA_VERSION",
     "CHUNK_SCHEMA_VERSION_V2",
+    "CHUNK_SCHEMA_VERSION_V3",
     "DOCUMENT_SCHEMA_VERSION",
     "DOCUMENT_SCHEMA_VERSION_V2",
     "AnyChunkRecord",
@@ -41,12 +42,18 @@ __all__ = [
     "ChunkPageRegion",
     "DocumentChunk",
     "DocumentChunkV2",
+    "DocumentChunkV3",
+    "ElementLink",
+    "LinkMention",
+    "LinkMethod",
     "ParseStatus",
     "ParsedDocument",
     "ParsedDocumentV2",
     "chunk_id",
     "content_checksum_of",
     "document_id",
+    "link_revision_id",
+    "linked_chunk_id",
     "ocr_revision_id",
     "revision_id",
 ]
@@ -55,6 +62,7 @@ DOCUMENT_SCHEMA_VERSION = "hbim-070-document-v1"
 CHUNK_SCHEMA_VERSION = "hbim-070-chunk-v1"
 DOCUMENT_SCHEMA_VERSION_V2 = "hbim-071-document-v2"
 CHUNK_SCHEMA_VERSION_V2 = "hbim-071-chunk-v2"
+CHUNK_SCHEMA_VERSION_V3 = "hbim-072-chunk-v3"
 
 #: Unknown fields are rejected and instances are immutable. ``strict`` is
 #: deliberately NOT set: these records must round-trip through their own JSONL
@@ -382,10 +390,204 @@ class AnyDocumentRecord(RootModel[ParsedDocumentV2 | ParsedDocument | DocumentRe
         return getattr(self.__dict__["root"], item)
 
 
-class AnyChunkRecord(RootModel[DocumentChunkV2 | DocumentChunk]):
-    """HBIM-071 §21 — chunk compatibility union with the proven delegation."""
+# --------------------------------------------------------------------------- #
+# HBIM-072 §18/§21/§22 — element links and the v3 successor
+# --------------------------------------------------------------------------- #
+class LinkMethod(str, Enum):
+    """§18 — the closed set of rules that may produce a persisted link."""
 
-    root: DocumentChunkV2 | DocumentChunk = Field(union_mode="left_to_right")
+    ELEMENT_ID = "element_id"
+    GLOBAL_ID = "global_id"
+    EXACT_NAME = "exact_name"
+    EXACT_NAME_LOCATION = "exact_name_location"
+    FUZZY_NAME = "fuzzy_name"
+
+
+class LinkMention(BaseModel):
+    """One matched span, in ORIGINAL code points, half-open (§18)."""
+
+    model_config = _STRICT
+
+    start: int = Field(ge=0)
+    end: int = Field(ge=1)
+    text: str = Field(min_length=1)
+    page_number: int | None = None
+    region_index: int | None = None
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _reject_bools(cls, value: object) -> object:
+        return _no_bool(value, "offset")
+
+    @field_validator("page_number", "region_index", mode="before")
+    @classmethod
+    def _optional_index(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("page_number/region_index must be an int or None")
+        if value < 0:
+            raise ValueError("page_number/region_index must be >= 0")
+        return value
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "LinkMention":
+        if self.start >= self.end:
+            raise ValueError("mention spans are half-open with start < end")
+        if len(self.text) != self.end - self.start:
+            # The span is measured in code points, so the slice length must
+            # match exactly — this catches offset drift at the schema boundary.
+            raise ValueError("mention text length must equal end - start")
+        return self
+
+
+class ElementLink(BaseModel):
+    """One element linked from a chunk, with the evidence that produced it."""
+
+    model_config = _STRICT
+
+    element_id: str = Field(min_length=1)
+    method: LinkMethod
+    score: float
+    runner_up_score: float | None = None
+    mentions: tuple[LinkMention, ...]
+    ifc_class: str = Field(min_length=1)
+    ifc_class_mentioned: bool
+    material_names_mentioned: tuple[str, ...] = ()
+    location_levels_used: tuple[str, ...] = ()
+
+    @field_validator("score", "runner_up_score", mode="before")
+    @classmethod
+    def _bounded_score(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("score must be a float")
+        out = float(value)
+        if not math.isfinite(out) or not 0.0 <= out <= 1.0:
+            raise ValueError("score must be a finite value within [0, 1]")
+        return out
+
+    @field_validator("ifc_class_mentioned", mode="before")
+    @classmethod
+    def _strict_bool(cls, value: object) -> object:
+        if not isinstance(value, bool):
+            raise ValueError("ifc_class_mentioned must be a bool")
+        return value
+
+    @field_validator("location_levels_used")
+    @classmethod
+    def _known_levels(cls, levels: tuple[str, ...]) -> tuple[str, ...]:
+        allowed = ("space", "storey", "building")
+        if any(level not in allowed for level in levels):
+            raise ValueError(f"location levels must be within {allowed}")
+        if len(set(levels)) != len(levels):
+            raise ValueError("location levels must be unique")
+        return levels
+
+    @model_validator(mode="after")
+    def _link_invariants(self) -> "ElementLink":
+        if not self.mentions:
+            raise ValueError("a link must carry at least one mention")
+        spans = [(m.start, m.end) for m in self.mentions]
+        if spans != sorted(spans):
+            raise ValueError("mentions must be sorted by (start, end)")
+        if len(set(spans)) != len(spans):
+            raise ValueError("mentions must be unique")
+        exact = {
+            LinkMethod.ELEMENT_ID, LinkMethod.GLOBAL_ID,
+            LinkMethod.EXACT_NAME, LinkMethod.EXACT_NAME_LOCATION,
+        }
+        if self.method in exact:
+            if self.score != 1.0:
+                raise ValueError("an exact method scores exactly 1.0")
+            if self.runner_up_score is not None:
+                raise ValueError("only a fuzzy link records a runner-up score")
+        if self.method is LinkMethod.EXACT_NAME_LOCATION and not self.location_levels_used:
+            raise ValueError("exact_name_location must record the levels it used")
+        if self.method is not LinkMethod.EXACT_NAME_LOCATION and self.location_levels_used:
+            raise ValueError("only exact_name_location records location levels")
+        return self
+
+
+def link_revision_id(
+    base_revision_id: str, link_config_fingerprint: str, catalog_fingerprint: str
+) -> str:
+    """§22 — binds the base revision, the linker configuration and the catalog."""
+    for value in (base_revision_id, link_config_fingerprint, catalog_fingerprint):
+        if not isinstance(value, str) or not value:
+            raise ValueError("link_revision_id components must be non-empty strings")
+    return "lrev_" + _hash128(
+        [
+            "hbim-072-link-revision",
+            base_revision_id,
+            link_config_fingerprint,
+            catalog_fingerprint,
+        ]
+    )
+
+
+def linked_chunk_id(base_chunk_id: str, link_revision: str) -> str:
+    """§22 — the published enriched id; never the base id (atomicity)."""
+    for value in (base_chunk_id, link_revision):
+        if not isinstance(value, str) or not value:
+            raise ValueError("linked_chunk_id components must be non-empty strings")
+    return "chl_" + _hash128(["hbim-072-linked-chunk", base_chunk_id, link_revision])
+
+
+class DocumentChunkV3(DocumentChunkV2):
+    """§21 — additive successor carrying deterministic element links.
+
+    Extends v2, so the OCR provenance travels unchanged. The published
+    ``chunk_id`` is the enriched id (§22); ``base_chunk_id`` keeps the original
+    text identity recoverable for HBIM-073 citations.
+    """
+
+    schema_version: Literal["hbim-072-chunk-v3"]  # type: ignore[assignment]
+    base_chunk_id: str = Field(min_length=1)
+    link_revision_id: str = Field(min_length=1)
+    linker_version: str = Field(min_length=1)
+    normalization_version: str = Field(min_length=1)
+    catalog_fingerprint: str = Field(min_length=1)
+    element_links: tuple[ElementLink, ...] = ()
+    linked_element_ids: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _derived_fields(self) -> "DocumentChunkV3":
+        # §21 — the record is structurally incapable of carrying a link id that
+        # no ElementLink explains, so manual document-level links (§19) can
+        # never drift into the derived chunk-level field.
+        expected = tuple(sorted({link.element_id for link in self.element_links}))
+        if self.linked_element_ids != expected:
+            raise ValueError(
+                "linked_element_ids must equal the sorted unique element_links ids"
+            )
+        starts = [
+            (link.mentions[0].start, link.element_id) for link in self.element_links
+        ]
+        if starts != sorted(starts):
+            raise ValueError("element_links must be sorted by (first mention, element_id)")
+        if len({link.element_id for link in self.element_links}) != len(self.element_links):
+            raise ValueError("at most one link per element per chunk")
+        for link in self.element_links:
+            for mention in link.mentions:
+                if mention.end > len(self.text):
+                    raise ValueError("mention span falls outside the chunk text")
+                if self.text[mention.start:mention.end] != mention.text:
+                    raise ValueError("mention text must equal the original chunk slice")
+        return self
+
+
+class AnyChunkRecord(RootModel[DocumentChunkV3 | DocumentChunkV2 | DocumentChunk]):
+    """HBIM-071 §21 / HBIM-072 §21 — chunk union with the proven delegation.
+
+    Left-to-right with discriminating ``schema_version`` literals, so a v3
+    record never degrades into v2 and a v1 line still validates unchanged.
+    """
+
+    root: DocumentChunkV3 | DocumentChunkV2 | DocumentChunk = Field(
+        union_mode="left_to_right"
+    )
 
     def __getattr__(self, item: str) -> object:
         if item.startswith("__"):

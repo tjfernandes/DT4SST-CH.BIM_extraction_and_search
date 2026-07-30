@@ -47,12 +47,13 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_nineteen_slices() -> None:
+def test_committed_policy_loads_and_has_the_twenty_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
     # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
-    # more (document_ocr_merge, ocr_decision, ocr_live_suite).
-    assert len(policy.slices) == 19
+    # more (document_ocr_merge, ocr_decision, ocr_live_suite); HBIM-072 §29
+    # added exactly one (entity_linking).
+    assert len(policy.slices) == 20
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -170,9 +171,9 @@ def real_report() -> dict:
 def test_real_tree_passes_every_gated_slice(real_report) -> None:
     assert real_report["exit_code"] == 0
     # HBIM-071: +2 passed (document_ocr_merge, ocr_decision), +1 manual
-    # (ocr_live_suite).
+    # (ocr_live_suite). HBIM-072: +1 passed (entity_linking).
     assert real_report["counts"] == {
-        "passed": 13, "failed": 0, "delegated": 1, "manual": 2, "unavailable": 3,
+        "passed": 14, "failed": 0, "delegated": 1, "manual": 2, "unavailable": 3,
     }
 
 
@@ -498,7 +499,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 19   # every registered slice, none skipped
+    assert len(report["slices"]) == 20   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #

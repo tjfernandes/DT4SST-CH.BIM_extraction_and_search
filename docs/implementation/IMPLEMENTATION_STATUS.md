@@ -2,6 +2,185 @@
 
 ## Last completed issue
 
+HBIM-072 — entity linking: document chunks are linked to canonical HBIM
+elements by deterministic, project-scoped, auditable rules, published as
+versioned v3 chunk records whose link revision makes relinking atomic.
+
+## Status of HBIM-072
+
+**Complete.**
+
+### Catalog, project isolation and fingerprint
+
+The catalog is built from canonical `ElementRecord` JSONL (`elements.jsonl`) by
+a pure loader — **OpenSearch is never a source of truth for linking** and the
+linker opens no client. `build_catalog(records, project_id=…)` accepts exactly
+one project and **raises** `CatalogProjectMismatchError` on a foreign record
+(never silently filters, because a dropped element is indistinguishable from an
+absent one); duplicate `element_id` or case-sensitive `global_id` raise
+`DuplicateElementError`; `MAX_CATALOG_ELEMENTS = 200_000`. A chunk whose
+`project_id` differs from the catalog's raises `LinkInputError` **before any
+matching**, so a cross-project candidate is structurally impossible.
+
+`catalog_fingerprint = "cat_" + hash128([...])` covers exactly the fields the
+linker reads (element/global id, class, name, object/predefined type, semantic
+label, material names, site/building/storey/space/parent) over elements sorted
+by `element_id`. It is **sound** (any relevant change flips it) and **minimal**
+(`description`, `metrics`, `source` never flip it — both directions tested), and
+input file order never affects it.
+
+### Normalisation and offsets
+
+`LINKER_NORMALIZATION_VERSION = "hbim-072-normalization-v1"`: per original code
+point — NFKD → drop combining marks → casefold → keep ASCII alphanumerics —
+emitting `Token(text, start, end)` in **half-open original code-point offsets**.
+A combining mark is **transparent**, never a separator, so decomposed (NFD)
+text tokenizes exactly like precomposed text; every other non-emitting code
+point ends the token. Verified against emoji, astral pairs, NBSP, ligatures and
+CJK: every mention span slices the original text exactly.
+
+Matching is **token-sequence matching, never substring matching**: the catalog
+name `Porta` yields zero matches in `"A portada é antiga"`. This is a fourth,
+linker-owned contract; it imports none of `router.normalize_query`,
+`GLOBAL_ID_RE` or `ifc_values.normalize_lexical`, and a test asserts the
+GlobalId pattern is byte-equal to the router's (one project-wide contract, no
+layering inversion).
+
+### Rules, in precedence order
+
+1. **Exact element id** — `el_[0-9a-f]{32}`, and **exact GlobalId** —
+   the 22-character token-bounded pattern, both matched over the *original*
+   text (underscores and case would not survive tokenisation). An unknown
+   identifier is `unresolved_unknown_identifier` and **never** falls through to
+   name or fuzzy matching. Matched spans are consumed before names run.
+2. **Exact eligible name** — 1..8 tokens, ≥ 4 normalised characters, not a stop
+   name (`STOP_NAMES`, 31 PT/EN generic words). Longest match wins,
+   left-to-right, non-overlapping. Ineligible names are excluded from the exact
+   *and* fuzzy stages: a generic word never identifies an element, not even
+   approximately.
+3. **Location disambiguation** — only for duplicate names. Chunk-local evidence
+   (space → storey → building, most specific first) resolves as soon as one
+   candidate remains; ≥ 2 distinct values at a needed level is a conflict
+   (`ambiguous_location_conflict`); exhausting the levels is
+   `ambiguous_duplicate_name`. Location never creates a link by itself. Two raw
+   names that normalise identically (`Piso 1` / `Piso -1`) are a conflict, not a
+   silent pick.
+4. **Bounded fuzzy** — in-module OSA (Damerau-Levenshtein with transpositions),
+   **no new dependency**. Fuzzy runs in a second pass over the maximal runs of
+   tokens the exact pass left, so it can never steal tokens a later exact name
+   needs. `FUZZY_MIN_SCORE = 0.85` and `FUZZY_MIN_MARGIN = 0.10`, each pinned
+   strictly inside a measured gap (true OCR/accent variants ≥ 0.8667; false
+   candidates ≤ 0.6154; accepted winners' margins ≥ 0.2042; near-ties to reject
+   ≤ 0.0667, with `Camara 101`/`102` measured at exactly 0.0000). Candidates are
+   blocked by shared non-stop token with a hard cap of 200 — a breach makes the
+   mention `unresolved_candidate_bound`, **never a truncated candidate set**.
+
+Ties and sub-margin winners stay unresolved. Ordering by `(-score, element_id)`
+only makes reports deterministic; a tie is **never** broken by element id
+(verified in both catalog input orders). IFC class and material are recorded
+evidence only — never identity, never a filter.
+
+### Provenance and manual-link compatibility
+
+`ElementLink` records element, method (closed enum), score, runner-up, merged
+mentions, class/material evidence and the location levels actually used; the
+**strongest** method wins when several rules match one element
+(`element_id` > `global_id` > `exact_name_location` > `exact_name` >
+`fuzzy_name`) while every mention is kept. A mention carries `page_number` only
+for single-page chunks and `region_index` only when exactly one region sits on
+that page; **no bounding box is ever computed or stored**.
+
+`ParsedDocument.linked_element_ids` and `DocumentRef.linked_element_ids` keep
+their historical **manual** meaning byte-identically: the linker never reads,
+writes or copies them. A `model_validator` on the chunk requires
+`linked_element_ids == sorted unique element_links ids`, so a manual list can
+never drift into the derived field.
+
+### Schema, mapping and identities
+
+`hbim-072-chunk-v3` extends v2 (OCR provenance travels unchanged; a v1 base
+lifts with `ocr=False`, no OCR claim invented) and adds `base_chunk_id`,
+`link_revision_id`, `linker_version`, `normalization_version`,
+`catalog_fingerprint`, `element_links`, `linked_element_ids`.
+`AnyChunkRecord` is `V3 | V2 | V1` (literals discriminate).
+`chunks_v3.json` is strict, with `element_links` and its `mentions` as
+**`nested`** objects so a future filter cannot cross-match fields of two
+different links; `mentions.text` is stored but not indexed. `_MAPPING_VERSIONS`
+chunk becomes {1,2,3}; **registry defaults stay v1** and the enriched path
+selects `{"chunk": "3"}` explicitly. The nine historical mapping files and the
+v1/v2 schema literals are byte-identical.
+
+`link_revision_id` binds the base document revision, the full linker
+configuration (versions, thresholds, bounds, stop names) and the catalog
+fingerprint; the published `chunk_id` is `linked_chunk_id(base_chunk_id,
+link_revision_id)`. **Same-id in-place enrichment is impossible**: a partial
+bulk under identical ids would leave a half-old/half-new state that no later
+check could detect, whereas a derived id leaves the previous revision complete
+under its own ids. `base_chunk_id` keeps the text identity recoverable for
+HBIM-073 citations.
+
+### Atomic relinking
+
+Linking is a **separate offline stage**
+(`python -m ingestion.entity_linking link`), so a relink never re-parses a PDF
+and `document_ingestor.py` is unchanged. Publication reuses
+`replace_document_chunks` **unchanged**; HBIM-022's generic whole-index
+exact-count invariant remains exact and default (re-proved). Verified against
+real OpenSearch: a catalog change supersedes the previous link revision, the
+stale set is removed, an unchanged rerun is a scoped no-op, and another
+document stays byte-identical.
+
+### Gold, metrics and gates
+
+`entity-linking-gold-v1` (`entity_linking_gold.jsonl`): synthetic, disjoint
+from `document-gold-v1` and `ocr-gold-v1`, 24 cases across **24 categories**
+with a 16-element catalog (plus a second project used only to prove isolation).
+Expectations are authored from the rules; mention spans come from `str.index`,
+never from the linker. Measured through the real linker: per-method precision
+**1.0** for all five methods, false-positive rate **0.0**, recall **1.0**,
+ambiguity rejection **1.0**, project isolation **1.0**, outcome accuracy
+**1.0**, mismatches **0**. The gates slice additionally **fails if any method
+produced no link**, so a vacuous precision cannot certify an unexercised rule.
+HBIM-060 slices **19 → 20**; the runner stays compare-only.
+
+### Counts
+
+Unit **2265** (from 2182); standard integration **98** (from 90, +8 linked-chunk
+OpenSearch tests); docling 10; markers unchanged at 37/10/19/15/5; gates exit 0
+over 20 slices; Ruff clean; mypy **76** files clean.
+
+### Still absent (explicitly)
+
+No LLM-authoritative linking (no LLM at all: no model import, no prompt, no
+network — document text is untrusted data). No document retrieval and no
+`document_hybrid` activation. No router change. No EvidencePack document
+emission and no user-facing document citations (`document_chunk` remains
+non-emittable). No Neo4j document link and no graph edge. No multimodal
+retrieval. No reverse mutation of `ElementRecord`, no `evidence_refs`, no
+change to any document record or parse/OCR status.
+
+### Limitations
+
+No plural, morphological or alias expansion for element names (a wrong plural
+rule manufactures false positives); plurals resolve only if they clear the
+measured fuzzy bars. IFC class and material are evidence only. `ifc_class_
+mentioned` means the class token itself occurs in the text — no PT/EN class
+dictionary is applied. Mentions carry no bounding box and a page number only
+for single-page chunks. Location evidence is chunk-local: a storey named in a
+previous chunk does not disambiguate this one. Thresholds are measured on
+synthetic Portuguese/OCR material, not archival corpora.
+
+### Next issue
+
+HBIM-073 — document retrieval: activate `document_hybrid`, integrate document
+evidence into the EvidencePack and render document/page/chunk citations. The v3
+contract is sufficient as delivered: `linked_element_ids` is a top-level
+`keyword` array for cheap filtering, `element_links` carries method, score and
+mention spans for citation rendering, and `base_chunk_id` gives a citation
+identity that survives relinking.
+
+## Previous issue
+
 HBIM-071 — OCR for scanned documents: pages without native text are rasterised,
 recognised by an offline PaddleOCR-VL pipeline (layout on CPU paddle,
 recognition on a digest-pinned loopback vLLM service on the Blackwell GPU), and
@@ -96,7 +275,7 @@ embeddings or multimodal retrieval, no sixth media record, no residency flip
 C-3), historical schemas and the seven prior mapping files byte-identical.
 Document retrieval remains unavailable until HBIM-073.
 
-### Next issue
+### Next issue (as of HBIM-071)
 
 HBIM-072 — document–element linking over the delivered page/region evidence
 (per ROADMAP order), with document retrieval following in HBIM-073.

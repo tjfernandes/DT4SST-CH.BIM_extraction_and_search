@@ -134,7 +134,7 @@ def test_load_mapping_unknown_version_fails_closed() -> None:
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
         il.load_mapping("document", "4")
     with pytest.raises(il.MappingLoadError, match="unknown mapping_version"):
-        il.load_mapping("chunk", "3")
+        il.load_mapping("chunk", "4")
     document_v2 = il.load_mapping("document", "2")
     assert document_v2["_meta"]["mapping_version"] == "2"
     assert document_v2["_meta"]["record_type"] == "document"
@@ -149,6 +149,14 @@ def test_load_mapping_unknown_version_fails_closed() -> None:
     assert chunk_v2["_meta"]["record_type"] == "chunk"
     assert chunk_v2["dynamic"] == "strict"
     assert chunk_v2["properties"]["page_regions"]["dynamic"] == "strict"
+    # HBIM-072 §21 — chunk v3 is registered; element_links is strict + nested.
+    chunk_v3 = il.load_mapping("chunk", "3")
+    assert chunk_v3["_meta"]["mapping_version"] == "3"
+    assert chunk_v3["_meta"]["created_by"] == "HBIM-072"
+    assert chunk_v3["dynamic"] == "strict"
+    assert chunk_v3["properties"]["element_links"]["type"] == "nested"
+    assert chunk_v3["properties"]["element_links"]["dynamic"] == "strict"
+    assert chunk_v3["properties"]["element_links"]["properties"]["mentions"]["type"] == "nested"
 
 
 def test_index_settings_knn_flag_rendering() -> None:

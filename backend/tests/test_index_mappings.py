@@ -187,11 +187,12 @@ def test_mapping_file_set_is_exactly_the_four_v1_plus_elements_v2() -> None:
     # in this module stays v1-scoped; v2 has its own dedicated suite
     # (test_elements_v2_mapping.py).
     # HBIM-070 §19.3 added exactly two additive mappings; HBIM-071 §21 added
-    # exactly two more (documents_v3, chunks_v2). The set stays CLOSED at nine.
+    # exactly two more (documents_v3, chunks_v2); HBIM-072 §21 added exactly
+    # one (chunks_v3). The set stays CLOSED at ten.
     json_files = {p.name for p in MAPPINGS_DIR.glob("*.json")}
     assert json_files == FILENAMES | {
         "elements_v2.json", "documents_v2.json", "chunks_v1.json",
-        "documents_v3.json", "chunks_v2.json",
+        "documents_v3.json", "chunks_v2.json", "chunks_v3.json",
     }
 
 
