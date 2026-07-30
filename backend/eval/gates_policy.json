@@ -471,6 +471,69 @@
       "min_cases": null,
       "slice_id": "ocr_live_suite",
       "title": "HBIM-071 live OCR suite (marker ocr_service; GPU + loopback vLLM); operator-run"
+    },
+    {
+      "checks": [
+        {
+          "comparator": "exact_one",
+          "metric": "precision_element_id"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "precision_global_id"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "precision_exact_name"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "precision_exact_name_location"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "precision_fuzzy_name"
+        },
+        {
+          "comparator": "exact_zero",
+          "metric": "false_positive_rate"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "ambiguity_rejection"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "project_isolation"
+        },
+        {
+          "comparator": "exact_one",
+          "metric": "outcome_accuracy"
+        },
+        {
+          "comparator": "gte_threshold",
+          "metric": "recall",
+          "threshold": 1.0
+        },
+        {
+          "comparator": "exact",
+          "metric": "mismatch_count",
+          "reference": 0
+        }
+      ],
+      "classification": "blocking",
+      "corpus_id": "entity-linking-gold-v1",
+      "delegated_to": null,
+      "execution": "pure",
+      "inputs": [
+        {
+          "path": "backend/eval/dataset/entity_linking_gold.jsonl",
+          "sha256": "661422d574dadcde6fecc784551f7d571b1ec5cd9e2037908a667cc1a301d8eb"
+        }
+      ],
+      "min_cases": 24,
+      "slice_id": "entity_linking",
+      "title": "HBIM-072 authored link gold replayed through the real deterministic linker"
     }
   ]
 }

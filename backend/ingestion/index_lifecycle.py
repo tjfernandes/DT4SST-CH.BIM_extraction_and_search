@@ -179,7 +179,11 @@ _MAPPING_VERSIONS: Mapping[str, Mapping[str, str]] = MappingProxyType(
         "document": MappingProxyType(
             {"1": "documents_v1.json", "2": "documents_v2.json", "3": "documents_v3.json"}
         ),
-        "chunk": MappingProxyType({"1": "chunks_v1.json", "2": "chunks_v2.json"}),
+        # HBIM-072 §21: chunk v3 carries the deterministic element links; the
+        # registry default stays v1 and the enriched path selects v3 explicitly.
+        "chunk": MappingProxyType(
+            {"1": "chunks_v1.json", "2": "chunks_v2.json", "3": "chunks_v3.json"}
+        ),
     }
 )
 

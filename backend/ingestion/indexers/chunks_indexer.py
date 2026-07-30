@@ -13,7 +13,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from canonical.documents import AnyChunkRecord, DocumentChunk, DocumentChunkV2
+from canonical.documents import (
+    AnyChunkRecord,
+    DocumentChunk,
+    DocumentChunkV2,
+    DocumentChunkV3,
+)
 
 RECORD_TYPE = "chunk"
 MODEL = AnyChunkRecord
@@ -53,4 +58,15 @@ def project(record: AnyChunkRecord | DocumentChunk) -> dict[str, Any]:
         ]
         if inner.confidence is not None:
             projected["confidence"] = inner.confidence
+    if isinstance(inner, DocumentChunkV3):
+        # HBIM-072 §21 — link provenance is emitted only for v3 records.
+        projected["base_chunk_id"] = inner.base_chunk_id
+        projected["link_revision_id"] = inner.link_revision_id
+        projected["linker_version"] = inner.linker_version
+        projected["normalization_version"] = inner.normalization_version
+        projected["catalog_fingerprint"] = inner.catalog_fingerprint
+        projected["linked_element_ids"] = list(inner.linked_element_ids)
+        projected["element_links"] = [
+            link.model_dump(mode="json") for link in inner.element_links
+        ]
     return projected

@@ -129,6 +129,8 @@ module = [
     "ingestion.rasterize",
     "ingestion.ocr_engine",
     "eval.ocr_eval",
+    "ingestion.entity_linking",
+    "eval.entity_linking_eval",
 ]
 disallow_untyped_defs = true
 
