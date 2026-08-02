@@ -2,13 +2,72 @@
 
 ## Status
 
-**Proposed.** Not accepted. Adoption is gated by the benchmark evidence that
-**HBIM-079** must produce. Nothing in this ADR authorises installing
-TopologicPy, adding a dependency, writing graph code or provisioning Neo4j.
+**Accepted — 2026-08-02.** The canonical graph IR and the adapter boundary this
+ADR proposes are adopted. The engine behind that boundary is **candidate A,
+IfcOpenShell-only**; TopologicPy is **not adopted**.
+
+This ADR still does not authorise installing TopologicPy, adding a dependency
+or provisioning Neo4j. What it now authorises is the IR, the adapter seam and
+HBIM-080, which the decision artifact records as unblocked.
+
+See **Outcome (HBIM-079)** below for what was and — importantly — what was not
+measured.
 
 ## Date
 
-2026-07-28
+2026-07-28 (proposed) · 2026-08-02 (accepted)
+
+## Outcome (HBIM-079)
+
+Decision artifact: `backend/eval/baselines/graph_pipeline_decision.json`,
+recomputed from `graph_pipeline_metrics.json` by a pure selector on every CI
+run (gate slice `graph_pipeline_decision`). The recorded outcome is never
+trusted: the gate recomputes it and compares.
+
+**Selector outcome:** `selected_ifcopenshell_only`. All eight mandatory gates
+passed for candidate A — eligibility, fixture-family coverage, tolerance
+coverage, per-fixture outcomes, native correctness, derived quality,
+determinism and isolation.
+
+**What was measured (candidate A only), over 13 synthetic fixtures in 7
+families across IFC4 and IFC2X3:**
+
+- Native relations: exact node and edge sets on every valid fixture — zero
+  lost, zero invented, zero cross-project, zero duplicate identities;
+  `GlobalId` and canonical element identity preserved end to end.
+- Derived predicates (`ABOVE`, `CONTAINS_GEOM`, `INTERSECTS`, `TOUCHES`):
+  precision, recall and F1 all exact at the production tolerance 0.001 m, over
+  a five-point tolerance sweep with near-boundary pairs that flip exactly where
+  the frozen gold says they should.
+- Determinism: three cold subprocesses and three warm runs produce identical
+  canonical bytes and fingerprints; native identities are invariant under a
+  tolerance change while derived identities move with it.
+- Isolation: zero network attempts, zero unowned subprocesses, no environment
+  mutation.
+
+**What was NOT measured — candidates B and C were never executed.** They were
+rejected at **preflight**, before any benchmark ran, on two frozen reasons
+each:
+
+1. `licence_review_unresolved` — the audit found contradictory licence
+   declarations across the distribution, and `topologic_core` ships no licence
+   file while redistributing OpenCASCADE. This is recorded as
+   `licence_review_status = unresolved`, **a project review state, not a legal
+   conclusion**. No claim is made here that TopologicPy is legally
+   incompatible, non-compliant or unusable by anyone else.
+2. `import_environment_mutation` — 40 module-level `os.system("pip install …")`
+   call sites across 11 modules, which execute on import and escape the
+   project's environment isolation.
+
+Consequently **this ADR makes no claim about TopologicPy's graph quality,
+predicate correctness, performance or determinism.** Those were never
+observed. The rejection is on eligibility only. Should the licence review
+resolve and the import-time installation behaviour change, candidate B or C
+could be re-benchmarked without revisiting the IR: that is precisely what the
+adapter boundary is for.
+
+**Fallback:** `ifcopenshell_only` — which is also the selection, so no
+migration is pending.
 
 ## Context
 

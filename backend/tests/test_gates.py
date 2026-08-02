@@ -7,6 +7,7 @@ tmp_path — the real tree is never touched.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -47,7 +48,7 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_twenty_three_slices() -> None:
+def test_committed_policy_loads_and_has_the_twenty_six_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
     # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
@@ -55,8 +56,11 @@ def test_committed_policy_loads_and_has_the_twenty_three_slices() -> None:
     # added exactly one (entity_linking). HBIM-073 §54 added exactly three
     # (document_dimension_decision, document_reranker_decision,
     # document_retrieval_live) and reclassified document_retrieval from
-    # unavailable_future to blocking/pure: 20 → 23.
-    assert len(policy.slices) == 23
+    # unavailable_future to blocking/pure: 20 → 23. HBIM-079 §52 added exactly
+    # three (graph_ir_contract, graph_pipeline_decision, graph_pipeline_live):
+    # 23 → 26. graph_retrieval stays unavailable_future — HBIM-079 decides the
+    # extraction pipeline, it does not build a graph retrieval path.
+    assert len(policy.slices) == 26
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -177,8 +181,10 @@ def test_real_tree_passes_every_gated_slice(real_report) -> None:
     # (ocr_live_suite). HBIM-072: +1 passed (entity_linking).
     # HBIM-073 §54: document_retrieval leaves the unavailable set and three
     # slices join it — two blocking artifact slices plus one manual_live.
+    # HBIM-079 §52: +2 passed (graph_ir_contract, graph_pipeline_decision),
+    # +1 manual (graph_pipeline_live). graph_retrieval stays unavailable.
     assert real_report["counts"] == {
-        "passed": 17, "failed": 0, "delegated": 1, "manual": 3, "unavailable": 2,
+        "passed": 19, "failed": 0, "delegated": 1, "manual": 4, "unavailable": 2,
     }
 
 
@@ -564,7 +570,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 23   # every registered slice, none skipped
+    assert len(report["slices"]) == 26   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #
@@ -721,3 +727,361 @@ def test_the_gates_runner_has_no_baseline_write_capability() -> None:
                 rendered = ast.dump(node)
                 assert "baselines" not in rendered, "the runner must never write a baseline"
     assert "--accept" not in source and "--update-baseline" not in source
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-079 §52 — graph-pipeline negative proofs
+#
+# Every one of these tampers with a COPY of the tree in tmp_path and asserts the
+# gate fails. A gate that cannot fail proves nothing, so each proof also asserts
+# which failure was reported.
+# --------------------------------------------------------------------------- #
+_GRAPH_FILES = (
+    "backend/eval/baselines/graph_pipeline_metrics.json",
+    "backend/eval/baselines/graph_pipeline_decision.json",
+    "backend/eval/dataset/graph_gold/fixtures_manifest.json",
+    "backend/eval/dataset/graph_gold/nodes_gold.jsonl",
+    "backend/eval/dataset/graph_gold/native_edges_gold.jsonl",
+    "backend/eval/dataset/graph_gold/derived_edges_gold.jsonl",
+    "backend/eval/dataset/graph_gold/invalid_cases_gold.jsonl",
+    "backend/eval/dataset/graph_gold/candidate_preflight_gold.json",
+)
+
+
+def _graph_tree(tmp_path: Path, relative: str | None = None, mutate=None) -> Path:
+    """A fake root holding only the graph inputs, with one file tampered."""
+    root = tmp_path / "repo"
+    for pin in _GRAPH_FILES:
+        target = root / pin
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / pin, target)
+    if relative is not None and mutate is not None:
+        mutate(root / relative)
+    return root
+
+
+def _graph_policy(*, repin: Path | None = None) -> Policy:
+    """The committed policy, optionally re-pinned to a tampered tree so that the
+    *semantic* check fails rather than the integrity check."""
+    payload = _policy_dict()
+    if repin is not None:
+        for entry in payload["slices"]:
+            for inp in entry.get("inputs", []):
+                candidate = repin / inp["path"]
+                if inp["sha256"] and candidate.exists():
+                    inp["sha256"] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    target = repin or REPO_ROOT
+    written = target / "policy_under_test.json"
+    written.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        return load_policy(written)
+    finally:
+        written.unlink()
+
+
+def _graph_slice(root: Path, policy: Policy | None = None) -> dict:
+    report = run_gates(policy or _graph_policy(), root, only=["graph_pipeline_decision"])
+    return next(s for s in report["slices"] if s["slice_id"] == "graph_pipeline_decision")
+
+
+def _edit_json(key_path: tuple, value):
+    def mutate(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cursor = payload
+        for key in key_path[:-1]:
+            cursor = cursor[key]
+        cursor[key_path[-1]] = value
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    return mutate
+
+
+def _edit_primary(field_path: tuple, value):
+    def mutate(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(r for r in payload["results"]
+                     if r["candidate_id"] == "ifcopenshell_only")
+        cursor = entry
+        for key in field_path[:-1]:
+            cursor = cursor[key]
+        cursor[field_path[-1]] = value
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    return mutate
+
+
+def test_graph_slices_pass_on_the_real_tree(real_report) -> None:
+    for slice_id in ("graph_ir_contract", "graph_pipeline_decision"):
+        entry = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
+        assert entry["status"] == "pass", entry["failures"]
+        assert entry["checks"], f"{slice_id} evaluated no checks"
+
+
+def test_a_changed_gold_byte_fails_the_hash_chain(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/dataset/graph_gold/nodes_gold.jsonl",
+                       lambda p: p.write_bytes(p.read_bytes() + b"\n"))
+    entry = _graph_slice(root)
+    assert entry["status"] == "fail"
+    assert any("sha256 mismatch" in f or "gold" in f for f in entry["failures"])
+
+
+def test_a_changed_fixture_hash_in_the_manifest_fails(tmp_path) -> None:
+    def retarget(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["fixtures"][0]["sha256"] = "0" * 64
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    root = _graph_tree(tmp_path, "backend/eval/dataset/graph_gold/fixtures_manifest.json",
+                       retarget)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_forged_native_metric_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       _edit_primary(("native", "lost_native_edges"), 1))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_forged_derived_metric_fails_the_gate(tmp_path) -> None:
+    def break_derived(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(r for r in payload["results"]
+                     if r["candidate_id"] == "ifcopenshell_only")
+        entry["derived"][0]["false_positives"] = 3
+        entry["derived"][0]["precision"] = 0.5
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       break_derived)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_missing_determinism_observation_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       _edit_primary(("determinism",), None))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_recorded_network_attempt_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       _edit_primary(("operational", "network_attempts"), 2))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_wrong_recorded_outcome_is_caught_by_recomputation(tmp_path) -> None:
+    """§48 — the gate never trusts the recorded ``outcome`` field."""
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_decision.json",
+                       _edit_json(("outcome",), "no_viable_candidate"))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+    assert any("selector" in f.lower() or "outcome" in f.lower() for f in entry["failures"])
+
+
+def test_an_inconsistent_hbim_080_flag_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_decision.json",
+                       _edit_json(("hbim_080_unblocked",), False))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_broken_raw_artifact_chain_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_decision.json",
+                       _edit_json(("raw_artifact_sha256",), "0" * 64))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_candidate_marked_eligible_fails_the_gate(tmp_path) -> None:
+    def promote(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(r for r in payload["results"]
+                     if r["candidate_id"] == "topologicpy_led")
+        entry["eligibility"]["eligible"] = True
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       promote)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_dropped_ineligibility_reason_fails_the_gate(tmp_path) -> None:
+    def drop_reason(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(r for r in payload["results"]
+                     if r["candidate_id"] == "hybrid_topologicpy")
+        entry["eligibility"]["reason_codes"] = ["licence_review_unresolved"]
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       drop_reason)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_rejected_candidate_carrying_metrics_fails_the_gate(tmp_path) -> None:
+    def fabricate(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        primary = next(r for r in payload["results"]
+                       if r["candidate_id"] == "ifcopenshell_only")
+        victim = next(r for r in payload["results"]
+                      if r["candidate_id"] == "topologicpy_led")
+        victim["native"] = primary["native"]
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       fabricate)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_shrunk_fixture_family_set_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       _edit_primary(("fixture_families_covered",), [1, 2, 3]))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_shrunk_tolerance_sweep_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+                       _edit_primary(("tolerances_evaluated",), ["0.001000"]))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_decision_checksum_mismatch_fails_the_gate(tmp_path) -> None:
+    root = _graph_tree(tmp_path, "backend/eval/baselines/graph_pipeline_decision.json",
+                       _edit_json(("artifact_sha256",), "0" * 64))
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_a_missing_malformed_case_fails_the_gate(tmp_path) -> None:
+    def drop_case(path: Path) -> None:
+        rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        path.write_text("\n".join(rows[:-1]) + "\n", encoding="utf-8")
+
+    root = _graph_tree(tmp_path, "backend/eval/dataset/graph_gold/invalid_cases_gold.jsonl",
+                       drop_case)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "fail"
+
+
+def test_graph_retrieval_stays_unavailable(real_report) -> None:
+    """HBIM-079 decides the extraction pipeline; it must not open a retrieval
+    path. Making graph_retrieval available would be scope creep."""
+    entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_retrieval")
+    assert entry["status"] == "unavailable"
+    assert entry["classification"] == "unavailable_future"
+
+
+def test_the_live_graph_slice_never_runs_geometry_in_ci(real_report) -> None:
+    entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_pipeline_live")
+    assert entry["status"] == "manual"
+    assert entry["checks"] == []
+
+
+def _repin_checksums(root: Path) -> None:
+    """Recompute both artifact checksums after tampering.
+
+    Without this, every tamper is caught by the checksum and the *semantic*
+    gates are never exercised. Re-pinning simulates the strongest adversary:
+    one who edits a metric and fixes up the hashes to match.
+    """
+    from graph.serialization import canonical_bytes, sha256_hex
+
+    from eval.gates import _benchmark_checksum_view
+    from eval.graph_pipeline_selector import decision_checksum
+
+    raw_path = root / "backend/eval/baselines/graph_pipeline_metrics.json"
+    dec_path = root / "backend/eval/baselines/graph_pipeline_decision.json"
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    raw["artifact_sha256"] = sha256_hex(canonical_bytes(_benchmark_checksum_view(raw)))
+    raw_path.write_text(json.dumps(raw, indent=1, sort_keys=True), encoding="utf-8")
+
+    decision = json.loads(dec_path.read_text(encoding="utf-8"))
+    decision["raw_artifact_sha256"] = raw["artifact_sha256"]
+    decision.pop("artifact_sha256", None)
+    decision["artifact_sha256"] = decision_checksum(decision)
+    dec_path.write_text(json.dumps(decision, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def _semantic_failure(tmp_path: Path, relative: str, mutate) -> dict:
+    """Tamper, repair every checksum, then evaluate: only a semantic gate can fail."""
+    root = _graph_tree(tmp_path, relative, mutate)
+    _repin_checksums(root)
+    return _graph_slice(root, _graph_policy(repin=root))
+
+
+def test_a_forged_production_derived_metric_fails_even_with_repaired_hashes(tmp_path) -> None:
+    """§34 — the production bar is 0.001000; forging it must fail on quality,
+    not merely on a broken checksum."""
+    def forge(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(r for r in payload["results"]
+                     if r["candidate_id"] == "ifcopenshell_only")
+        victim = next(m for m in entry["derived"] if m["tolerance_m"] == "0.001000")
+        victim["false_positives"] = 2
+        victim["precision"] = 0.5
+        victim["f1"] = 0.5
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    entry = _semantic_failure(
+        tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json", forge)
+    assert entry["status"] == "fail"
+    assert any("derived_quality_exact" in f or "selector" in f.lower()
+               for f in entry["failures"]), entry["failures"]
+
+
+def test_a_forged_native_metric_fails_even_with_repaired_hashes(tmp_path) -> None:
+    entry = _semantic_failure(
+        tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+        _edit_primary(("native", "invented_native_edges"), 4))
+    assert entry["status"] == "fail"
+
+
+def test_a_wrong_outcome_fails_even_with_repaired_hashes(tmp_path) -> None:
+    """The decisive proof that the gate recomputes rather than trusts."""
+    entry = _semantic_failure(
+        tmp_path, "backend/eval/baselines/graph_pipeline_decision.json",
+        _edit_json(("outcome",), "no_viable_candidate"))
+    assert entry["status"] == "fail"
+
+
+def test_a_promoted_candidate_fails_even_with_repaired_hashes(tmp_path) -> None:
+    def promote(path: Path) -> None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        entry = next(r for r in payload["results"]
+                     if r["candidate_id"] == "topologicpy_led")
+        entry["eligibility"]["eligible"] = True
+        path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+    entry = _semantic_failure(
+        tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json", promote)
+    assert entry["status"] == "fail"
+
+
+def test_a_shrunk_family_set_fails_even_with_repaired_hashes(tmp_path) -> None:
+    entry = _semantic_failure(
+        tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+        _edit_primary(("fixture_families_covered",), [1, 2, 3]))
+    assert entry["status"] == "fail"
+
+
+def test_a_dropped_determinism_record_fails_even_with_repaired_hashes(tmp_path) -> None:
+    entry = _semantic_failure(
+        tmp_path, "backend/eval/baselines/graph_pipeline_metrics.json",
+        _edit_primary(("determinism",), None))
+    assert entry["status"] == "fail"
+
+
+def test_the_repin_helper_itself_does_not_mask_a_clean_tree(tmp_path) -> None:
+    """Guard against a vacuous suite: repinning an UNtampered tree must still
+    pass, otherwise every proof above would 'fail' for the wrong reason."""
+    root = _graph_tree(tmp_path)
+    _repin_checksums(root)
+    entry = _graph_slice(root, _graph_policy(repin=root))
+    assert entry["status"] == "pass", entry["failures"]

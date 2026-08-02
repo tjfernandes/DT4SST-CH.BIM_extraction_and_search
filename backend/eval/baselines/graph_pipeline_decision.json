@@ -1,0 +1,180 @@
+{
+ "artifact": "graph_pipeline_decision",
+ "artifact_sha256": "044875d716f626a4bbfe25a40674de2676f4b25a5198b24647b3b3e31e7dfb03",
+ "corpus_id": "graph-pipeline-gold-v1",
+ "decision_version": "hbim-079-graph-decision-v1",
+ "failed_gates": [],
+ "fallback": "ifcopenshell_only",
+ "fixture_sha256": {
+  "gfx-1-01": "7308f51f7cc5e4d1b7a2788522699b70378e92a71786298f174030b056f198d9",
+  "gfx-1-02": "71787f75a64659294a065a050a4ee79c40727d25026a20014f1b9b06bd6f8e2b",
+  "gfx-2-01": "2f4aaf1d2a793d5013c948e0423db461fc93ed761d24f1c3e4188dde54516509",
+  "gfx-3-01": "9787a61b58222dfec68b2fa76b618569b8eb574e91827f14b6577615d65ad606",
+  "gfx-4-01": "4a6ab517c36a7c07b1aefec50df4c01e45a0bebe9cd19e288be79ebc4fd80ee5",
+  "gfx-5-01": "506058dd388cdc068d435b804046403d61d17fc5da06c58175cc572df86c811d",
+  "gfx-6-01": "7036c707d979cf133b0ef0af328939d95790184592e07c75028c089318cd4d43",
+  "gfx-7-01": "ada2a9af68e84d90c62862431d246a0492156376508deaee03dbb1c5d0ed6d1c",
+  "gfx-7-02": "20c34023b6ecdbe1ac9dbdd9002ef6f163567b9ebe4017f6b5b5f953bdcce6c9",
+  "gfx-7-03": "f16567f22a324f2f794f40b32d5152f019eff545829d80344a83dcb906ee545a",
+  "gfx-7-04": "b8bb5c61218ef031efc8a2564d53ea51920e6b4bca85f3d044f06e22468134fe",
+  "gfx-7-05": "296dc17c016532acb1f938508c443e289cc00db07634a64980da98f4bd5bf84c",
+  "gfx-7-06": "15253b48574d9b4ebf484bed969d477f92add17f7fcf335f245114df87f61813"
+ },
+ "gates": {
+  "hybrid_topologicpy": [
+   {
+    "detail": "reasons=['import_environment_mutation', 'licence_review_unresolved']",
+    "gate": "eligibility",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "fixture_family_coverage",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "tolerance_coverage",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "fixture_outcomes_exact",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "native_correctness_exact",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "derived_quality_exact",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "determinism",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "isolation",
+    "passed": false
+   }
+  ],
+  "ifcopenshell_only": [
+   {
+    "detail": "eligible and executed",
+    "gate": "eligibility",
+    "passed": true
+   },
+   {
+    "detail": "covered=[1, 2, 3, 4, 5, 6, 7] required=[1, 2, 3, 4, 5, 6, 7]",
+    "gate": "fixture_family_coverage",
+    "passed": true
+   },
+   {
+    "detail": "evaluated=['0.000000', '0.001000', '0.005000', '0.010000', '0.050000']",
+    "gate": "tolerance_coverage",
+    "passed": true
+   },
+   {
+    "detail": "all fixture outcomes exact",
+    "gate": "fixture_outcomes_exact",
+    "passed": true
+   },
+   {
+    "detail": "all exact",
+    "gate": "native_correctness_exact",
+    "passed": true
+   },
+   {
+    "detail": "4 predicate(s) exact at 0.001000",
+    "gate": "derived_quality_exact",
+    "passed": true
+   },
+   {
+    "detail": "cold=3 warm=3 agree=True",
+    "gate": "determinism",
+    "passed": true
+   },
+   {
+    "detail": "no network, no unexpected subprocess, no environment mutation",
+    "gate": "isolation",
+    "passed": true
+   }
+  ],
+  "topologicpy_led": [
+   {
+    "detail": "reasons=['import_environment_mutation', 'licence_review_unresolved']",
+    "gate": "eligibility",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "fixture_family_coverage",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "tolerance_coverage",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "fixture_outcomes_exact",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "native_correctness_exact",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "derived_quality_exact",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "determinism",
+    "passed": false
+   },
+   {
+    "detail": "candidate not executed",
+    "gate": "isolation",
+    "passed": false
+   }
+  ]
+ },
+ "gold_sha256": {
+  "candidate_preflight_gold.json": "b33ad0b49585a53ea779a5703398776e4b26ef6ae087a431921972484ee47abd",
+  "derived_edges_gold.jsonl": "d1e551015ede685cd8a2eb17d518689cf58722f694cc43a136571ccff6c4e871",
+  "invalid_cases_gold.jsonl": "3c498e9a604d87d82cbec35ac7dc3f6e41ce6e69d31ece6b4fa0c5e72b140546",
+  "native_edges_gold.jsonl": "9dca5fa9fad64bb85d275c3eca31acc98b5f143376d02359b1e09b8e350a81e5",
+  "nodes_gold.jsonl": "f440aaf98432040aa664b664b5f6dfc37672ae1ddb5febbf6aa45af7a975a083"
+ },
+ "hbim_080_unblocked": true,
+ "limitations": [
+  "geometry is the frozen axis-aligned bounding-box regime (hbim-079-geometry-aabb-v1); AABB is conservative for rotated or non-convex solids, so these exact bars describe axis-aligned synthetic boxes only and HBIM-080 must re-measure on real models",
+  "candidates B and C were rejected at preflight on licence review and import safety; their IFC graph-extraction quality was never measured and no claim is made about it",
+  "licence_review_status is a project review state, not a legal conclusion",
+  "DISJOINT, WITHIN, BELOW, OVERLAPS, CROSSES, COVERS, COVERED_BY, EQUALS and PROXIMITY are not emitted in v1"
+ ],
+ "outcome": "selected_ifcopenshell_only",
+ "raw_artifact_sha256": "f4289e4004d656d5e4529fd08582426324325b0f4f2582dafa35425c45cc2370",
+ "rejected_alternatives": {
+  "hybrid_topologicpy": [
+   "import_environment_mutation",
+   "licence_review_unresolved"
+  ],
+  "topologicpy_led": [
+   "import_environment_mutation",
+   "licence_review_unresolved"
+  ]
+ },
+ "selected_candidate": "ifcopenshell_only",
+ "selector_version": "hbim-079-graph-selector-v1",
+ "source_audit_sha256": "796e6cdbd463d2d18bb75ed3b421714ff8757486e2f22281b59c554bfaf6a4af"
+}

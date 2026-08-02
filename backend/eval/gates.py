@@ -961,6 +961,236 @@ def _eval_document_reranker_decision(entry: Slice, outcome: SliceOutcome, root: 
     _apply_checks(entry, outcome, metrics)
 
 
+def _eval_graph_ir_contract(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-079 §51 — the IR contract: schema, identities, canonical bytes.
+
+    Pure: no IFC library, no fixtures, no adapter. It proves the frozen
+    identity rules and byte-determinism that every later graph milestone
+    inherits, including the rule that an existing canonical element never
+    acquires a parallel graph-only identity.
+    """
+    from graph.ids import GRAPH_IR_VERSION, derived_edge_id, graph_node_id, native_edge_id
+    from graph.predicates import DERIVED_PREDICATES, NATIVE_PREDICATES, GraphPredicate
+    from graph.schema import GRAPH_MANIFEST_VERSION, GraphNodeKind, GraphSourceKind
+    from graph.serialization import quantize_m
+    from graph.validation import ISSUE_SEVERITY, GraphIssueCode
+
+    from canonical.ids import element_id
+
+    project, gid = "proj-gate", "2N4a$Hb1nDxu5S4Xm0Qw1z"
+    def _derived(predicate: str, node_a: str, node_b: str, tolerance_m: str) -> str:
+        """Same identity call in every probe below, so only the varied argument
+        can explain a difference."""
+        return derived_edge_id(
+            project, predicate, node_a, node_b, directed=False,
+            algorithm="aabb_overlap_v1", algorithm_version="1",
+            geometry_version="hbim-079-geometry-aabb-v1", tolerance_m=tolerance_m,
+        )
+
+    symmetric_one = _derived("TOUCHES", "a", "b", "0.001000")
+    metrics: dict[str, object] = {
+        "ir_version_pinned": 1.0 if GRAPH_IR_VERSION == "hbim-079-graph-ir-v1" else 0.0,
+        "manifest_version_pinned": (
+            1.0 if GRAPH_MANIFEST_VERSION == "hbim-079-graph-manifest-v1" else 0.0
+        ),
+        "native_predicate_count": float(len(NATIVE_PREDICATES)),
+        "derived_predicate_count": float(len(DERIVED_PREDICATES)),
+        "predicate_tables_disjoint": (
+            1.0 if not set(NATIVE_PREDICATES) & set(DERIVED_PREDICATES) else 0.0
+        ),
+        "predicate_vocabulary_closed": (
+            1.0 if set(GraphPredicate) == set(NATIVE_PREDICATES) | set(DERIVED_PREDICATES) else 0.0
+        ),
+        "issue_codes_classified": (
+            1.0 if set(ISSUE_SEVERITY) == set(GraphIssueCode) else 0.0
+        ),
+        "issue_code_count": float(len(list(GraphIssueCode))),
+        "emittable_node_kinds": float(len(GraphNodeKind) - 1),  # document_reference reserved
+        "emittable_source_kinds": float(
+            len([k for k in GraphSourceKind if k.value in ("ifc_native", "derived_geometry")])
+        ),
+        # §22 — the canonical element identity is REUSED, never re-derived.
+        "element_identity_reused": (
+            1.0 if graph_node_id(project, "element", gid) != element_id(project, gid) else 0.0
+        ),
+        # netstring framing removes concatenation ambiguity
+        "identity_unambiguous": (
+            1.0 if graph_node_id(project, "stor", "eyKEY") != graph_node_id(project, "storey", "KEY")
+            else 0.0
+        ),
+        "identity_project_isolated": (
+            1.0 if graph_node_id("p-a", "storey", "K") != graph_node_id("p-b", "storey", "K") else 0.0
+        ),
+        "native_identity_direction_bound": (
+            1.0 if native_edge_id(project, "CONTAINS", "a", "b", "0R")
+            != native_edge_id(project, "CONTAINS", "b", "a", "0R") else 0.0
+        ),
+        "native_identity_multiplicity_bound": (
+            1.0 if native_edge_id(project, "CONTAINS", "a", "b", "0R", "0")
+            != native_edge_id(project, "CONTAINS", "a", "b", "0R", "1") else 0.0
+        ),
+        "derived_identity_tolerance_bound": (
+            1.0 if symmetric_one
+            != _derived("TOUCHES", "a", "b", "0.005000")
+            else 0.0
+        ),
+        "derived_identity_symmetric_stable": (
+            1.0 if symmetric_one
+            == _derived("TOUCHES", "b", "a", "0.001000")
+            else 0.0
+        ),
+        "negative_zero_normalised": 1.0 if quantize_m(-0.0) == "0.000000" else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
+def _benchmark_checksum_view(payload: "Mapping[str, Any]") -> dict:
+    """§44/§48/§60 — the checksummable projection: no self-checksum, no volatile
+    block. Kept local so the gate never imports the benchmark runner (which
+    imports the IFC library lazily but still pulls in geometry helpers)."""
+    view = {k: v for k, v in payload.items() if k != "artifact_sha256"}
+    results = view.get("results")
+    if isinstance(results, list):
+        view["results"] = [
+            {k: v for k, v in entry.items() if k != "operational_volatile"}
+            for entry in results
+        ]
+    return view
+
+
+def _eval_graph_pipeline_decision(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-079 §51 — hash chain, eligibility and **selector recomputation**.
+
+    The recorded ``outcome`` field is never trusted: the decision is recomputed
+    from the raw artifact through the pure selector and compared.
+    """
+    from eval.graph_pipeline_selector import (
+        CANDIDATE_IDS,
+        RawCandidateResult,
+        SelectorOutcome,
+        decide,
+    )
+
+    raw = _load_json(root / "backend/eval/baselines/graph_pipeline_metrics.json", outcome)
+    decision = _load_json(root / "backend/eval/baselines/graph_pipeline_decision.json", outcome)
+    if raw is None or decision is None:
+        return
+
+    # --- hash chain: gold, fixtures and the raw artifact ------------------- #
+    manifest = _load_json(root / "backend/eval/dataset/graph_gold/fixtures_manifest.json", outcome)
+    if manifest is None:
+        return
+    for name, pinned in (manifest.get("gold") or {}).items():
+        actual = sha256_of(root / "backend/eval/dataset/graph_gold" / name)
+        matched = actual == pinned
+        outcome.integrity.append(
+            {"path": f"backend/eval/dataset/graph_gold/{name}",
+             "expected_sha256": "chained-in-fixtures-manifest", "ok": matched}
+        )
+        if not matched:
+            outcome.fail(f"graph gold {name} no longer matches the fixtures manifest")
+    if outcome.status == "fail":
+        return
+
+    chained = decision.get("raw_artifact_sha256") == raw.get("artifact_sha256")
+    gold_chained = decision.get("gold_sha256") == raw.get("gold_sha256")
+    fixtures_chained = decision.get("fixture_sha256") == raw.get("fixture_sha256")
+    manifest_gold_chained = (manifest.get("gold") or {}) == (raw.get("gold_sha256") or {})
+    # The manifest is the root of the chain: its per-fixture hashes must equal
+    # the ones the benchmark recorded, otherwise a re-pinned manifest could
+    # silently describe a different corpus than the one that was measured.
+    manifest_fixtures = {row["fixture_id"]: row["sha256"]
+                         for row in (manifest.get("fixtures") or [])}
+    manifest_fixtures_chained = manifest_fixtures == (raw.get("fixture_sha256") or {})
+
+    # §48 — the decision artifact's own checksum, recomputed (volatile excluded).
+    from graph.serialization import canonical_bytes, sha256_hex
+
+    from eval.graph_pipeline_selector import decision_checksum
+
+    decision_checksum_ok = (
+        decision.get("artifact_sha256") == decision_checksum(decision)
+    )
+    raw_checksum_ok = raw.get("artifact_sha256") == sha256_hex(
+        canonical_bytes(_benchmark_checksum_view(raw))
+    )
+
+    # --- recompute the selector from the raw artifact ---------------------- #
+    try:
+        # §44/§10 — the artifact stores volatile diagnostics in their own block
+        # so they stay out of the deterministic checksum. Re-merge them here to
+        # reconstruct the full record before validation.
+        merged = []
+        for entry_ in raw["results"]:
+            record = dict(entry_)
+            volatile = record.pop("operational_volatile", None)
+            if volatile and record.get("operational") is not None:
+                record["operational"] = {**record["operational"], **volatile}
+            merged.append(record)
+        results = [RawCandidateResult.model_validate(entry_) for entry_ in merged]
+        recomputed = decide(results)
+        recompute_ok = recomputed.outcome.value == decision.get("outcome")
+        failed_match = list(recomputed.failed_gates) == list(decision.get("failed_gates") or [])
+        unblocked_match = recomputed.hbim_080_unblocked == decision.get("hbim_080_unblocked")
+        selected = recomputed.outcome is SelectorOutcome.SELECTED_IFCOPENSHELL_ONLY
+    except Exception as exc:  # noqa: BLE001 — a malformed artifact fails the gate
+        outcome.fail(f"selector recomputation failed: {type(exc).__name__}")
+        return
+
+    rejected = decision.get("rejected_alternatives") or {}
+    frozen = {"licence_review_unresolved", "import_environment_mutation"}
+    reasons_ok = all(
+        set(rejected.get(candidate, [])) == frozen
+        for candidate in ("topologicpy_led", "hybrid_topologicpy")
+    )
+    candidates_present = {r.candidate_id for r in results} == set(CANDIDATE_IDS)
+    b_c_unexecuted = all(
+        not r.eligibility.executed and not r.eligibility.eligible
+        for r in results if r.candidate_id != "ifcopenshell_only"
+    )
+    primary = next(r for r in results if r.candidate_id == "ifcopenshell_only")
+    native = primary.native
+    production = [m for m in primary.derived if m.tolerance_m == "0.001000"]
+
+    metrics: dict[str, object] = {
+        "raw_artifact_chained": 1.0 if chained else 0.0,
+        "gold_chained": 1.0 if gold_chained and manifest_gold_chained else 0.0,
+        "fixtures_chained": 1.0 if fixtures_chained and manifest_fixtures_chained else 0.0,
+        "decision_checksum_valid": 1.0 if decision_checksum_ok else 0.0,
+        "raw_checksum_valid": 1.0 if raw_checksum_ok else 0.0,
+        "selector_recomputes": 1.0 if recompute_ok else 0.0,
+        "failed_gates_match": 1.0 if failed_match else 0.0,
+        # The recorded flag must equal the recomputed one AND agree with the
+        # recomputed outcome; either disagreement fails the gate.
+        "hbim_080_consistent": 1.0 if unblocked_match else 0.0,
+        "hbim_080_matches_outcome": 1.0 if decision.get("hbim_080_unblocked") == selected else 0.0,
+        "all_candidates_present": 1.0 if candidates_present else 0.0,
+        "rejected_reasons_frozen": 1.0 if reasons_ok else 0.0,
+        "rejected_unexecuted": 1.0 if b_c_unexecuted else 0.0,
+        "fixture_family_count": float(len(set(primary.fixture_families_covered))),
+        "tolerance_count": float(len(set(primary.tolerances_evaluated))),
+        "fixture_case_count": float(len(primary.fixtures)),
+        "production_predicate_count": float(len(production)),
+        "native_edge_f1": float(native.native_edge_f1) if native else 0.0,
+        "invented_native_edges": float(native.invented_native_edges) if native else 1.0,
+        "lost_native_edges": float(native.lost_native_edges) if native else 1.0,
+        "cross_project_edges": float(native.cross_project_edges) if native else 1.0,
+        "duplicate_ids": float(native.duplicate_ids) if native else 1.0,
+        "derived_false_positives": float(sum(m.false_positives for m in production)),
+        "derived_false_negatives": float(sum(m.false_negatives for m in production)),
+        "determinism_agrees": (
+            1.0 if primary.determinism and primary.determinism.canonical_checksums_agree else 0.0
+        ),
+        "network_attempts": (
+            float(primary.operational.network_attempts) if primary.operational else 1.0
+        ),
+        "unexpected_subprocess_attempts": (
+            float(primary.operational.unexpected_subprocess_attempts) if primary.operational else 1.0
+        ),
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
 SliceAdapter = Callable[[Slice, SliceOutcome, Path], None]
 
 #: §30 — the registry must match the policy's slice ids exactly (tested).
@@ -986,6 +1216,9 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "document_dimension_decision": _eval_document_dimension_decision,
     "document_reranker_decision": _eval_document_reranker_decision,
     "document_retrieval_live": _eval_manual,
+    "graph_ir_contract": _eval_graph_ir_contract,
+    "graph_pipeline_decision": _eval_graph_pipeline_decision,
+    "graph_pipeline_live": _eval_manual,
     "graph_retrieval": _eval_unavailable,
     "multimodal_retrieval": _eval_unavailable,
 }
