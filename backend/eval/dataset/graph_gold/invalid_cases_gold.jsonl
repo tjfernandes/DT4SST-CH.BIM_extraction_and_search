@@ -1,0 +1,7 @@
+{"expected_codes": ["invalid_ifc"], "expected_outcome": "abort", "fixture_id": "gfx-7-01", "notes": "empty GlobalId"}
+{"expected_codes": ["duplicate_global_id"], "expected_outcome": "abort", "fixture_id": "gfx-7-02", "notes": "two walls share one GlobalId"}
+{"expected_codes": ["unsupported_native_relation"], "expected_outcome": "partial", "fixture_id": "gfx-7-03", "notes": "containment with no RelatedElements"}
+{"expected_codes": ["unsupported_geometry"], "expected_outcome": "partial", "fixture_id": "gfx-7-04", "notes": "depth-0 extrusion cannot triangulate"}
+{"expected_codes": ["partial_extraction"], "expected_outcome": "partial", "fixture_id": "gfx-7-05", "notes": "orphan element with no container"}
+{"expected_codes": ["unsupported_native_relation"], "expected_outcome": "partial", "fixture_id": "gfx-5-01", "notes": "space boundary without related element"}
+{"expected_codes": [], "expected_outcome": "complete", "fixture_id": "gfx-7-06", "notes": "isolation: extracted under proj-other; no edge may reach proj-graph"}

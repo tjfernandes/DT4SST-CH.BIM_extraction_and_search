@@ -462,6 +462,260 @@
    "title": "HBIM-073 operator-run live embedding benchmark and reranker calibration (never in standard CI)"
   },
   {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "ir_version_pinned"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "manifest_version_pinned"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "native_predicate_count",
+     "threshold": 15.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "derived_predicate_count",
+     "threshold": 4.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "predicate_tables_disjoint"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "predicate_vocabulary_closed"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "issue_codes_classified"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "issue_code_count",
+     "threshold": 25.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "emittable_node_kinds",
+     "threshold": 10.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "emittable_source_kinds",
+     "threshold": 2.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "element_identity_reused"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "identity_unambiguous"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "identity_project_isolated"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "native_identity_direction_bound"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "native_identity_multiplicity_bound"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "derived_identity_tolerance_bound"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "derived_identity_symmetric_stable"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "negative_zero_normalised"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "graph_ir_contract",
+   "title": "HBIM-079 canonical graph IR: schema, identities, canonical serialization"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "all_candidates_present"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "cross_project_edges"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "decision_checksum_valid"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "derived_false_negatives"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "derived_false_positives"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "determinism_agrees"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "duplicate_ids"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "failed_gates_match"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "fixture_case_count",
+     "threshold": 17.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "fixture_family_count",
+     "threshold": 7.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "fixtures_chained"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "gold_chained"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "hbim_080_consistent"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "hbim_080_matches_outcome"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "invented_native_edges"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "lost_native_edges"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "native_edge_f1",
+     "threshold": 1.0
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "network_attempts"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "production_predicate_count",
+     "threshold": 4.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "raw_artifact_chained"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "raw_checksum_valid"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "rejected_reasons_frozen"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "rejected_unexecuted"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "selector_recomputes"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "tolerance_count",
+     "threshold": 5.0
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "unexpected_subprocess_attempts"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "graph-pipeline-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/graph_pipeline_metrics.json",
+     "sha256": "0962cb6779a382f5ecb753dd98f5494e965ad0a36ae23f6fb1b9d31738cf8c98"
+    },
+    {
+     "path": "backend/eval/baselines/graph_pipeline_decision.json",
+     "sha256": "8bb3ba27760278d1425c5da863eb09d9b1bbdd3315235889b5527aa53e55089b"
+    },
+    {
+     "path": "backend/eval/dataset/graph_gold/fixtures_manifest.json",
+     "sha256": "a98990de1df8328336c842ab2ddf72903ba0c7c436f0c961138b360baa59d0aa"
+    },
+    {
+     "path": "backend/eval/dataset/graph_gold/nodes_gold.jsonl",
+     "sha256": "f440aaf98432040aa664b664b5f6dfc37672ae1ddb5febbf6aa45af7a975a083"
+    },
+    {
+     "path": "backend/eval/dataset/graph_gold/native_edges_gold.jsonl",
+     "sha256": "9dca5fa9fad64bb85d275c3eca31acc98b5f143376d02359b1e09b8e350a81e5"
+    },
+    {
+     "path": "backend/eval/dataset/graph_gold/derived_edges_gold.jsonl",
+     "sha256": "d1e551015ede685cd8a2eb17d518689cf58722f694cc43a136571ccff6c4e871"
+    },
+    {
+     "path": "backend/eval/dataset/graph_gold/invalid_cases_gold.jsonl",
+     "sha256": "3c498e9a604d87d82cbec35ac7dc3f6e41ce6e69d31ece6b4fa0c5e72b140546"
+    },
+    {
+     "path": "backend/eval/dataset/graph_gold/candidate_preflight_gold.json",
+     "sha256": "b33ad0b49585a53ea779a5703398776e4b26ef6ae087a431921972484ee47abd"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "graph_pipeline_decision",
+   "title": "HBIM-079 architecture decision: hash chain, eligibility and selector recomputation"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "graph-pipeline-gold-v1",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "graph_pipeline_live",
+   "title": "HBIM-079 operator-run graph benchmark (never rerun heavy geometry in standard CI)"
+  },
+  {
    "checks": [],
    "classification": "unavailable_future",
    "corpus_id": "none",

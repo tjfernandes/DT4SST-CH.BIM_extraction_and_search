@@ -153,6 +153,18 @@ jobs:
           backend/retrieval/document_retrieval.py
           backend/ingestion/indexers/chunks_dense.py
           backend/eval/document_retrieval_eval.py
+          backend/graph/__init__.py
+          backend/graph/ids.py
+          backend/graph/serialization.py
+          backend/graph/predicates.py
+          backend/graph/validation.py
+          backend/graph/schema.py
+          backend/graph/adapters/__init__.py
+          backend/graph/adapters/base.py
+          backend/graph/adapters/ifcopenshell_adapter.py
+          backend/eval/graph_fixtures.py
+          backend/eval/graph_pipeline_selector.py
+          backend/eval/graph_pipeline_benchmark.py
 
   document-parse:
     runs-on: ubuntu-latest

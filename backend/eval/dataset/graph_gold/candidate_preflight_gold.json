@@ -1,0 +1,44 @@
+{
+ "candidates": {
+  "hybrid_topologicpy": {
+   "eligible": false,
+   "executed": false,
+   "licence_review_status": "unresolved",
+   "reason_codes": [
+    "licence_review_unresolved",
+    "import_environment_mutation"
+   ],
+   "versions": {
+    "topologic_core": "8.0.4",
+    "topologicpy": "0.9.58"
+   }
+  },
+  "ifcopenshell_only": {
+   "eligible": true,
+   "licence_review_status": "approved_via_existing_dependency_set",
+   "notes": "introduces no new dependency; must still pass every hard gate",
+   "reason_codes": [],
+   "versions": {
+    "ifcopenshell": "0.8.3.post1"
+   }
+  },
+  "topologicpy_led": {
+   "eligible": false,
+   "executed": false,
+   "licence_review_status": "unresolved",
+   "reason_codes": [
+    "licence_review_unresolved",
+    "import_environment_mutation"
+   ],
+   "versions": {
+    "topologic_core": "8.0.4",
+    "topologicpy": "0.9.58"
+   },
+   "wheel_sha256": {
+    "topologic_core": "913b51db6261c6052fe691efa7fcf9b6ccea9b3c3f7016d5d9fe1d9d2fcd4a8d",
+    "topologicpy": "7abcf7e43d8508ea4963289096311d88236ecc156c240e8d3337710e11f838f4"
+   }
+  }
+ },
+ "corpus_id": "graph-pipeline-gold-v1"
+}

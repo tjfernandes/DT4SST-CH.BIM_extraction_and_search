@@ -2,10 +2,67 @@
 
 ## Last completed issue
 
-HBIM-073 — document retrieval: the `document_hybrid` route serves BM25 + dense
-1024-dimensional chunk retrieval fused by complete-union RRF, emits EvidencePack
-v2 document evidence, and answers only with validated document/page/base-chunk
-citations or a deterministic abstention.
+HBIM-079 — IFC graph pipeline feasibility: the canonical graph IR is frozen, the
+IfcOpenShell-only adapter passes every mandatory gate against independently
+authored gold, and a reproducible decision artifact selects it as the production
+pipeline. HBIM-080 is unblocked.
+
+## Status of HBIM-079
+
+**Complete.**
+
+### Decision
+
+Outcome `selected_ifcopenshell_only`; all eight mandatory gates pass; fallback
+`ifcopenshell_only`. `backend/eval/baselines/graph_pipeline_decision.json` is
+recomputed from `graph_pipeline_metrics.json` by a pure selector on every CI
+run — the gate never trusts the recorded outcome. ADR-0001 moves
+**Proposed → Accepted**: the IR and adapter boundary are adopted, TopologicPy
+is not.
+
+Candidates B (TopologicPy-led) and C (hybrid) were **never executed**. They
+were rejected at preflight on two frozen reasons each —
+`licence_review_unresolved` and `import_environment_mutation` (40 module-level
+`os.system("pip install …")` sites across 11 modules). `licence_review_status =
+unresolved` is a **project review state, not a legal conclusion**; no claim is
+made about their graph quality, which was never measured.
+
+### Canonical graph IR
+
+`backend/graph/` — `ids.py` (`hbim-079-graph-ir-v1`; netstring + SHA-256[:32]
+identities reusing `canonical.ids`, so an element never acquires a second
+project identity), `serialization.py` (6-decimal round-half-even quantisation,
+`-0.0` normalised), `predicates.py` (15 native + 4 derived, disjoint tables,
+AABB geometry regime), `validation.py` (25 issue codes, all classified as
+abort / reject-candidate / warning), `schema.py` (native and derived edges
+structurally distinct; a derived edge can never impersonate a native one).
+
+### Benchmark and corpus
+
+13 synthetic fixtures in 7 families across IFC4 and IFC2X3, byte-identical
+across cold processes. Gold was authored from design tables — never from
+adapter output — and hash-frozen **before** the first candidate execution.
+Native results are exact on every valid fixture (zero lost, zero invented, zero
+cross-project, zero duplicate ids); derived predicates are exact at the
+production tolerance 0.001 m over a five-point sweep whose near-boundary pairs
+flip exactly where the gold says. Determinism: three cold subprocesses and
+three warm runs agree on canonical bytes and fingerprints.
+
+### Gates
+
+HBIM-060 grows 23 → 26 slices: `graph_ir_contract` (pure, 18 checks),
+`graph_pipeline_decision` (pure, 26 checks, full hash chain plus selector
+recomputation and both artifact checksums) and `graph_pipeline_live` (manual —
+geometry never re-runs in standard CI). `graph_retrieval` deliberately stays
+`unavailable_future`: HBIM-079 decides extraction, it does not open a retrieval
+path.
+
+### Limitations
+
+Fixtures are synthetic and small; no real or private IFC was used. Geometry is
+AABB-only by design — HBIM-080 owns real geometric extraction. Operational
+timings are recorded but excluded from every checksum, so the artifacts stay
+reproducible across machines.
 
 ## Status of HBIM-073
 
@@ -1738,9 +1795,13 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-073 unblocks **HBIM-079**
-(document follow-up and detail behaviour over the frozen snapshot), per the
-roadmap ordering.
+None — awaiting the next issue in the roadmap. HBIM-079 unblocks **HBIM-080**
+(canonical geometric extraction by the selected pipeline), per ROADMAP §917.
+
+(The previous edition of this line described HBIM-079 as document follow-up
+behaviour. That was a forward-looking guess written during HBIM-073 and is
+contradicted by ROADMAP §908 and by the accepted HBIM-079 specification, both
+of which define HBIM-079 as the IFC graph pipeline feasibility milestone.)
 
 ## Scope of HBIM-042
 

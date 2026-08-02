@@ -1,0 +1,167 @@
+{
+ "benchmark_config": {
+  "adapter_id": "ifcopenshell_only",
+  "adapter_version": "hbim-079-a-v1",
+  "geometry_version": "hbim-079-geometry-aabb-v1",
+  "ifcopenshell": "0.8.3.post1",
+  "production_tolerance_m": "0.001000",
+  "tolerances_m": [
+   "0.000000",
+   "0.001000",
+   "0.005000",
+   "0.010000",
+   "0.050000"
+  ]
+ },
+ "corpus_id": "graph-pipeline-gold-v1",
+ "fixtures": [
+  {
+   "expected_complete": true,
+   "family": 1,
+   "filename": "gfx-1-01.ifc",
+   "fixture_id": "gfx-1-01",
+   "ifc_schema": "IFC4",
+   "notes": "hierarchy: project/site/building/2 storeys/2 spaces, 4 walls + 1 slab contained",
+   "project_id": "proj-graph",
+   "sha256": "7308f51f7cc5e4d1b7a2788522699b70378e92a71786298f174030b056f198d9"
+  },
+  {
+   "expected_complete": true,
+   "family": 1,
+   "filename": "gfx-1-02.ifc",
+   "fixture_id": "gfx-1-02",
+   "ifc_schema": "IFC2X3",
+   "notes": "same canonical expectations as gfx-1-01 under IFC2X3",
+   "project_id": "proj-graph",
+   "sha256": "71787f75a64659294a065a050a4ee79c40727d25026a20014f1b9b06bd6f8e2b"
+  },
+  {
+   "expected_complete": true,
+   "family": 2,
+   "filename": "gfx-2-01.ifc",
+   "fixture_id": "gfx-2-01",
+   "ifc_schema": "IFC4",
+   "notes": "curtain wall aggregates 3 plates; proxy nests 2 components (C-5); 3 walls share one wall type",
+   "project_id": "proj-graph",
+   "sha256": "2f4aaf1d2a793d5013c948e0423db461fc93ed761d24f1c3e4188dde54516509"
+  },
+  {
+   "expected_complete": true,
+   "family": 3,
+   "filename": "gfx-3-01.ifc",
+   "fixture_id": "gfx-3-01",
+   "ifc_schema": "IFC4",
+   "notes": "materials Granito/Calcario, one group with 2 members, one system with 2 members",
+   "project_id": "proj-graph",
+   "sha256": "9787a61b58222dfec68b2fa76b618569b8eb574e91827f14b6577615d65ad606"
+  },
+  {
+   "expected_complete": true,
+   "family": 4,
+   "filename": "gfx-4-01.ifc",
+   "fixture_id": "gfx-4-01",
+   "ifc_schema": "IFC4",
+   "notes": "opening voids wall, door fills opening; no HOSTED_BY is inferred",
+   "project_id": "proj-graph",
+   "sha256": "4a6ab517c36a7c07b1aefec50df4c01e45a0bebe9cd19e288be79ebc4fd80ee5"
+  },
+  {
+   "expected_complete": false,
+   "family": 5,
+   "filename": "gfx-5-01.ifc",
+   "fixture_id": "gfx-5-01",
+   "ifc_schema": "IFC4",
+   "notes": "space boundary + connects-to; one boundary lacks its related element (warning)",
+   "project_id": "proj-graph",
+   "sha256": "506058dd388cdc068d435b804046403d61d17fc5da06c58175cc572df86c811d"
+  },
+  {
+   "expected_complete": true,
+   "family": 6,
+   "filename": "gfx-6-01.ifc",
+   "fixture_id": "gfx-6-01",
+   "ifc_schema": "IFC4",
+   "notes": "analytic AABB pairs incl. 0.0009/0.001/0.0011 m gaps and a 1e-9 coincidence",
+   "project_id": "proj-graph",
+   "sha256": "7036c707d979cf133b0ef0af328939d95790184592e07c75028c089318cd4d43"
+  },
+  {
+   "expected_complete": false,
+   "family": 7,
+   "filename": "gfx-7-01.ifc",
+   "fixture_id": "gfx-7-01",
+   "ifc_schema": "IFC4",
+   "notes": "element with an empty GlobalId -> invalid_ifc abort",
+   "project_id": "proj-graph",
+   "sha256": "ada2a9af68e84d90c62862431d246a0492156376508deaee03dbb1c5d0ed6d1c"
+  },
+  {
+   "expected_complete": false,
+   "family": 7,
+   "filename": "gfx-7-02.ifc",
+   "fixture_id": "gfx-7-02",
+   "ifc_schema": "IFC4",
+   "notes": "two elements share one GlobalId -> duplicate_global_id abort",
+   "project_id": "proj-graph",
+   "sha256": "20c34023b6ecdbe1ac9dbdd9002ef6f163567b9ebe4017f6b5b5f953bdcce6c9"
+  },
+  {
+   "expected_complete": false,
+   "family": 7,
+   "filename": "gfx-7-03.ifc",
+   "fixture_id": "gfx-7-03",
+   "ifc_schema": "IFC4",
+   "notes": "containment relation with no RelatedElements -> warning, partial",
+   "project_id": "proj-graph",
+   "sha256": "f16567f22a324f2f794f40b32d5152f019eff545829d80344a83dcb906ee545a"
+  },
+  {
+   "expected_complete": false,
+   "family": 7,
+   "filename": "gfx-7-04.ifc",
+   "fixture_id": "gfx-7-04",
+   "ifc_schema": "IFC4",
+   "notes": "depth-0 extrusion cannot triangulate -> unsupported_geometry, partial",
+   "project_id": "proj-graph",
+   "sha256": "b8bb5c61218ef031efc8a2564d53ea51920e6b4bca85f3d044f06e22468134fe"
+  },
+  {
+   "expected_complete": false,
+   "family": 7,
+   "filename": "gfx-7-05.ifc",
+   "fixture_id": "gfx-7-05",
+   "ifc_schema": "IFC4",
+   "notes": "orphan element with no spatial container -> partial_extraction",
+   "project_id": "proj-graph",
+   "sha256": "296dc17c016532acb1f938508c443e289cc00db07634a64980da98f4bd5bf84c"
+  },
+  {
+   "expected_complete": true,
+   "family": 7,
+   "filename": "gfx-7-06.ifc",
+   "fixture_id": "gfx-7-06",
+   "ifc_schema": "IFC4",
+   "notes": "isolation fixture: extracted under proj-other, no edge may reach proj-graph",
+   "project_id": "proj-other",
+   "sha256": "15253b48574d9b4ebf484bed969d477f92add17f7fcf335f245114df87f61813"
+  }
+ ],
+ "generator_version": "hbim-079-graph-fixtures-v1",
+ "gold": {
+  "candidate_preflight_gold.json": "b33ad0b49585a53ea779a5703398776e4b26ef6ae087a431921972484ee47abd",
+  "derived_edges_gold.jsonl": "d1e551015ede685cd8a2eb17d518689cf58722f694cc43a136571ccff6c4e871",
+  "invalid_cases_gold.jsonl": "3c498e9a604d87d82cbec35ac7dc3f6e41ce6e69d31ece6b4fa0c5e72b140546",
+  "native_edges_gold.jsonl": "9dca5fa9fad64bb85d275c3eca31acc98b5f143376d02359b1e09b8e350a81e5",
+  "nodes_gold.jsonl": "f440aaf98432040aa664b664b5f6dfc37672ae1ddb5febbf6aa45af7a975a083"
+ },
+ "sources": {
+  "adapters_base.py": "80e8dd9440c33a561aebe33644a7c37a3150039870770781283622a693ee47fe",
+  "graph_fixtures.py": "fdeacad30491cc8d7701a94eb242807673d6876f4e35c01b90939ff5a4aca688",
+  "graph_ids.py": "c14dcf512181fa9a4e1f32553864be6e3f83a57968a63a1700194461a1600bb5",
+  "graph_predicates.py": "e524468ebad098d73fca389bd2b42372bafc741a7e1f4cf17582038047fac592",
+  "graph_schema.py": "5d3cc50cabf67a3a14c31d40a934037f335363e313ad1b9e082b9a217b77fa3b",
+  "graph_serialization.py": "8ed0afdeb1d10a854a3dcd26cd066a72cfcc4450622e53fbff1dd6f034d74d6d",
+  "graph_validation.py": "f071460ee2125769e32b04a2f1a845ca5e9712ff7588baefc28c18d2ef91a324",
+  "ifcopenshell_adapter.py": "0a2cceb39c6630fa7b35347eee5c9afcd309bfee33d4fbf8c807c249723537c6"
+ }
+}
