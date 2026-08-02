@@ -90,14 +90,39 @@ BASE_STRATEGY: Mapping[Route, str] = MappingProxyType(
         # No backend yet (spec §C3) — degraded on purpose:
         Route.GRAPH: "structured",
         Route.MULTIMODAL: "semantic",
-        Route.DOCUMENT_HYBRID: "semantic",
+        # HBIM-073 §37 — the document route has a real backend now; it degrades
+        # to "semantic" only while activation is off (see UNIMPLEMENTED_ROUTES).
+        Route.DOCUMENT_HYBRID: "document_hybrid",
     }
 )
 
-#: Routes whose backend does not exist yet (Neo4j, media, chunks).
-UNIMPLEMENTED_ROUTES: frozenset[Route] = frozenset(
-    {Route.GRAPH, Route.MULTIMODAL, Route.DOCUMENT_HYBRID}
-)
+#: Routes with no backend at all (Neo4j, media). HBIM-073 §37: the document
+#: route is NOT in this static set any more — its availability is decided at
+#: request time by ``document_route_unavailable()``, so a misconfigured or
+#: unverified deployment still degrades exactly as before.
+UNIMPLEMENTED_ROUTES: frozenset[Route] = frozenset({Route.GRAPH, Route.MULTIMODAL})
+
+#: The degraded strategy the document route falls back to when activation is
+#: off or a preflight fails. Kept byte-identical to the pre-HBIM-073 value so
+#: every legacy response is unchanged.
+DOCUMENT_DEGRADED_STRATEGY = "semantic"
+
+
+def document_route_unavailable(activation: object | None = None) -> bool:
+    """§37 — True while the document route must behave exactly as before.
+
+    Fail-closed by construction: any missing configuration, disabled flag or
+    settings error keeps the route degraded. The identity preflight itself runs
+    later, against the live index, in ``DocumentHybridRetriever``.
+    """
+    if activation is None:
+        try:
+            from shared.config import DocumentActivationSettings
+
+            activation = DocumentActivationSettings()
+        except Exception:  # noqa: BLE001 — misconfiguration degrades, never 500s
+            return True
+    return not getattr(activation, "enabled", False)
 
 
 def execution_strategy(
@@ -117,6 +142,9 @@ def execution_strategy(
     """
     if decision.route in UNIMPLEMENTED_ROUTES:
         return BASE_STRATEGY[decision.route], True
+    if decision.route is Route.DOCUMENT_HYBRID and document_route_unavailable():
+        # §37 — activation off (or unverifiable): byte-identical legacy behaviour.
+        return DOCUMENT_DEGRADED_STRATEGY, True
     if decision.route is Route.EXACT_LOOKUP and not context.has_previous_results:
         return "structured", True
     return BASE_STRATEGY[decision.route], False
@@ -484,6 +512,9 @@ def _snapshot_expected_identity(
     )
 
     return {
+        # HBIM-073 §38 made the snapshot source-typed; the element route binds
+        # the element kind, which keeps its behaviour exactly as before.
+        "kind": "element",
         "tproto": THRESHOLD_PROTOCOL_VERSION,
         "tmode": reranker_settings.score_threshold_mode,
         "tval": reranker_settings.effective_threshold,

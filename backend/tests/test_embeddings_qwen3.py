@@ -579,12 +579,14 @@ def test_v1_mappings_remain_vector_free_and_only_elements_v2_carries_the_vector(
     mappings = sorted((BACKEND / "canonical" / "mappings").glob("*.json"))
     assert [path.name for path in mappings] == [
         # HBIM-070 §19.3 added chunks_v1 and documents_v2; HBIM-071 §21 added
-        # chunks_v2 and documents_v3; HBIM-072 §21 added chunks_v3. None
-        # carries a vector, so the "only elements_v2 is vectorised" claim is
-        # unchanged.
+        # chunks_v2 and documents_v3; HBIM-072 §21 added chunks_v3.
+        # HBIM-073 §22 added chunks_v4, the SECOND vectorised mapping — so the
+        # historical "only elements_v2 is vectorised" claim is replaced by the
+        # explicit two-file claim asserted below.
         "chunks_v1.json",
         "chunks_v2.json",
         "chunks_v3.json",
+        "chunks_v4.json",
         "classification_facts_v1.json",
         "documents_v1.json",
         "documents_v2.json",
@@ -593,14 +595,19 @@ def test_v1_mappings_remain_vector_free_and_only_elements_v2_carries_the_vector(
         "elements_v2.json",
         "property_facts_v1.json",
     ]
+    #: The closed set of vectorised mappings — exactly two, in two different
+    #: embedding spaces (element d4096 and chunk d1024, each benchmark-selected
+    #: independently; HBIM-073 §20 never copied the element dimension).
+    vectorised = {"elements_v2.json", "chunks_v4.json"}
     for path in mappings:
         raw = path.read_text(encoding="utf-8")
-        if path.name == "elements_v2.json":
+        if path.name in vectorised:
             assert raw.count('"knn_vector"') == 1
             assert '"embedding_qwen3"' in raw
             continue
         for token in ("knn_vector", "embedding", "dimension", "semantic_embedding"):
             assert token not in raw, f"{path.name} gained a vector field"
+    assert {path.name for path in mappings if '"knn_vector"' in path.read_text("utf-8")} == vectorised
 
 
 # --------------------------------------------------------------------------- #

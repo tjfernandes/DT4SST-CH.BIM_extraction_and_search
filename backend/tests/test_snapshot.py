@@ -262,6 +262,9 @@ def test_identity_mismatch_on_every_bound_field_is_rejected() -> None:
     expected = _expected_identity(snapshot)
     verify_identity(snapshot, expected=expected)  # exact match passes
     changed: dict[str, Any] = {
+        # HBIM-073 §38 made the snapshot source-typed: `kind` is now a bound
+        # identity, so an element token can never validate on the document path.
+        "kind": "document_chunk",
         "tproto": "hbim-051-threshold-v3", "tmode": "numeric", "tval": 0.5,
         "model": "other/model", "rev": "0" * 40, "emb_rev": "1" * 40,
         "space": "other/space@d8", "proj": "r2", "instr": "i2", "depth": 100,

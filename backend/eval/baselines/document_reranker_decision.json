@@ -1,0 +1,326 @@
+{
+  "artifact": "document_reranker_decision",
+  "candidate_membership_proof": {
+    "q01": true,
+    "q02": true,
+    "q03": true,
+    "q04": true,
+    "q05": true,
+    "q06": true,
+    "q07": true,
+    "q08": true,
+    "q09": true,
+    "q10": true,
+    "q11": true,
+    "q12": true,
+    "q13": true,
+    "q14": true,
+    "q15": true,
+    "q16": true
+  },
+  "corpus_id": "document-retrieval-gold-v1",
+  "decision_mode": "disabled_rrf_only",
+  "depth": 50,
+  "drift": {
+    "accepted_order_stable": false,
+    "accepted_set_stable_mode_a": true,
+    "full_table_cross_pass_max_abs": 0.009294182062149048,
+    "passes": 4,
+    "repeat_max_abs": 0.0005183815956115723,
+    "singleton_max_abs": 0.000979820266366005
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "held_out": [
+        "q01",
+        "q05",
+        "q09",
+        "q13"
+      ],
+      "held_out_false_accepts": 1,
+      "held_out_missed_positives": 1,
+      "threshold": 0.9130111932754517,
+      "train_max_negative": 0.8172407150268555
+    },
+    {
+      "fold": 1,
+      "held_out": [
+        "q02",
+        "q06",
+        "q10",
+        "q14"
+      ],
+      "held_out_false_accepts": 0,
+      "held_out_missed_positives": 6,
+      "threshold": 0.9958943128585815,
+      "train_max_negative": 0.9955292344093323
+    },
+    {
+      "fold": 2,
+      "held_out": [
+        "q03",
+        "q07",
+        "q11",
+        "q15"
+      ],
+      "held_out_false_accepts": 0,
+      "held_out_missed_positives": 4,
+      "threshold": 0.9979645013809204,
+      "train_max_negative": 0.9955292344093323
+    },
+    {
+      "fold": 3,
+      "held_out": [
+        "q04",
+        "q08",
+        "q12",
+        "q16"
+      ],
+      "held_out_false_accepts": 0,
+      "held_out_missed_positives": 5,
+      "threshold": 0.9958943128585815,
+      "train_max_negative": 0.9955292344093323
+    }
+  ],
+  "gold": {
+    "corpus.jsonl": "e957eacd7227ff12410085a423c2348c8140b721c4e5789b8dddfbacef830e28",
+    "qrels.jsonl": "8fa5d86f257262f29a8ab1b81e903653a7cda951e05ac2c5e1ae3b1706f9f492",
+    "queries.jsonl": "7d2c88ea2571912cca9d413db54729d222beca01aa6452ea6d02f5fcaabce82a"
+  },
+  "gold_repair": {
+    "changes": [
+      {
+        "added_chunk": "c20",
+        "grade": 2,
+        "query_id": "q02"
+      },
+      {
+        "added_chunk": "c20",
+        "grade": 2,
+        "query_id": "q08"
+      }
+    ],
+    "rule": "duplicate-equivalence (spec 11.1)",
+    "superseded_qrels_sha256": "65e778994e006938729870346b14c7b55d08ffcb4611335b565090789b64b760"
+  },
+  "instruction_version": "dv1",
+  "metrics": {
+    "bm25": {
+      "forbidden_ids": [],
+      "mrr_at_10": 0.928571,
+      "ndcg_at_10": 0.830934,
+      "recall_at_1": 0.607143,
+      "recall_at_10": 0.821429,
+      "recall_at_5": 0.821429,
+      "zero_relevant_returned": {
+        "q10": [],
+        "q11": []
+      }
+    },
+    "dense_1024": {
+      "forbidden_ids": [],
+      "mrr_at_10": 0.952381,
+      "ndcg_at_10": 0.925587,
+      "recall_at_1": 0.607143,
+      "recall_at_10": 0.976191,
+      "recall_at_5": 0.976191,
+      "zero_relevant_returned": {
+        "q10": [
+          "c04",
+          "c02",
+          "c03"
+        ],
+        "q11": [
+          "c13",
+          "c05",
+          "c24"
+        ]
+      }
+    },
+    "reranked_mode_a": {
+      "forbidden_ids": [],
+      "mrr_at_10": 0.571429,
+      "ndcg_at_10": 0.534193,
+      "recall_at_1": 0.428571,
+      "recall_at_10": 0.464286,
+      "recall_at_5": 0.464286,
+      "zero_relevant_returned": {
+        "q10": [],
+        "q11": []
+      }
+    },
+    "reranked_mode_b": {
+      "forbidden_ids": [],
+      "mrr_at_10": 1.0,
+      "ndcg_at_10": 0.975838,
+      "recall_at_1": 0.642857,
+      "recall_at_10": 1.0,
+      "recall_at_5": 0.940476,
+      "zero_relevant_returned": {
+        "q10": [
+          "c04",
+          "c06",
+          "c02"
+        ],
+        "q11": [
+          "c06",
+          "c24",
+          "c17"
+        ]
+      }
+    },
+    "rrf_raw": {
+      "forbidden_ids": [],
+      "mrr_at_10": 1.0,
+      "ndcg_at_10": 0.946141,
+      "recall_at_1": 0.642857,
+      "recall_at_10": 0.976191,
+      "recall_at_5": 0.976191,
+      "zero_relevant_returned": {
+        "q10": [
+          "c04",
+          "c02",
+          "c03"
+        ],
+        "q11": [
+          "c13",
+          "c05",
+          "c24"
+        ]
+      }
+    }
+  },
+  "milestone": "HBIM-073",
+  "mode_evaluation": {
+    "accept_all_rank_only": {
+      "gates": {
+        "g1_mode_a_unavailable": true,
+        "g2_ranking_deterministic": false,
+        "g3_ndcg_within_tolerance": true,
+        "g3_recall_within_tolerance": true,
+        "g4_zero_relevant_abstains_symmetric": true,
+        "g5_no_forbidden_id": true,
+        "g6_union_membership_unchanged": true,
+        "g7_mechanically_reproduced": true
+      },
+      "metrics": {
+        "forbidden_ids": [],
+        "mrr_at_10": 1.0,
+        "ndcg_at_10": 0.975838,
+        "recall_at_1": 0.642857,
+        "recall_at_10": 1.0,
+        "recall_at_5": 0.940476,
+        "zero_relevant_returned": {
+          "q10": [
+            "c04",
+            "c06",
+            "c02"
+          ],
+          "q11": [
+            "c06",
+            "c24",
+            "c17"
+          ]
+        }
+      },
+      "reason_code": "returned_order_unstable",
+      "returned_top10_stable_across_passes": false,
+      "union_membership_preserved": true
+    },
+    "disabled_rrf_only": {
+      "gates": {
+        "g1_mode_a_unavailable": true,
+        "g2_mode_b_unavailable": true,
+        "g3_ranking_deterministic": true,
+        "g4_zero_relevant_abstains_symmetric": true,
+        "g5_no_forbidden_id": true,
+        "g6_union_is_the_ranking": true
+      },
+      "metrics": {
+        "forbidden_ids": [],
+        "mrr_at_10": 1.0,
+        "ndcg_at_10": 0.946141,
+        "recall_at_1": 0.642857,
+        "recall_at_10": 0.976191,
+        "recall_at_5": 0.976191,
+        "zero_relevant_returned": {
+          "q10": [
+            "c04",
+            "c02",
+            "c03"
+          ],
+          "q11": [
+            "c13",
+            "c05",
+            "c24"
+          ]
+        }
+      },
+      "reason_code": "ok"
+    },
+    "stable_threshold": {
+      "candidate_threshold": 0.9979645013809204,
+      "false_accepts": 0,
+      "gates": {
+        "g1_protocol_applied": true,
+        "g2_zero_false_accepts": true,
+        "g3_no_query_loses_all_relevants": false,
+        "g4_recall_within_tolerance": false,
+        "g5_boundary_outside_drift": false,
+        "g6_membership_stable": true,
+        "g7_selector_deterministic": true
+      },
+      "membership_stable": true,
+      "metrics": {
+        "forbidden_ids": [],
+        "mrr_at_10": 0.571429,
+        "ndcg_at_10": 0.534193,
+        "recall_at_1": 0.428571,
+        "recall_at_10": 0.464286,
+        "recall_at_5": 0.464286,
+        "zero_relevant_returned": {
+          "q10": [],
+          "q11": []
+        }
+      },
+      "min_gap_to_threshold": 0.00042557716369628906,
+      "published_by_pass": [
+        0.9979645013809204,
+        0.9979645013809204,
+        0.9979645013809204,
+        0.9979645013809204
+      ],
+      "queries_losing_all_relevants": [
+        "q01",
+        "q02",
+        "q03",
+        "q08",
+        "q14",
+        "q15"
+      ],
+      "reason_code": "query_lost_all_relevants",
+      "required_gap": 0.09294182062149048
+    }
+  },
+  "model": {
+    "model_id": "Qwen/Qwen3-Reranker-8B",
+    "revision": "77d193c791ed757ca307ee72715aa132723da912"
+  },
+  "projection_version": "dr1",
+  "protocol": {
+    "fold_rule": "sorted(query_id) index modulo 4",
+    "folds": 4,
+    "name": "out_of_fold",
+    "precedence": [
+      "stable_threshold",
+      "accept_all_rank_only",
+      "disabled_rrf_only"
+    ],
+    "safety_factor": 10,
+    "selection": "max_of_fold_thresholds",
+    "tolerance": 0.02
+  },
+  "selected_dimension_input": 1024,
+  "threshold": null
+}

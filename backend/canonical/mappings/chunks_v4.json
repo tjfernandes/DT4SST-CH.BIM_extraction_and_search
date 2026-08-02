@@ -1,0 +1,200 @@
+{
+  "_meta": {
+    "canonical_schema_versions": [
+      "hbim-070-chunk-v1",
+      "hbim-071-chunk-v2",
+      "hbim-072-chunk-v3"
+    ],
+    "created_by": "HBIM-073",
+    "decision_artifact": "document_dimension_decision.json",
+    "decision_artifact_sha256": "181d5122c8a25f9c513cb719004058ddc0cf184c17ad8a0710414f134ad690e7",
+    "dimensions": 1024,
+    "embedding_space_id": "Qwen/Qwen3-Embedding-8B@1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/d1024",
+    "mapping_version": "4",
+    "model_id": "Qwen/Qwen3-Embedding-8B",
+    "model_revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af",
+    "projection_version": "hbim-073-chunk-projection-v1",
+    "record_type": "chunk",
+    "vector_field": "embedding_qwen3"
+  },
+  "_source": {
+    "enabled": true
+  },
+  "dynamic": "strict",
+  "properties": {
+    "base_chunk_id": {
+      "type": "keyword"
+    },
+    "catalog_fingerprint": {
+      "type": "keyword"
+    },
+    "char_count": {
+      "type": "integer"
+    },
+    "chunk_id": {
+      "type": "keyword"
+    },
+    "chunk_index": {
+      "type": "integer"
+    },
+    "chunker_version": {
+      "type": "keyword"
+    },
+    "confidence": {
+      "type": "float"
+    },
+    "document_id": {
+      "type": "keyword"
+    },
+    "element_links": {
+      "dynamic": "strict",
+      "properties": {
+        "element_id": {
+          "type": "keyword"
+        },
+        "ifc_class": {
+          "type": "keyword"
+        },
+        "ifc_class_mentioned": {
+          "type": "boolean"
+        },
+        "location_levels_used": {
+          "type": "keyword"
+        },
+        "material_names_mentioned": {
+          "type": "keyword"
+        },
+        "mentions": {
+          "dynamic": "strict",
+          "properties": {
+            "end": {
+              "type": "integer"
+            },
+            "page_number": {
+              "type": "integer"
+            },
+            "region_index": {
+              "type": "integer"
+            },
+            "start": {
+              "type": "integer"
+            },
+            "text": {
+              "index": false,
+              "type": "keyword"
+            }
+          },
+          "type": "nested"
+        },
+        "method": {
+          "type": "keyword"
+        },
+        "runner_up_score": {
+          "type": "float"
+        },
+        "score": {
+          "type": "float"
+        }
+      },
+      "type": "nested"
+    },
+    "embedding_qwen3": {
+      "dimension": 1024,
+      "method": {
+        "engine": "lucene",
+        "name": "hnsw",
+        "parameters": {
+          "ef_construction": 100,
+          "m": 16
+        },
+        "space_type": "cosinesimil"
+      },
+      "type": "knn_vector"
+    },
+    "link_revision_id": {
+      "type": "keyword"
+    },
+    "linked_element_ids": {
+      "type": "keyword"
+    },
+    "linker_version": {
+      "type": "keyword"
+    },
+    "normalization_version": {
+      "type": "keyword"
+    },
+    "ocr": {
+      "type": "boolean"
+    },
+    "page_number": {
+      "type": "integer"
+    },
+    "page_regions": {
+      "dynamic": "strict",
+      "properties": {
+        "page_number": {
+          "type": "integer"
+        },
+        "region_index": {
+          "type": "integer"
+        },
+        "x0": {
+          "type": "float"
+        },
+        "x1": {
+          "type": "float"
+        },
+        "y0": {
+          "type": "float"
+        },
+        "y1": {
+          "type": "float"
+        }
+      },
+      "type": "object"
+    },
+    "page_span": {
+      "type": "integer"
+    },
+    "parser_name": {
+      "type": "keyword"
+    },
+    "parser_version": {
+      "type": "keyword"
+    },
+    "project_id": {
+      "type": "keyword"
+    },
+    "revision_id": {
+      "type": "keyword"
+    },
+    "schema_version": {
+      "type": "keyword"
+    },
+    "section_index": {
+      "type": "integer"
+    },
+    "section_path": {
+      "fields": {
+        "text": {
+          "analyzer": "portuguese",
+          "type": "text"
+        }
+      },
+      "type": "keyword"
+    },
+    "section_title": {
+      "fields": {
+        "text": {
+          "analyzer": "portuguese",
+          "type": "text"
+        }
+      },
+      "type": "keyword"
+    },
+    "text": {
+      "analyzer": "portuguese",
+      "type": "text"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{"category": "exact_term_bm25", "query_id": "q01", "text": "difração de raios X"}
+{"category": "paraphrase_dense", "query_id": "q02", "text": "degradação provocada pela água nas paredes exteriores"}
+{"category": "pt_terminology", "query_id": "q03", "text": "colonização biológica nas juntas de argamassa"}
+{"category": "morphological", "query_id": "q04", "text": "argamassas históricas de cal"}
+{"category": "ocr_origin", "query_id": "q05", "text": "campanha arqueológica de 1998 na cisterna"}
+{"category": "section_page", "query_id": "q06", "text": "levantamento fotogramétrico do alçado poente"}
+{"category": "duplicate_pages", "query_id": "q07", "text": "erosão superficial da muralha norte"}
+{"category": "cross_project", "query_id": "q08", "text": "relatório de conservação da muralha"}
+{"category": "linked_element", "query_id": "q09", "text": "intervenções na Muralha Norte enquanto elemento"}
+{"category": "zero_relevant", "query_id": "q10", "text": "condutas de climatização e sistema AVAC"}
+{"category": "ambiguous_abstain", "query_id": "q11", "text": "qual foi o custo total da obra"}
+{"category": "superseded_revision", "query_id": "q12", "text": "conclusões do relatório revisto"}
+{"category": "relink_stability", "query_id": "q13", "text": "estratigrafia da sondagem norte"}
+{"category": "multi_document", "query_id": "q14", "text": "uso de cal aérea em juntas"}
+{"category": "dense_only", "query_id": "q15", "text": "deterioração causada por organismos vivos"}
+{"category": "bm25_only", "query_id": "q16", "text": "ZZQDOCRETV"}

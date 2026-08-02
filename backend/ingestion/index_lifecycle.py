@@ -181,8 +181,16 @@ _MAPPING_VERSIONS: Mapping[str, Mapping[str, str]] = MappingProxyType(
         ),
         # HBIM-072 §21: chunk v3 carries the deterministic element links; the
         # registry default stays v1 and the enriched path selects v3 explicitly.
+        # HBIM-073 §22: chunk v4 is the vectorized additive successor (1024-dim
+        # ``embedding_qwen3`` plus the analyzed section sub-fields). The registry
+        # default still stays v1; the vectorized path selects "4" explicitly.
         "chunk": MappingProxyType(
-            {"1": "chunks_v1.json", "2": "chunks_v2.json", "3": "chunks_v3.json"}
+            {
+                "1": "chunks_v1.json",
+                "2": "chunks_v2.json",
+                "3": "chunks_v3.json",
+                "4": "chunks_v4.json",
+            }
         ),
     }
 )

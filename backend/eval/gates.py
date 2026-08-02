@@ -770,6 +770,197 @@ def _eval_unavailable(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     outcome.reason = entry.title
 
 
+def _eval_document_retrieval(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-073 §54 — gold integrity + the served ranking's quality bars.
+
+    Under `disabled_rrf_only` the served ranking IS raw RRF, so the bars apply
+    to raw RRF: the gate always measures the path production actually serves.
+    Pure — no OpenSearch, no embedding service, no reranker.
+    """
+    from eval.document_retrieval_eval import CORPUS_ID, load_gold
+
+    gold = load_gold(root / "backend/eval/dataset/document_retrieval")
+    _enforce_min_cases(entry, outcome, len(gold.queries))
+
+    decision = _load_json(
+        root / "backend/eval/baselines/document_reranker_decision.json", outcome
+    )
+    dimension = _load_json(
+        root / "backend/eval/baselines/document_dimension_decision.json", outcome
+    )
+    if decision is None or dimension is None:
+        return
+
+    # Chain to the exact reviewed gold: a tampered corpus is caught here.
+    for name, relative in (
+        ("corpus.jsonl", "backend/eval/dataset/document_retrieval/corpus.jsonl"),
+        ("queries.jsonl", "backend/eval/dataset/document_retrieval/queries.jsonl"),
+        ("qrels.jsonl", "backend/eval/dataset/document_retrieval/qrels.jsonl"),
+    ):
+        recorded = (decision.get("gold") or {}).get(name)
+        actual = sha256_of(root / relative)
+        matched = recorded == actual
+        outcome.integrity.append(
+            {"path": relative, "expected_sha256": "chained-in-document-reranker-decision",
+             "ok": matched}
+        )
+        if not matched:
+            outcome.fail(f"document_retrieval chain to {name} broken")
+    if outcome.status == "fail":
+        return
+
+    if (decision.get("corpus_id") or dimension.get("corpus_id")) != CORPUS_ID:
+        outcome.fail("document decision artifacts describe another corpus")
+        return
+
+    mode = decision.get("decision_mode")
+    threshold = decision.get("threshold")
+    selected = (dimension.get("selection") or {}).get("selected_dimension")
+    served = (decision.get("metrics") or {}).get("rrf_raw") or {}
+
+    # The corrected gold must still be 24/16/26 with no forbidden id graded.
+    forbidden = {"c18", "c19", "c21", "c23"}
+    graded = {chunk for grades in gold.qrels.values() for chunk in grades}
+    qrel_rows = sum(len(grades) for grades in gold.qrels.values())
+
+    metrics: dict[str, object] = {
+        "corpus_chunks": float(len(gold.corpus)),
+        "corpus_queries": float(len(gold.queries)),
+        "qrel_rows": float(qrel_rows),
+        "selected_dimension": float(selected) if isinstance(selected, (int, float)) else -1.0,
+        "decision_mode_is_reviewed": 1.0 if mode == "disabled_rrf_only" else 0.0,
+        "threshold_is_null": 1.0 if threshold is None else 0.0,
+        "forbidden_id_graded_count": float(len(graded & forbidden)),
+        "forbidden_ids_returned": float(len(served.get("forbidden_ids") or [])),
+        "ndcg_at_10": _finite_number(served.get("ndcg_at_10"), "rrf_raw.ndcg_at_10"),
+        "recall_at_10": _finite_number(served.get("recall_at_10"), "rrf_raw.recall_at_10"),
+        "mrr_at_10": _finite_number(served.get("mrr_at_10"), "rrf_raw.mrr_at_10"),
+    }
+    metrics.update(_document_citation_and_grounding_metrics(root))
+    _apply_checks(entry, outcome, metrics)
+
+
+def _document_citation_and_grounding_metrics(root: Path) -> dict[str, object]:
+    """§54 — the document/page/stable-citation and zero-relevant bars.
+
+    Replayed through the real pack builders, citation projection and grounding
+    pipeline, so the numbers describe the served path rather than a fixture.
+    """
+    from api.schemas import PublicCitation, to_public_citations
+    from eval.grounding_eval import DOCUMENT_GOLD_PATH, load_gold, run_case
+    from retrieval.evidence import SourceKind
+
+    cases = load_gold(DOCUMENT_GOLD_PATH)
+    checked = matched_document = matched_page = matched_base = 0
+    leaks = correct = false_answers = uncited = zero_calls = 0
+    for case in cases:
+        result = run_case(case)
+        records = case["pack"]["items"]
+        for citation in result.citations:
+            if citation.source_kind != SourceKind.DOCUMENT_CHUNK.value:
+                continue
+            record = records[int(citation.ref[1:]) - 1]
+            checked += 1
+            matched_document += int(citation.document_id == record["document_id"])
+            matched_page += int(citation.page_number == record.get("page_number"))
+            matched_base += int(citation.base_chunk_id == record["base_chunk_id"])
+            if record["storage_chunk_id"] in to_public_citations((citation,))[0].model_dump_json():
+                leaks += 1
+        status = "answer" if result.status == "answer" else "abstain"
+        correct += int(status == case["expect_status"])
+        false_answers += int(status == "answer" and case["expect_status"] == "abstain")
+        uncited += int(status == "answer" and not result.citations)
+        if not case["pack"]["items"]:
+            zero_calls += result.provider_calls
+
+    total = len(cases) or 1
+
+    def ratio(hit: int) -> float:
+        return round(hit / checked, 6) if checked else 1.0
+
+    return {
+        "grounding_cases": float(len(cases)),
+        "citations_checked": float(checked),
+        "document_accuracy": ratio(matched_document),
+        "page_accuracy": ratio(matched_page),
+        "stable_citation_accuracy": ratio(matched_base),
+        "storage_id_leak_count": float(leaks),
+        "public_citation_exposes_storage_id": (
+            1.0 if "storage_chunk_id" in PublicCitation.model_fields else 0.0
+        ),
+        "abstention_correctness": round(correct / total, 6),
+        "false_answer_rate": round(false_answers / total, 6),
+        "uncited_claim_count": float(uncited),
+        "zero_evidence_provider_calls": float(zero_calls),
+    }
+
+
+def _eval_document_dimension_decision(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """§54 — the reviewed 1024 decision, hash-pinned and recomputed.
+
+    The selector is re-applied to the recorded candidate metrics, so an
+    artifact claiming a different winner than its own numbers support fails.
+    """
+    payload = _load_json(
+        root / "backend/eval/baselines/document_dimension_decision.json", outcome
+    )
+    if payload is None:
+        return
+    candidates = payload.get("candidates") or {}
+    selection = payload.get("selection") or {}
+    if not candidates:
+        outcome.fail("document_dimension_decision records no candidates")
+        return
+    best_ndcg = max(_finite_number(c.get("ndcg_at_10"), "ndcg") for c in candidates.values())
+    best_recall = max(_finite_number(c.get("recall_at_10"), "recall") for c in candidates.values())
+    tolerance = _finite_number(selection.get("tolerance"), "tolerance")
+    eligible = sorted(
+        int(dim)
+        for dim, row in candidates.items()
+        if _finite_number(row.get("ndcg_at_10"), "ndcg") >= best_ndcg - tolerance
+        and _finite_number(row.get("recall_at_10"), "recall") >= best_recall - tolerance
+    )
+    recomputed = min(eligible) if eligible else -1
+    metrics: dict[str, object] = {
+        "selector_reproduces_selection": (
+            1.0 if recomputed == selection.get("selected_dimension") else 0.0
+        ),
+        "selected_dimension": float(selection.get("selected_dimension") or -1),
+        "tolerance": tolerance,
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
+def _eval_document_reranker_decision(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """§54 — the reviewed acceptance decision, hash-pinned and re-verified.
+
+    Every §32 mode must carry a closed reason code, exactly one mode may be
+    selected, and a non-`stable_threshold` mode must record `threshold: null`.
+    """
+    payload = _load_json(
+        root / "backend/eval/baselines/document_reranker_decision.json", outcome
+    )
+    if payload is None:
+        return
+    modes = ("stable_threshold", "accept_all_rank_only", "disabled_rrf_only")
+    evaluation = payload.get("mode_evaluation") or {}
+    reasons = [(evaluation.get(m) or {}).get("reason_code") for m in modes]
+    selected = payload.get("decision_mode")
+    threshold = payload.get("threshold")
+    metrics: dict[str, object] = {
+        "every_mode_has_a_reason_code": 1.0 if all(isinstance(r, str) and r for r in reasons) else 0.0,
+        "selected_mode_is_closed": 1.0 if selected in modes else 0.0,
+        "selected_mode_reason_is_ok": (
+            1.0 if (evaluation.get(selected) or {}).get("reason_code") == "ok" else 0.0
+        ),
+        "threshold_null_unless_mode_a": (
+            1.0 if (selected == "stable_threshold") == (threshold is not None) else 0.0
+        ),
+        "rejected_mode_count": float(sum(1 for r in reasons if r not in (None, "ok"))),
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
 SliceAdapter = Callable[[Slice, SliceOutcome, Path], None]
 
 #: §30 — the registry must match the policy's slice ids exactly (tested).
@@ -791,7 +982,10 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "snapshot_evidence_integrity": _eval_unit_delegated,
     "live_service_suites": _eval_manual,
     "ocr_live_suite": _eval_manual,
-    "document_retrieval": _eval_unavailable,
+    "document_retrieval": _eval_document_retrieval,
+    "document_dimension_decision": _eval_document_dimension_decision,
+    "document_reranker_decision": _eval_document_reranker_decision,
+    "document_retrieval_live": _eval_manual,
     "graph_retrieval": _eval_unavailable,
     "multimodal_retrieval": _eval_unavailable,
 }

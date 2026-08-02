@@ -22,6 +22,7 @@ from eval.metrics import (
 )
 from retrieval.evidence import (
     Caveat,
+    DocumentEvidence,
     EvidenceItem,
     EvidencePack,
     ProvenanceEntry,
@@ -30,9 +31,14 @@ from retrieval.evidence import (
     SourceKind,
     build_pack,
     build_pack_for_aggregation,
+    document_caveats,
 )
 
 GOLD_PATH = Path(__file__).resolve().parent / "dataset" / "grounding_gold.jsonl"
+#: HBIM-073 §51 — disjoint from ``grounding-gold-v1``; document citations only.
+DOCUMENT_GOLD_PATH = (
+    Path(__file__).resolve().parent / "dataset" / "document_grounding_gold.jsonl"
+)
 
 
 class _ReplayLLM:
@@ -53,24 +59,17 @@ def load_gold(path: Path = GOLD_PATH) -> list[dict[str, Any]]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def build_pack_from_gold(descriptor: Mapping[str, Any]) -> EvidencePack:
-    """§44 — construct only through HBIM-052 public constructors.
+def _item_from_gold(record: Mapping[str, Any], index: int) -> EvidenceItem:
+    """One evidence item, built only through public HBIM-052/073 constructors.
 
-    A descriptor can therefore never encode a pack shape the real pipeline
-    could not produce.
+    A document descriptor produces a real ``DocumentEvidence`` block and
+    RRF-fusion provenance — never reranker provenance, which HBIM-073 §32
+    Mode C forbids on the document path.
     """
-    aggregation = descriptor.get("aggregation")
-    if aggregation is not None:
-        return build_pack_for_aggregation(
-            route=descriptor["route"],
-            agg_field=aggregation["agg_field"],
-            buckets=list(aggregation["buckets"]),
-            total=aggregation["total"],
-        )
-
-    items = [
-        EvidenceItem(
-            source_kind=SourceKind(record["source_kind"]),
+    kind = SourceKind(record["source_kind"])
+    if kind is not SourceKind.DOCUMENT_CHUNK:
+        return EvidenceItem(
+            source_kind=kind,
             source_id=record["source_id"],
             project_id=record.get("project_id"),
             index_identity="hbim_elements_gold",
@@ -87,11 +86,66 @@ def build_pack_from_gold(descriptor: Mapping[str, Any]) -> EvidencePack:
                 ),
             ),
         )
+
+    document = DocumentEvidence(
+        document_id=record["document_id"],
+        base_chunk_id=record["base_chunk_id"],
+        storage_chunk_id=record["storage_chunk_id"],
+        document_revision_id=record["document_revision_id"],
+        link_revision_id=record["link_revision_id"],
+        page_number=record.get("page_number"),
+        page_span=tuple(record["page_span"]) if record.get("page_span") else None,
+        section_title=record.get("section_title"),
+        section_path=tuple(record.get("section_path") or ()),
+        ocr=bool(record.get("ocr", False)),
+        linked_element_ids=tuple(record.get("linked_element_ids") or ()),
+    )
+    truncated = bool(record.get("content_truncated", False))
+    return EvidenceItem(
+        source_kind=kind,
+        # §43 — the stable citation identity.
+        source_id=document.base_chunk_id,
+        project_id=record.get("project_id"),
+        index_identity="hbim_chunks_gold",
+        content=record["content"],
+        content_truncated=truncated,
+        order_index=index,
+        provenance=(
+            ProvenanceEntry(
+                RetrievalMethod.RRF_FUSION,
+                index + 1,
+                ScoreKind.RRF_FUSED,
+                round(1.0 / (60 + index + 1), 6),
+                True,
+            ),
+        ),
+        caveats=document_caveats(document, truncated=truncated),
+        document=document,
+    )
+
+
+def build_pack_from_gold(descriptor: Mapping[str, Any]) -> EvidencePack:
+    """§44 — construct only through HBIM-052 public constructors.
+
+    A descriptor can therefore never encode a pack shape the real pipeline
+    could not produce.
+    """
+    aggregation = descriptor.get("aggregation")
+    if aggregation is not None:
+        return build_pack_for_aggregation(
+            route=descriptor["route"],
+            agg_field=aggregation["agg_field"],
+            buckets=list(aggregation["buckets"]),
+            total=aggregation["total"],
+        )
+
+    items = [
+        _item_from_gold(record, index)
         for index, record in enumerate(descriptor.get("items") or [])
     ]
     return build_pack(
         route=descriptor["route"],
-        strategy="semantic",
+        strategy=descriptor.get("strategy", "semantic"),
         degraded=False,
         items=items,
         total_hits=descriptor.get("total_hits"),
