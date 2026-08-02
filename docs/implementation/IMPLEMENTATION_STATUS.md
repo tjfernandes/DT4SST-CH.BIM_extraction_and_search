@@ -2,9 +2,206 @@
 
 ## Last completed issue
 
-HBIM-072 — entity linking: document chunks are linked to canonical HBIM
-elements by deterministic, project-scoped, auditable rules, published as
-versioned v3 chunk records whose link revision makes relinking atomic.
+HBIM-073 — document retrieval: the `document_hybrid` route serves BM25 + dense
+1024-dimensional chunk retrieval fused by complete-union RRF, emits EvidencePack
+v2 document evidence, and answers only with validated document/page/base-chunk
+citations or a deterministic abstention.
+
+## Status of HBIM-073
+
+**Complete.**
+
+### Chunk mapping, vectors and indexing
+
+`chunks_v4.json` is the vectorized additive successor: every `chunks_v3`
+property byte-preserved, plus `embedding_qwen3` (`knn_vector`, **1024**,
+lucene/hnsw, `ef_construction=100`, `m=16`, `cosinesimil` — the same method as
+`elements_v2`, so the two spaces differ only by content and dimension) and
+analyzed `section_title.text` / `section_path.text` sub-fields, which the §2
+probe proved were inert keywords in v3. `dynamic: "strict"`; `_meta` pins the
+record type, mapping version `"4"`, embedding space, projection version, vector
+field and the sha256 of the reviewed dimension artifact. `_MAPPING_VERSIONS`
+chunk becomes `{1,2,3,4}` with the **registry default still v1**; the vectorized
+path selects `"4"` explicitly. All ten historical mapping files are
+byte-identical.
+
+`ingestion/indexers/chunks_dense.py` indexes **only active chunks** (current on
+both the document and link revision), accepts `DocumentChunkV3` only, validates
+every vector as finite, exactly 1024-dimensional and unit-norm within 1e-6,
+never mutates its input (deep before/after comparison), and verifies exact count
+plus a full source round-trip before any alias promotion.
+
+### Selected dimension — measured, not copied
+
+**1024**, selected mechanically by the precommitted §20 selector (eligible
+{1024, 2048} within the 0.02 tolerance → smallest wins). 4096 — the dimension
+HBIM-031 selected for *elements* — was measurably **ineligible** here
+(Recall@10 0.940476 against a 0.976191 best), so the no-copy rule is vindicated
+by data rather than by assertion.
+
+### Retrieval contract
+
+Document BM25 targets `text^1.0`, `section_title.text^0.5`,
+`section_path.text^0.25` with `minimum_should_match: 1` and the query string
+passed **verbatim** to the analyzer (the frozen HBIM-041 stop lists are router
+terms, not an index-time contract — recorded as a limitation). Dense retrieval
+reuses `build_dense_query` through an additive `vector_field` parameter whose
+default keeps the element body byte-identical. Both sources carry the **same**
+mandatory filter list, built by one shared function, so a filter present in one
+and missing in the other is structurally impossible: `term project_id`, plus
+`terms` over the deterministic sorted unique active `revision_id` and
+`link_revision_id` sets. An empty set raises a typed error and performs no
+search — it is never emitted as an absent clause, which OpenSearch would read
+as match-all.
+
+Fusion is the existing pure `retrieval.rrf.fuse`, unchanged: `RRF_K = 60`,
+`CANDIDATES_PER_SOURCE = 200`, complete union, 1-based ranks, exact `Fraction`
+arithmetic. The production tie-break was verified to produce rankings
+**byte-identical** to the benchmarked harness on all 16 gold queries.
+
+### Reranker — disabled by a measured decision
+
+The reviewed acceptance mode is **`disabled_rrf_only`** with `threshold: null`.
+Mode A (`stable_threshold`) was rejected because the published threshold lost
+*every* relevant chunk on 6 of 14 graded queries and sat inside the measured
+noise floor; Mode B (`accept_all_rank_only`) measured *better* than the selected
+mode (nDCG@10 0.975838 vs 0.946141) and was rejected anyway, because its
+returned rank 1 flipped across identical campaigns on byte-identical duplicate
+passages scoring 6e-6 apart. A citation whose page changes between identical
+runs is not acceptable, so rank-fusion order — a pure function of two
+deterministic rank lists — was chosen over a better-scoring but unstable one.
+
+Consequently the document route **never calls the reranker**: no reranker import
+exists on the path (AST-asserted per module), no reranker score can appear in
+document provenance (the evidence model raises), and
+`DOCUMENT_REQUIRED_SERVICES == ("EMB_QWEN3_8B",)`.
+
+### Measured quality on the corrected gold
+
+Corpus `document-retrieval-gold-v1`: 24 chunks, 16 queries, **26** qrels
+(corrected by the §11.1 duplicate-equivalence rule, applied mechanically to
+`q02` and `q08`). The served raw-RRF ranking, recomputed through the production
+fusion:
+
+| method | nDCG@10 | R@1 | R@5 | R@10 | MRR@10 |
+| --- | --- | --- | --- | --- | --- |
+| bm25 | 0.830934 | 0.607143 | 0.821429 | 0.821429 | 0.928571 |
+| dense@1024 | 0.925587 | — | — | 0.976191 | 0.952381 |
+| **raw RRF (served)** | **0.946141** | 0.642857 | 0.976191 | **0.976191** | **1.0** |
+
+Project isolation, active-revision accuracy and document / page /
+stable-citation accuracy are all **1.0**; no forbidden id (`c18`, `c19`
+superseded; `c21` foreign project; `c23` stale link) appears in any ranking.
+
+### Snapshot, EvidencePack v2 and citations
+
+The snapshot is **source-typed**: `IDENTITY_FIELDS` gains `kind`, and a document
+token additionally binds project scope, chunk mapping version, embedding
+dimension, the reviewed decision sha256 and the ordered `base_chunk_id` list. An
+element token can never validate on the document path or vice versa. Pages are
+exact slices of the frozen ranking and perform no embedding, search or rerank.
+
+`EVIDENCE_PACK_VERSION = "hbim-073-evidence-v2"`; `EMITTABLE_SOURCE_KINDS` grew
+by exactly one member (`DOCUMENT_CHUNK`) and `SOURCE_KIND_ORDER` is unchanged.
+A document item carries a typed `DocumentEvidence` block — present exactly when
+the source kind is `DOCUMENT_CHUNK` and absent otherwise — so document evidence
+can never degrade into element evidence. `source_id = base_chunk_id` (stable
+across relinking); `storage_chunk_id` is retained internally for audit and is
+**never** public. Dedup identity is `(project_id, document_id, base_chunk_id)`,
+so byte-identical passages on different pages, or in different documents, are
+never merged.
+
+Internal citations carry the full provenance; `PublicCitation` exposes
+`document_id`, `base_chunk_id`, page number/span, section title and `ocr`, and
+deliberately omits `storage_chunk_id`, revisions, index identity and any URI or
+path. The renderer appends a deterministic `(E00n: documento …, página …)` label
+filled by the server from validated evidence — no document or page value is ever
+model-written.
+
+### Grounding and abstention
+
+The grounding projection gains, per document item, only the bounded passage,
+stable id, `document_id`, page number, section title and `ocr`; storage ids,
+revisions, regions, index identity and every score stay out. Quote validation is
+unchanged and unweakened — a quote matching a *different* item fails — and
+`document_grounding_gold.jsonl` (14 hand-authored cases across 10 categories,
+disjoint from `grounding-gold-v1`) proves correct document/page/chunk citation
+for born-digital and OCR chunks, relink-stable ids, forged and wrong-item quotes
+rejected, and **zero-evidence queries answering nothing with zero provider
+calls**. The zero-relevant guarantee for `q10`/`q11` is discharged here, at the
+grounding layer, exactly as §12 requires — never by pretending retrieval returns
+no candidates.
+
+### Activation, capability and residency
+
+`DocumentActivationSettings` is a separate class (element and document
+configuration cannot mix), defaults to **off**, and refuses to enable without a
+complete pinned identity. `DOCUMENT_HYBRID` left the static
+`UNIMPLEMENTED_ROUTES` set; availability is decided per request by a fail-closed
+check, so a disabled or misconfigured deployment degrades exactly as before
+HBIM-073 and never raises. `GRAPH` and `MULTIMODAL` remain unimplemented.
+`profile_for_route(DOCUMENT_HYBRID)` is now **`P_ONLINE_TEXT`** (not
+`P_ONLINE_MM`), and the narrower `required_services_for_route` returns
+`(EMB_QWEN3_8B,)`: a missing embedding service blocks the route, a missing
+reranker does not, and no visual or OCR service is ever requested.
+
+### Gates
+
+HBIM-060 slices **20 → 23**. `document_retrieval` left `unavailable_future` and
+is now blocking/pure, chained by sha256 to the reviewed gold and artifacts, with
+21 numeric checks covering corpus identity, the selected dimension, the decision
+mode, the null threshold, forbidden ids, the served nDCG/Recall/MRR bars, the
+citation identity accuracies and the zero-evidence silence. Two artifact slices
+(`document_dimension_decision`, `document_reranker_decision`) recompute their
+own decisions numerically — the dimension selector is re-applied to the recorded
+candidate metrics, and every §32 mode must carry a closed reason code. One
+`manual_live` slice records the operator-run benchmarks. `graph_retrieval` and
+`multimodal_retrieval` remain `unavailable_future`. Seven negative proofs assert
+that a shrunk qrel file, a wrong mode, a non-null threshold, a forbidden id, a
+quality regression, a wrong selected dimension or a missing reason code all
+**fail** the gate.
+
+### Validation
+
+unit **2418** · standard integration **114** · docling **10** · document
+OpenSearch integration **16** (ephemeral 2.19.1, deterministic fake embeddings,
+no GPU and no reranker container) · gates exit 0 over 23 slices · Ruff clean ·
+mypy **83** files clean · `git diff --check` clean. The focused document suites
+(**134** tests) are green under `-p no:randomly`, seeds 1 / 7 / 42 / 20260729 /
+730073 and reversed file order. Service markers are unchanged at 10 / 19 / 15 /
+10 / 5.
+
+### Specification repairs
+
+The unpushed specification commit was amended in place (never a third commit)
+for three defects proved by implementation, all recorded in §3.2: **R-5** §7.2
+made §38 unsatisfiable by omitting `test_snapshot.py`, whose exact
+`IDENTITY_FIELDS` assertion must change for `kind` to exist; **R-6** §14
+described a single-value `term link_revision_id` that a multi-document request
+scope cannot use, corrected to the canonical `terms` form the benchmark
+actually measured, with an explicit empty-set fail-closed rule; **R-7** §7.2
+named `test_grounded_answer.py`, a file that has never existed in any commit,
+while the real grounding closed set lives in `test_grounded_responses.py` and
+`test_grounding_eval.py`. No measured decision, algorithm, constant or gate bar
+changed.
+
+### Limitations
+
+- Document **reranking** is not served: the measured decision disables it, and
+  re-opening it requires new measurement plus a specification change.
+- `eval/document_dimension_benchmark.py` and `eval/document_reranker_eval.py`
+  (the operator-run live harnesses of §7.1) are **not** delivered. The
+  measurements they would produce are already frozen in the two committed,
+  hash-pinned artifacts and are re-verified numerically by their gate slices, so
+  nothing in serving or gating depends on them; they are needed only to
+  *re-measure*, and the campaign scripts that produced the current numbers are
+  recorded in the session handoffs.
+- The pure CI replay gates the served metrics through the committed artifact
+  rather than through a committed raw per-source ranking fixture; recomputing
+  the ranking from scratch in CI would need such a fixture.
+- Graph retrieval, Neo4j document links, multimodal/page-image retrieval,
+  ColQwen and VLM verification remain absent, as does automatic service startup
+  and any evaluation on real or private production documents.
 
 ## Status of HBIM-072
 
@@ -1541,8 +1738,9 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-042 unblocks **HBIM-050**
-(BM25/dense/RRF hybrid retrieval and EvidencePack), per the roadmap ordering.
+None — awaiting the next issue in the roadmap. HBIM-073 unblocks **HBIM-079**
+(document follow-up and detail behaviour over the frozen snapshot), per the
+roadmap ordering.
 
 ## Scope of HBIM-042
 

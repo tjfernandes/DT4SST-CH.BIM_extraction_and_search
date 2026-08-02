@@ -37,14 +37,23 @@ def build_dense_query(
     filters: Sequence[dict[str, Any]] | None = None,
     *,
     size: int = CANDIDATES_PER_SOURCE,
+    vector_field: str = VECTOR_FIELD,
 ) -> dict[str, Any]:
-    """Exact kNN body (spec §9). ``filter`` is omitted entirely when absent."""
+    """Exact kNN body (spec §9). ``filter`` is omitted entirely when absent.
+
+    HBIM-073 §26 adds ``vector_field`` **additively**: the default keeps the
+    element body byte-identical, and the document path passes the chunk vector
+    field explicitly. The parameter never changes which index is searched — the
+    caller owns that — so it cannot mix embedding spaces on its own.
+    """
     if not vector:
         raise DenseRetrievalError("query vector must be non-empty")
+    if not isinstance(vector_field, str) or not vector_field:
+        raise DenseRetrievalError("vector_field must be a non-empty string")
     knn: dict[str, Any] = {"vector": list(vector), "k": size}
     if filters:
         knn["filter"] = {"bool": {"filter": list(filters)}}
-    return {"size": size, "_source": False, "query": {"knn": {VECTOR_FIELD: knn}}}
+    return {"size": size, "_source": False, "query": {"knn": {vector_field: knn}}}
 
 
 def dense_candidates(

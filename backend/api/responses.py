@@ -285,6 +285,16 @@ def build_projection(
             }
             if entry.item.project_id is not None:
                 record["project_id"] = entry.item.project_id
+            # §49 — a document item additionally exposes what a reader needs to
+            # judge and cite the passage. Storage ids, revisions, link ids,
+            # regions, index identity and every score stay out: the model never
+            # needs them and they are not quotable.
+            document = entry.item.document
+            if document is not None:
+                record["document_id"] = document.document_id
+                record["page_number"] = document.page_number
+                record["section_title"] = document.section_title
+                record["ocr"] = document.ocr
             evidence.append(record)
         projection["evidence"] = evidence
 
@@ -504,6 +514,16 @@ class Citation:
     agg_field: str | None = None
     agg_key: str | None = None
     agg_count: int | None = None
+    # HBIM-073 §47 — document provenance. ``storage_chunk_id`` is internal-only
+    # (decision AX): it is retained here for audit and snapshot verification and
+    # is deliberately NOT projected into ``PublicCitation``.
+    document_id: str | None = None
+    base_chunk_id: str | None = None
+    storage_chunk_id: str | None = None
+    page_number: int | None = None
+    page_span: tuple[int, int] | None = None
+    section_title: str | None = None
+    ocr: bool | None = None
 
 
 def build_citations(
@@ -517,6 +537,7 @@ def build_citations(
             continue
         entry = refmap.by_ref[ref]
         if isinstance(entry, ItemRef):
+            document = entry.item.document
             citations.append(
                 Citation(
                     ref=ref,
@@ -524,6 +545,15 @@ def build_citations(
                     source_kind=entry.item.source_kind.value,
                     source_id=entry.item.source_id,
                     project_id=entry.item.project_id,
+                    # Filled by the server from the validated evidence item
+                    # (§48) — never from model output.
+                    document_id=None if document is None else document.document_id,
+                    base_chunk_id=None if document is None else document.base_chunk_id,
+                    storage_chunk_id=None if document is None else document.storage_chunk_id,
+                    page_number=None if document is None else document.page_number,
+                    page_span=None if document is None else document.page_span,
+                    section_title=None if document is None else document.section_title,
+                    ocr=None if document is None else document.ocr,
                 )
             )
         else:
@@ -543,6 +573,39 @@ def build_citations(
 # --------------------------------------------------------------------------- #
 # Renderer (§33-§34)
 # --------------------------------------------------------------------------- #
+def document_citation_labels(
+    draft: GroundedDraft, refmap: ReferenceMap
+) -> tuple[str, ...]:
+    """§48 — ``(documento <document_id>, página <n>)`` per cited document item.
+
+    Deterministic and server-filled: reference-map order, deduplicated, and
+    every value read from the validated evidence item. A page is omitted only
+    when the chunk genuinely carries none — never guessed.
+    """
+    cited = {support.ref for claim in draft.claims for support in claim.supports}
+    labels: list[str] = []
+    seen: set[tuple[str, int | None]] = set()
+    for ref in refmap.order:
+        if ref not in cited:
+            continue
+        entry = refmap.by_ref[ref]
+        document = getattr(getattr(entry, "item", None), "document", None)
+        if document is None:
+            continue
+        key = (document.document_id, document.page_number)
+        if key in seen:
+            continue
+        seen.add(key)
+        if document.page_number is None:
+            labels.append(f"({ref}: documento {document.document_id})")
+        else:
+            labels.append(
+                f"({ref}: documento {document.document_id}, "
+                f"página {document.page_number})"
+            )
+    return tuple(labels)
+
+
 def render_answer(
     draft: GroundedDraft, refmap: ReferenceMap, pack: EvidencePack
 ) -> str:
@@ -555,6 +618,12 @@ def render_answer(
         blocks.append(f"{escape_markdown_text(claim.text)} {marker}")
 
     rendered = "\n\n".join(blocks)
+    # §48 — one deterministic label per cited document item, filled by the
+    # server from validated evidence. The model emits only ``[E00n]`` markers;
+    # no document or page value is ever model-written.
+    labels = document_citation_labels(draft, refmap)
+    if labels:
+        rendered += "\n\n" + "\n".join(labels)
     if pack.total_hits is not None and pack.total_hits > pack.result_count:
         rendered += (
             f"\n\n_A mostrar {pack.result_count} de {pack.total_hits} resultados._"
@@ -772,6 +841,7 @@ def observability_event(outcome: GroundedOutcome) -> dict[str, Any]:
 
 
 __all__: Sequence[str] = (
+    "document_citation_labels",
     "GROUNDING_PROMPT_VERSION",
     "GROUNDING_PROJECTION_VERSION",
     "GROUNDED_OUTPUT_VERSION",

@@ -667,6 +667,120 @@ class HybridActivationSettings(BaseSettings):
         return self
 
 
+
+class DocumentActivationSettings(BaseSettings):
+    """HBIM-073 §35 — fail-closed activation of the document hybrid route.
+
+    A **separate** class from ``HybridActivationSettings`` so element and
+    document configuration cannot mix: a document deployment can never
+    accidentally inherit the element index, page size or snapshot secret.
+
+    Default **off**: without this flag the endpoint behaves exactly as it did
+    before HBIM-073. Never instantiated at import.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    enabled: bool = Field(
+        default=False, validation_alias=AliasChoices("DOCUMENT_ACTIVATION_ENABLED")
+    )
+    chunk_alias: str = Field(
+        default="hbim_chunks", validation_alias=AliasChoices("DOCUMENT_CHUNK_ALIAS")
+    )
+    page_size: int = Field(default=10, validation_alias=AliasChoices("DOCUMENT_PAGE_SIZE"))
+    snapshot_signing_secret: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("DOCUMENT_SNAPSHOT_SIGNING_SECRET")
+    )
+    snapshot_ttl_seconds: int = Field(
+        default=3600, validation_alias=AliasChoices("DOCUMENT_SNAPSHOT_TTL_SECONDS")
+    )
+    #: Identity expectations re-verified by the §28 preflight before any search.
+    expected_embedding_space: str | None = Field(
+        default=None, validation_alias=AliasChoices("DOCUMENT_EXPECTED_EMBEDDING_SPACE")
+    )
+    expected_projection_version: str | None = Field(
+        default=None, validation_alias=AliasChoices("DOCUMENT_EXPECTED_PROJECTION_VERSION")
+    )
+    expected_reranker_decision_sha256: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DOCUMENT_EXPECTED_RERANKER_DECISION_SHA256"),
+    )
+
+    @field_validator("chunk_alias")
+    @classmethod
+    def _document_alias_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise RerankerConfigurationError("DOCUMENT_CHUNK_ALIAS must not be empty")
+        return value
+
+    @field_validator("page_size")
+    @classmethod
+    def _document_page_in_range(cls, value: int) -> int:
+        # §62 — document page size is capped at 20, tighter than the element cap.
+        if isinstance(value, bool) or not 1 <= value <= 20:
+            raise RerankerConfigurationError("DOCUMENT_PAGE_SIZE must be in [1, 20]")
+        return value
+
+    @field_validator("snapshot_ttl_seconds")
+    @classmethod
+    def _document_snapshot_ttl_in_range(cls, value: int) -> int:
+        if isinstance(value, bool) or not 60 <= value <= 86400:
+            raise RerankerConfigurationError(
+                "DOCUMENT_SNAPSHOT_TTL_SECONDS must be in [60, 86400]"
+            )
+        return value
+
+    @field_validator("expected_reranker_decision_sha256")
+    @classmethod
+    def _decision_hash_is_hex(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        candidate = value.strip().lower()
+        if len(candidate) != 64 or any(c not in "0123456789abcdef" for c in candidate):
+            raise RerankerConfigurationError(
+                "DOCUMENT_EXPECTED_RERANKER_DECISION_SHA256 must be a sha256 hex digest"
+            )
+        return candidate
+
+    @model_validator(mode="after")
+    def _document_activation_is_fully_specified(self) -> "DocumentActivationSettings":
+        secret = self.snapshot_signing_secret
+        if secret is not None and len(secret.get_secret_value()) < 32:
+            raise RerankerConfigurationError(
+                "DOCUMENT_SNAPSHOT_SIGNING_SECRET must be at least 32 characters"
+            )
+        if not self.enabled:
+            return self
+        # Fail closed: enabling the route without a complete, pinned identity
+        # would let it serve against an unverified index.
+        missing = [
+            name
+            for name, value in (
+                ("DOCUMENT_SNAPSHOT_SIGNING_SECRET", secret),
+                ("DOCUMENT_EXPECTED_EMBEDDING_SPACE", self.expected_embedding_space),
+                ("DOCUMENT_EXPECTED_PROJECTION_VERSION", self.expected_projection_version),
+                (
+                    "DOCUMENT_EXPECTED_RERANKER_DECISION_SHA256",
+                    self.expected_reranker_decision_sha256,
+                ),
+            )
+            if value is None
+        ]
+        if missing:
+            raise RerankerConfigurationError(
+                "DOCUMENT_ACTIVATION_ENABLED=true requires " + ", ".join(sorted(missing))
+            )
+        return self
+
+
 class ResidencyConfigurationError(RuntimeError):
     """Configuração inválida do gestor de residência de VRAM (HBIM-032).
 

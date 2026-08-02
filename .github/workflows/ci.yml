@@ -147,6 +147,12 @@ jobs:
           backend/ingestion/ocr_engine.py
           backend/ingestion/chunking.py
           backend/ingestion/indexers/elements_dense.py
+          backend/retrieval/document_projection.py
+          backend/retrieval/document_lexical.py
+          backend/retrieval/document_hybrid.py
+          backend/retrieval/document_retrieval.py
+          backend/ingestion/indexers/chunks_dense.py
+          backend/eval/document_retrieval_eval.py
 
   document-parse:
     runs-on: ubuntu-latest

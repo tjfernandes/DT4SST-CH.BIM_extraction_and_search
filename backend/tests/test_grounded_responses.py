@@ -826,10 +826,13 @@ def test_grounded_test_modules_never_import_the_real_client() -> None:
 
 
 def test_evidence_pack_v1_is_untouched_by_this_milestone() -> None:
+    # HBIM-073 §41 — v2 adds document_chunk to the closed emittable set.
+    # Element packs built through the v1 code path stay byte-identical,
+    # which the golden serialization assertions below still prove.
     """§9 — HBIM-053 consumes EvidencePack v1 unchanged."""
     from retrieval.evidence import EVIDENCE_PACK_VERSION
 
-    assert EVIDENCE_PACK_VERSION == "hbim-052-evidence-v1"
+    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
 
 
 def test_get_response_keeps_its_own_fallback_for_chat() -> None:

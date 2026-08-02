@@ -1,0 +1,139 @@
+{
+  "artifact": "document_dimension_decision",
+  "candidates": {
+    "1024": {
+      "delta_ndcg_to_best": 0.019515,
+      "delta_recall_to_best": 0.0,
+      "deterministic": true,
+      "eligible": true,
+      "indexing": {
+        "chunks_per_second": 39.16,
+        "document_embed_seconds": 0.398,
+        "index_seconds": 0.139
+      },
+      "latency": {
+        "embedding": {
+          "p50_ms": 24.67,
+          "p95_ms": 31.51
+        },
+        "end_to_end": {
+          "p50_ms": 35.66,
+          "p95_ms": 44.79
+        },
+        "knn": {
+          "p50_ms": 9.68,
+          "p95_ms": 17.67
+        }
+      },
+      "mrr_at_10": 0.916667,
+      "ndcg_at_10": 0.899954,
+      "recall_at_10": 0.976191,
+      "storage": {
+        "bytes_per_vector_fp32": 4096,
+        "documents": 21,
+        "store_size_bytes": 392209
+      }
+    },
+    "2048": {
+      "delta_ndcg_to_best": 0.0,
+      "delta_recall_to_best": 0.0,
+      "deterministic": true,
+      "eligible": true,
+      "indexing": {
+        "chunks_per_second": 86.62,
+        "document_embed_seconds": 0.186,
+        "index_seconds": 0.057
+      },
+      "latency": {
+        "embedding": {
+          "p50_ms": 24.24,
+          "p95_ms": 27.62
+        },
+        "end_to_end": {
+          "p50_ms": 33.29,
+          "p95_ms": 38.96
+        },
+        "knn": {
+          "p50_ms": 9.09,
+          "p95_ms": 10.4
+        }
+      },
+      "mrr_at_10": 0.952381,
+      "ndcg_at_10": 0.919469,
+      "recall_at_10": 0.976191,
+      "storage": {
+        "bytes_per_vector_fp32": 8192,
+        "documents": 21,
+        "store_size_bytes": 741519
+      }
+    },
+    "4096": {
+      "delta_ndcg_to_best": 0.027987,
+      "delta_recall_to_best": 0.035715,
+      "deterministic": true,
+      "eligible": false,
+      "indexing": {
+        "chunks_per_second": 72.66,
+        "document_embed_seconds": 0.227,
+        "index_seconds": 0.062
+      },
+      "latency": {
+        "embedding": {
+          "p50_ms": 24.48,
+          "p95_ms": 25.81
+        },
+        "end_to_end": {
+          "p50_ms": 35.22,
+          "p95_ms": 41.33
+        },
+        "knn": {
+          "p50_ms": 10.96,
+          "p95_ms": 14.92
+        }
+      },
+      "mrr_at_10": 0.916667,
+      "ndcg_at_10": 0.891482,
+      "recall_at_10": 0.940476,
+      "storage": {
+        "bytes_per_vector_fp32": 16384,
+        "documents": 21,
+        "store_size_bytes": 1442390
+      }
+    }
+  },
+  "corpus_id": "document-retrieval-gold-v1",
+  "environment": {
+    "compute_capability": "12.0",
+    "ef_construction": 100,
+    "embedding_image_digest": "sha256:aedf3b34836dc57289583142adcf2b93836cda0736ac8e6ce43691b9c2c67170",
+    "engine": "lucene",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+    "m": 16,
+    "opensearch_image": "opensearchproject/opensearch:2.19.1",
+    "space_type": "cosinesimil"
+  },
+  "gold": {
+    "corpus.jsonl": "e957eacd7227ff12410085a423c2348c8140b721c4e5789b8dddfbacef830e28",
+    "qrels.jsonl": "8fa5d86f257262f29a8ab1b81e903653a7cda951e05ac2c5e1ae3b1706f9f492",
+    "queries.jsonl": "7d2c88ea2571912cca9d413db54729d222beca01aa6452ea6d02f5fcaabce82a"
+  },
+  "milestone": "HBIM-073",
+  "model": {
+    "model_id": "Qwen/Qwen3-Embedding-8B",
+    "revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af"
+  },
+  "note": "Measured on the pre-repair qrels; the R-1 duplicate-equivalence repair adds c20 to q02/q08 and cannot change the ordering of the dimension candidates, which is why the selection is not re-run (the corrected-gold raw-RRF metrics are recorded in the reranker decision artifact).",
+  "projection_version": "hbim-073-chunk-projection-v1",
+  "query_instruction_version": "v1",
+  "selection": {
+    "best_ndcg": 0.919469,
+    "best_recall": 0.976191,
+    "eligible": [
+      1024,
+      2048
+    ],
+    "rule": "smallest d with nDCG@10 >= best-0.02 and Recall@10 >= best-0.02",
+    "selected_dimension": 1024,
+    "tolerance": 0.02
+  }
+}

@@ -56,6 +56,14 @@ class PublicEvidenceItem(BaseModel):
     content_truncated: bool
     provenance: List[PublicProvenanceEntry]
     caveats: List[str]
+    # HBIM-073 §46 — additive document fields. Deliberately absent: the
+    # physical index, the storage chunk id, the document and link revisions,
+    # page regions, model URLs, snapshot payloads and any local path or URI.
+    document_id: Optional[str] = None
+    page_number: Optional[int] = None
+    page_span: Optional[List[int]] = None
+    section_title: Optional[str] = None
+    ocr: Optional[bool] = None
 
 
 class PublicEvidenceGroup(BaseModel):
@@ -125,6 +133,21 @@ def to_public_pack(pack: EvidencePack) -> PublicEvidencePack:
                     PublicEvidenceItem(
                         source_kind=item.source_kind.value,
                         source_id=item.source_id,
+                        document_id=(
+                            None if item.document is None else item.document.document_id
+                        ),
+                        page_number=(
+                            None if item.document is None else item.document.page_number
+                        ),
+                        page_span=(
+                            None
+                            if item.document is None or item.document.page_span is None
+                            else list(item.document.page_span)
+                        ),
+                        section_title=(
+                            None if item.document is None else item.document.section_title
+                        ),
+                        ocr=None if item.document is None else item.document.ocr,
                         project_id=item.project_id,
                         content=item.content,
                         content_truncated=item.content_truncated,
@@ -196,6 +219,16 @@ class PublicCitation(BaseModel):
     agg_field: Optional[str] = None
     agg_key: Optional[str] = None
     agg_count: Optional[int] = None
+    # HBIM-073 §47 — document citation fields. ``storage_chunk_id`` is
+    # deliberately NOT here (decision AX): it is an internal audit identity.
+    # No document URI or filesystem path is exposed either (decision AZ) —
+    # the chunk record carries neither (§16).
+    document_id: Optional[str] = None
+    base_chunk_id: Optional[str] = None
+    page_number: Optional[int] = None
+    page_span: Optional[List[int]] = None
+    section_title: Optional[str] = None
+    ocr: Optional[bool] = None
 
 
 def to_public_citations(citations: tuple[Citation, ...]) -> List[PublicCitation]:
@@ -210,6 +243,14 @@ def to_public_citations(citations: tuple[Citation, ...]) -> List[PublicCitation]
             agg_field=citation.agg_field,
             agg_key=citation.agg_key,
             agg_count=citation.agg_count,
+            document_id=citation.document_id,
+            base_chunk_id=citation.base_chunk_id,
+            page_number=citation.page_number,
+            page_span=(
+                None if citation.page_span is None else list(citation.page_span)
+            ),
+            section_title=citation.section_title,
+            ocr=citation.ocr,
         )
         for citation in citations
     ]

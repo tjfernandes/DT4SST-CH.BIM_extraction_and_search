@@ -31,6 +31,11 @@ __all__ = [
     "DEFAULT_LIMITS",
     "EMITTABLE_SOURCE_KINDS",
     "EVIDENCE_PACK_VERSION",
+    "DocumentEvidence",
+    "build_pack_for_document_page",
+    "document_caveats",
+    "MAX_EVIDENCE_REGIONS",
+    "MAX_LINKED_IDS_IN_EVIDENCE",
     "MAX_CONTENT_CHARS",
     "MAX_GROUPS",
     "MAX_ITEMS",
@@ -69,7 +74,7 @@ __all__ = [
 
 #: §11 — bump on any change to a closed enum, field, ordering rule or the
 #: canonicalisation.
-EVIDENCE_PACK_VERSION = "hbim-052-evidence-v1"
+EVIDENCE_PACK_VERSION = "hbim-073-evidence-v2"
 
 
 # --------------------------------------------------------------------------- #
@@ -81,14 +86,20 @@ class SourceKind(str, Enum):
 
     CANONICAL_ELEMENT = "canonical_element"
     LEGACY_ELEMENT = "legacy_element"
-    DOCUMENT_CHUNK = "document_chunk"   # HBIM-070 — never emitted in v1
+    DOCUMENT_CHUNK = "document_chunk"   # HBIM-073 §41 — emitted in v2
     GRAPH_PATH = "graph_path"           # HBIM-082 — never emitted in v1
     MEDIA_ITEM = "media_item"           # HBIM-090 — never emitted in v1
 
 
-#: §13 — the only kinds a v1 builder may produce.
+#: §13 / HBIM-073 §41 — the only kinds a v2 builder may produce. The set grew
+#: by exactly one member (``DOCUMENT_CHUNK``); ``SOURCE_KIND_ORDER`` is
+#: unchanged, so element grouping and ordering stay byte-identical.
 EMITTABLE_SOURCE_KINDS = frozenset(
-    {SourceKind.CANONICAL_ELEMENT, SourceKind.LEGACY_ELEMENT}
+    {
+        SourceKind.CANONICAL_ELEMENT,
+        SourceKind.LEGACY_ELEMENT,
+        SourceKind.DOCUMENT_CHUNK,
+    }
 )
 
 #: §25 — deterministic group order.
@@ -151,11 +162,15 @@ class Caveat(str, Enum):
     """§27 — every caveat is derived from a deterministic fact, never text."""
 
     DEGRADED_ROUTE = "degraded_route"
+    DOCUMENT_METADATA_UNAVAILABLE = "document_metadata_unavailable"
     FUTURE_BACKEND_UNAVAILABLE = "future_backend_unavailable"
     ITEMS_TRUNCATED_BY_LIMIT = "items_truncated_by_limit"
     LEGACY_SOURCE = "legacy_source"
     METADATA_CONFLICT = "metadata_conflict"
     NO_EVIDENCE = "no_evidence"
+    OCR_DERIVED_PASSAGE = "ocr_derived_passage"
+    PAGE_REGION_UNAVAILABLE = "page_region_unavailable"
+    PASSAGE_TRUNCATED = "passage_truncated"
     SNAPSHOT_PAGE_WITHOUT_SCORES = "snapshot_page_without_scores"
     THRESHOLD_ACCEPT_ALL = "threshold_accept_all"
     TRUNCATED_PROJECTION = "truncated_projection"
@@ -194,6 +209,8 @@ MAX_PROVENANCE_PER_ITEM = 8
 MAX_CONTENT_CHARS = 2000        # == MAX_RERANK_DOC_CHARS
 MAX_SERIALIZED_BYTES = 262144
 MAX_SOURCE_ID_CHARS = 512
+MAX_EVIDENCE_REGIONS = 8         # HBIM-073 §62
+MAX_LINKED_IDS_IN_EVIDENCE = 32  # HBIM-073 §62
 
 
 @dataclass(frozen=True)
@@ -314,6 +331,73 @@ def _order_provenance(
 # Evidence item, group, aggregation, pack (spec §15, §18, §19, §33)
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
+class DocumentEvidence:
+    """HBIM-073 §42 — the typed document block carried by a document item.
+
+    Present exactly when ``source_kind is DOCUMENT_CHUNK`` and absent otherwise
+    (enforced on ``EvidenceItem``). ``base_chunk_id`` is the citation identity
+    (§43): it survives relinking, while ``storage_chunk_id`` is the id actually
+    indexed and stays **internal** — snapshot verification and audit only.
+    """
+
+    document_id: str
+    base_chunk_id: str
+    storage_chunk_id: str
+    document_revision_id: str
+    link_revision_id: str
+    page_number: int | None = None
+    page_span: tuple[int, int] | None = None
+    section_title: str | None = None
+    section_path: tuple[str, ...] = ()
+    ocr: bool = False
+    linked_element_ids: tuple[str, ...] = ()
+    page_regions: tuple[Mapping[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        for field in ("document_id", "base_chunk_id", "storage_chunk_id",
+                      "document_revision_id", "link_revision_id"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or not value.strip():
+                raise EvidenceIdentityError(f"{field} must be a non-empty string")
+            if len(value) > MAX_SOURCE_ID_CHARS:
+                raise EvidenceIdentityError(f"{field} exceeds {MAX_SOURCE_ID_CHARS} characters")
+        if self.page_number is not None:
+            object.__setattr__(
+                self, "page_number", _non_negative_index(self.page_number, "page_number")
+            )
+        if self.page_span is not None:
+            span = tuple(self.page_span)
+            if len(span) != 2:
+                raise EvidenceIdentityError("page_span must be a (first, last) pair")
+            first, last = (_non_negative_index(v, "page_span") for v in span)
+            if last < first:
+                raise EvidenceIdentityError("page_span must be ordered")
+            object.__setattr__(self, "page_span", (first, last))
+        if self.section_title is not None and not isinstance(self.section_title, str):
+            raise EvidenceIdentityError("section_title must be a string or None")
+        path = tuple(self.section_path)
+        if any(not isinstance(part, str) or not part for part in path):
+            raise EvidenceIdentityError("section_path entries must be non-empty strings")
+        object.__setattr__(self, "section_path", path)
+        if not isinstance(self.ocr, bool):
+            raise EvidenceIdentityError("ocr must be a bool")
+        linked = tuple(self.linked_element_ids)
+        if any(not isinstance(item, str) or not item for item in linked):
+            raise EvidenceIdentityError("linked_element_ids entries must be non-empty strings")
+        if len(linked) > MAX_LINKED_IDS_IN_EVIDENCE:
+            raise EvidenceLimitError(
+                f"more than {MAX_LINKED_IDS_IN_EVIDENCE} linked element ids"
+            )
+        object.__setattr__(self, "linked_element_ids", linked)
+        regions = tuple(self.page_regions)
+        if len(regions) > MAX_EVIDENCE_REGIONS:
+            raise EvidenceLimitError(f"more than {MAX_EVIDENCE_REGIONS} page regions")
+        if any(not isinstance(region, Mapping) for region in regions):
+            raise EvidenceIdentityError("page_regions entries must be mappings")
+        object.__setattr__(self, "page_regions", regions)
+
+
+@dataclass(frozen=True)
 class EvidenceItem:
     source_kind: SourceKind
     source_id: str
@@ -324,6 +408,8 @@ class EvidenceItem:
     order_index: int
     provenance: tuple[ProvenanceEntry, ...]
     caveats: tuple[Caveat, ...] = ()
+    #: §42 — present exactly when ``source_kind is DOCUMENT_CHUNK``.
+    document: "DocumentEvidence | None" = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_kind, SourceKind):
@@ -362,10 +448,47 @@ class EvidenceItem:
             )
         object.__setattr__(self, "provenance", _order_provenance(self.provenance))
         object.__setattr__(self, "caveats", _order_caveats(self.caveats))
+        # §42 — the document block and the source kind imply each other, so a
+        # document item can never degrade into an element item (or vice versa)
+        # by losing or gaining metadata.
+        if self.source_kind is SourceKind.DOCUMENT_CHUNK:
+            if not isinstance(self.document, DocumentEvidence):
+                raise EvidenceIdentityError(
+                    "a document_chunk item requires a DocumentEvidence block"
+                )
+            if self.source_id != self.document.base_chunk_id:
+                raise EvidenceIdentityError(
+                    "§43: a document item's source_id must be its base_chunk_id"
+                )
+        elif self.document is not None:
+            raise EvidenceIdentityError(
+                f"{self.source_kind.value} items must not carry a document block"
+            )
+        # §32 Mode C — the document route never calls the reranker, so reranker
+        # provenance on a document item is a contract violation, not a warning.
+        if self.source_kind is SourceKind.DOCUMENT_CHUNK and any(
+            entry.method is RetrievalMethod.RERANKER for entry in self.provenance
+        ):
+            raise EvidenceIdentityError(
+                "document evidence cannot carry reranker provenance under "
+                "the reviewed disabled_rrf_only decision"
+            )
 
     @property
     def dedup_key(self) -> tuple[str, str, str]:
-        """§22 — kind and project participate, so no silent collision."""
+        """§22/§44 — kind and project participate, so no silent collision.
+
+        For document items the identity is ``(project_id, document_id,
+        base_chunk_id)``: the document id is folded into the key so that two
+        chunks with byte-identical text on different pages — or in different
+        documents — are never merged.
+        """
+        if self.source_kind is SourceKind.DOCUMENT_CHUNK and self.document is not None:
+            return (
+                self.source_kind.value,
+                self.project_id or "",
+                f"{self.document.document_id}\u0000{self.document.base_chunk_id}",
+            )
         return (self.source_kind.value, self.project_id or "", self.source_id)
 
 
@@ -467,6 +590,9 @@ def _merge_pair(first: EvidenceItem, later: EvidenceItem) -> EvidenceItem:
     elif content and later.content and later.content != content:
         # §24 — never silently resolved: first wins, and it is recorded.
         caveats.add(Caveat.METADATA_CONFLICT)
+    if first.document != later.document:
+        # Same identity, different document metadata: never silently resolved.
+        caveats.add(Caveat.METADATA_CONFLICT)
     return replace(
         first,
         order_index=min(first.order_index, later.order_index),
@@ -552,6 +678,24 @@ def build_pack(
 # --------------------------------------------------------------------------- #
 # Canonical serialization (spec §36)
 # --------------------------------------------------------------------------- #
+def _document_to_dict(document: DocumentEvidence) -> dict[str, Any]:
+    """§42 — plain JSON types, sorted keys, no vectors and no index identity."""
+    return {
+        "base_chunk_id": document.base_chunk_id,
+        "document_id": document.document_id,
+        "document_revision_id": document.document_revision_id,
+        "link_revision_id": document.link_revision_id,
+        "linked_element_ids": list(document.linked_element_ids),
+        "ocr": document.ocr,
+        "page_number": document.page_number,
+        "page_regions": [dict(region) for region in document.page_regions],
+        "page_span": None if document.page_span is None else list(document.page_span),
+        "section_path": list(document.section_path),
+        "section_title": document.section_title,
+        "storage_chunk_id": document.storage_chunk_id,
+    }
+
+
 def pack_to_canonical_dict(pack: EvidencePack) -> dict[str, Any]:
     """Plain JSON types only. No timestamp, no random id, no environment
     value — so the output is byte-stable for identical input."""
@@ -596,6 +740,11 @@ def pack_to_canonical_dict(pack: EvidencePack) -> dict[str, Any]:
                         ],
                         "source_id": item.source_id,
                         "source_kind": item.source_kind.value,
+                        **(
+                            {}
+                            if item.document is None
+                            else {"document": _document_to_dict(item.document)}
+                        ),
                     }
                     for item in group.items
                 ],
@@ -822,6 +971,117 @@ def build_pack_for_snapshot_page(
         total_hits=total_hits,
         result_from=result_from,
         caveats=(Caveat.SNAPSHOT_PAGE_WITHOUT_SCORES,),
+        limits=limits,
+    )
+
+
+def _document_provenance(candidate: Any) -> tuple[ProvenanceEntry, ...]:
+    """HBIM-073 §32 Mode C — RRF fusion plus each contributing source, verbatim.
+
+    There is deliberately **no** reranker entry: the document route never calls
+    the reranker, so no reranker rank or probability exists to record.
+    """
+    entries = [
+        ProvenanceEntry(
+            method=RetrievalMethod.RRF_FUSION,
+            rank=candidate.fused_rank,
+            score_kind=ScoreKind.RRF_FUSED,
+            score_value=candidate.fused_score,
+            accepted=True,
+        )
+    ]
+    if candidate.bm25_rank is not None and candidate.bm25_score is not None:
+        entries.append(
+            ProvenanceEntry(
+                method=RetrievalMethod.BM25,
+                rank=candidate.bm25_rank,
+                score_kind=ScoreKind.BM25_SCORE,
+                score_value=candidate.bm25_score,
+            )
+        )
+    if candidate.dense_rank is not None and candidate.dense_score is not None:
+        entries.append(
+            ProvenanceEntry(
+                method=RetrievalMethod.DENSE_KNN,
+                rank=candidate.dense_rank,
+                score_kind=ScoreKind.DENSE_SIMILARITY,
+                score_value=candidate.dense_score,
+            )
+        )
+    return tuple(entries)
+
+
+def document_caveats(document: DocumentEvidence, *, truncated: bool) -> tuple[Caveat, ...]:
+    """§45 — every caveat derived from a deterministic fact, never from text."""
+    caveats: list[Caveat] = []
+    if truncated:
+        caveats.append(Caveat.PASSAGE_TRUNCATED)
+    if document.ocr:
+        caveats.append(Caveat.OCR_DERIVED_PASSAGE)
+        if not document.page_regions:
+            caveats.append(Caveat.PAGE_REGION_UNAVAILABLE)
+    if document.page_number is None and document.page_span is None:
+        caveats.append(Caveat.DOCUMENT_METADATA_UNAVAILABLE)
+    return tuple(caveats)
+
+
+def build_pack_for_document_page(
+    *,
+    route: str,
+    candidates: Sequence[Any],
+    contents: Sequence[tuple[str, bool]],
+    documents: Sequence[DocumentEvidence],
+    index_identity: str,
+    project_id: str,
+    total_hits: int,
+    result_from: int,
+    snapshot_page: bool = False,
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """HBIM-073 §41–§45 — one document item per accepted chunk on this page.
+
+    ``snapshot_page`` switches provenance to ``SNAPSHOT_PAGE`` (which carries no
+    score at all, §17): a later page replays a frozen ranking and must never
+    invent lexical, dense or fused numbers for it.
+    """
+    if not (len(candidates) == len(contents) == len(documents)):
+        raise EvidenceIdentityError("candidate/content/document length mismatch")
+    if not isinstance(project_id, str) or not project_id:
+        raise EvidenceIdentityError("document evidence requires an explicit project scope")
+
+    items: list[EvidenceItem] = []
+    for position, (candidate, (content, truncated), document) in enumerate(
+        zip(candidates, contents, documents, strict=True)
+    ):
+        order_index = result_from + position
+        provenance = (
+            (ProvenanceEntry(method=RetrievalMethod.SNAPSHOT_PAGE, rank=order_index + 1),)
+            if snapshot_page
+            else _document_provenance(candidate)
+        )
+        items.append(
+            EvidenceItem(
+                source_kind=SourceKind.DOCUMENT_CHUNK,
+                # §43 — the stable citation identity, not the storage id.
+                source_id=document.base_chunk_id,
+                project_id=project_id,
+                index_identity=index_identity,
+                content=content,
+                content_truncated=truncated,
+                order_index=order_index,
+                provenance=provenance,
+                caveats=document_caveats(document, truncated=truncated),
+                document=document,
+            )
+        )
+    return build_pack(
+        route=route,
+        strategy="document_hybrid",
+        degraded=False,
+        items=items,
+        total_hits=total_hits,
+        result_from=result_from,
+        caveats=(Caveat.SNAPSHOT_PAGE_WITHOUT_SCORES,) if snapshot_page else (),
         limits=limits,
     )
 

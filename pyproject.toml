@@ -64,6 +64,13 @@ module = [
     "retrieval.rrf",
     "retrieval.dense",
     "retrieval.hybrid",
+    # HBIM-073 §59 — the document retrieval core (no new runtime dependency).
+    "retrieval.document_projection",
+    "retrieval.document_lexical",
+    "retrieval.document_hybrid",
+    "retrieval.document_retrieval",
+    "ingestion.indexers.chunks_dense",
+    "eval.document_retrieval_eval",
     "shared.config",
     "shared.opensearch",
     "shared.security",

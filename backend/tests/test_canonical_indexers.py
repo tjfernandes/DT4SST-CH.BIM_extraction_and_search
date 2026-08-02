@@ -306,7 +306,7 @@ def test_chunk_indexer_is_registered_last() -> None:
         registry.get_indexer_spec("media")
 
     package_dir = BACKEND / "ingestion" / "indexers"
-    assert len(sorted(package_dir.glob("*.py"))) == 11  # +chunks_indexer.py
+    assert len(sorted(package_dir.glob("*.py"))) == 12  # +chunks_indexer, +chunks_dense
 
 
 def test_input_filenames_come_from_a_closed_registry() -> None:
@@ -1163,6 +1163,18 @@ def test_integer_family_sweep_over_every_registered_mapping_version() -> None:
         "chunk.v3.element_links.mentions.end": "integer",
         "chunk.v3.element_links.mentions.page_number": "integer",
         "chunk.v3.element_links.mentions.region_index": "integer",
+        # HBIM-073 §22 — the vectorized successor keeps every v3 integer.
+        "chunk.v4.char_count": "integer",
+        "chunk.v4.chunk_index": "integer",
+        "chunk.v4.element_links.mentions.end": "integer",
+        "chunk.v4.element_links.mentions.page_number": "integer",
+        "chunk.v4.element_links.mentions.region_index": "integer",
+        "chunk.v4.element_links.mentions.start": "integer",
+        "chunk.v4.page_number": "integer",
+        "chunk.v4.page_regions.page_number": "integer",
+        "chunk.v4.page_regions.region_index": "integer",
+        "chunk.v4.page_span": "integer",
+        "chunk.v4.section_index": "integer",
     }
 
 

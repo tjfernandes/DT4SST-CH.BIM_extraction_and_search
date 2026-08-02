@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 from enum import Enum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping, Sequence
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -395,6 +396,43 @@ PROFILE_CATALOG: Mapping[ResidencyProfile, ProfileDefinition] = {
 # --------------------------------------------------------------------------- #
 # Pure route → profile mapping (spec §9)
 # --------------------------------------------------------------------------- #
+#: HBIM-073 §34/§36 — the services a route actually dispatches. This is
+#: deliberately narrower than the residency *profile*: a profile describes what
+#: may be co-resident, while this set describes what a request truly needs. The
+#: document route serves BM25 + dense + RRF and never calls the reranker, so a
+#: missing reranker must not block it — and a missing embedding service must.
+_ROUTE_REQUIRED_SERVICES: Mapping[str, tuple[ServiceName, ...]] = MappingProxyType(
+    {
+        "hybrid_semantic": (ServiceName.EMB_QWEN3_8B, ServiceName.RERANK_QWEN3_8B),
+        "document_hybrid": (ServiceName.EMB_QWEN3_8B,),
+        "multimodal": (
+            ServiceName.EMB_QWEN3_8B,
+            ServiceName.RERANK_QWEN3_8B,
+            ServiceName.JINA_CLIP,
+            ServiceName.OCR,
+            ServiceName.VLM_8B,
+        ),
+    }
+)
+
+
+def required_services_for_route(route: "Route", *, degraded: bool) -> tuple[ServiceName, ...]:
+    """The exact services a route dispatches; ``()`` when it needs none.
+
+    Availability for the document route is decided from this set, never from
+    the wider profile membership, so "reranker absent" cannot block a route
+    that provably never calls it.
+    """
+    if not isinstance(degraded, bool):
+        raise IllegalTransitionError("degraded must be a bool")
+    if degraded:
+        return ()
+    profile = profile_for_route(route, degraded=False)
+    if profile is None:
+        return ()
+    return _ROUTE_REQUIRED_SERVICES.get(route.value, ())
+
+
 def profile_for_route(route: "Route", *, degraded: bool) -> ResidencyProfile | None:
     """Pure, total, exhaustive map from a deterministic route to a profile.
 
@@ -417,7 +455,13 @@ def profile_for_route(route: "Route", *, degraded: bool) -> ResidencyProfile | N
     if route is _Route.MULTIMODAL:
         return ResidencyProfile.P_ONLINE_MM
     if route is _Route.DOCUMENT_HYBRID:
-        return ResidencyProfile.P_ONLINE_MM
+        # HBIM-073 §36 / §4 C-2 — textual chunk retrieval needs no visual
+        # service. Keeping P_ONLINE_MM would make the route unavailable
+        # whenever Jina CLIP, OCR or the VLM are absent, which is the normal
+        # state. The *exact* services this route dispatches are narrower still
+        # (``required_services_for_route``): under the reviewed
+        # ``disabled_rrf_only`` decision the reranker is never called.
+        return ResidencyProfile.P_ONLINE_TEXT
     if route in (
         _Route.EXACT_LOOKUP,
         _Route.AGGREGATION,

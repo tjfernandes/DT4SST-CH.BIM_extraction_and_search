@@ -103,7 +103,8 @@ def pack_of(*items: EvidenceItem, **kwargs: object) -> EvidencePack:
 # Schema, version and closed enums (§43)
 # --------------------------------------------------------------------------- #
 def test_version_literal_is_pinned() -> None:
-    assert EVIDENCE_PACK_VERSION == "hbim-052-evidence-v1"
+    # HBIM-073 §41 — the closed emittable set grew, so the version bumped.
+    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
     assert pack_of(item()).version == EVIDENCE_PACK_VERSION
 
 
@@ -120,9 +121,12 @@ def test_every_closed_enum_has_its_exact_members_and_order() -> None:
         "bm25_score", "dense_similarity", "rrf_fused",
         "reranker_probability", "opensearch_query_score",
     ]
+    # HBIM-073 §45 added exactly four document caveats; the set stays closed.
     assert sorted(c.value for c in Caveat) == [
-        "degraded_route", "future_backend_unavailable", "items_truncated_by_limit",
+        "degraded_route", "document_metadata_unavailable",
+        "future_backend_unavailable", "items_truncated_by_limit",
         "legacy_source", "metadata_conflict", "no_evidence",
+        "ocr_derived_passage", "page_region_unavailable", "passage_truncated",
         "snapshot_page_without_scores", "threshold_accept_all",
         "truncated_projection",
     ]
@@ -152,12 +156,19 @@ def test_blank_and_oversized_source_ids_are_rejected() -> None:
 
 
 def test_future_source_kinds_can_never_be_emitted() -> None:
+    # HBIM-073 §41 — the set grew by exactly one member. Graph and media
+    # remain declared-but-unemittable, so a future backend cannot leak in.
     assert EMITTABLE_SOURCE_KINDS == {
-        SourceKind.CANONICAL_ELEMENT, SourceKind.LEGACY_ELEMENT
+        SourceKind.CANONICAL_ELEMENT,
+        SourceKind.LEGACY_ELEMENT,
+        SourceKind.DOCUMENT_CHUNK,
     }
-    for kind in (SourceKind.DOCUMENT_CHUNK, SourceKind.GRAPH_PATH, SourceKind.MEDIA_ITEM):
+    for kind in (SourceKind.GRAPH_PATH, SourceKind.MEDIA_ITEM):
         with pytest.raises(EvidenceIdentityError, match="cannot be emitted"):
             item(kind=kind)
+    # A document kind is emittable but still requires its typed block (§42).
+    with pytest.raises(EvidenceIdentityError, match="DocumentEvidence"):
+        item(kind=SourceKind.DOCUMENT_CHUNK)
 
 
 def test_bool_is_rejected_wherever_a_number_is_expected() -> None:
@@ -736,7 +747,7 @@ def test_fresh_subprocess_import_with_socket_and_subprocess_bombs() -> None:
         "subprocess.run = boom\n"
         "import retrieval.evidence as m\n"
         "import api.schemas\n"
-        "assert m.EVIDENCE_PACK_VERSION == 'hbim-052-evidence-v1'\n"
+        "assert m.EVIDENCE_PACK_VERSION == 'hbim-073-evidence-v2'\n"
         "print('OK')\n"
     )
     proc = subprocess.run(

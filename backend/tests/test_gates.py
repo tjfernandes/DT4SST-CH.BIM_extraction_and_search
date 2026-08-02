@@ -47,13 +47,16 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_twenty_slices() -> None:
+def test_committed_policy_loads_and_has_the_twenty_three_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
     # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
     # more (document_ocr_merge, ocr_decision, ocr_live_suite); HBIM-072 §29
-    # added exactly one (entity_linking).
-    assert len(policy.slices) == 20
+    # added exactly one (entity_linking). HBIM-073 §54 added exactly three
+    # (document_dimension_decision, document_reranker_decision,
+    # document_retrieval_live) and reclassified document_retrieval from
+    # unavailable_future to blocking/pure: 20 → 23.
+    assert len(policy.slices) == 23
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -172,8 +175,10 @@ def test_real_tree_passes_every_gated_slice(real_report) -> None:
     assert real_report["exit_code"] == 0
     # HBIM-071: +2 passed (document_ocr_merge, ocr_decision), +1 manual
     # (ocr_live_suite). HBIM-072: +1 passed (entity_linking).
+    # HBIM-073 §54: document_retrieval leaves the unavailable set and three
+    # slices join it — two blocking artifact slices plus one manual_live.
     assert real_report["counts"] == {
-        "passed": 14, "failed": 0, "delegated": 1, "manual": 2, "unavailable": 3,
+        "passed": 17, "failed": 0, "delegated": 1, "manual": 3, "unavailable": 2,
     }
 
 
@@ -217,10 +222,70 @@ def test_real_tree_ocr_decision_margins_are_recomputed(real_report) -> None:
 
 
 def test_future_slices_are_unavailable_never_green(real_report) -> None:
-    for slice_id in ("document_retrieval", "graph_retrieval", "multimodal_retrieval"):
+    """Graph and multimodal genuinely have no backend and must stay unavailable.
+
+    ``document_retrieval`` deliberately left this set in HBIM-073 §54 — it now
+    has a real implementation and is gated numerically, which the assertions
+    below prove rather than assume.
+    """
+    for slice_id in ("graph_retrieval", "multimodal_retrieval"):
         record = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
         assert record["status"] == "unavailable"
         assert record["checks"] == []
+
+    document = next(
+        s for s in real_report["slices"] if s["slice_id"] == "document_retrieval"
+    )
+    assert document["status"] == "pass"
+    assert document["classification"] == "blocking"
+    assert len(document["checks"]) >= 20
+    assert all(check["passed"] for check in document["checks"])
+
+
+def test_document_retrieval_slice_measures_the_served_ranking(real_report) -> None:
+    """§54 — under ``disabled_rrf_only`` the bars apply to raw RRF, the ranking
+    production actually serves, so the gate can never measure a path that is
+    not shipped."""
+    document = next(
+        s for s in real_report["slices"] if s["slice_id"] == "document_retrieval"
+    )
+    values = {check["metric"]: check["value"] for check in document["checks"]}
+    assert values["ndcg_at_10"] == 0.946141
+    assert values["recall_at_10"] == 0.976191
+    assert values["mrr_at_10"] == 1.0
+    assert values["selected_dimension"] == 1024.0
+    assert values["decision_mode_is_reviewed"] == 1.0
+    assert values["threshold_is_null"] == 1.0
+    assert values["forbidden_ids_returned"] == 0.0
+    assert values["document_accuracy"] == values["page_accuracy"] == 1.0
+    assert values["stable_citation_accuracy"] == 1.0
+    assert values["zero_evidence_provider_calls"] == 0.0
+    assert values["false_answer_rate"] == 0.0
+
+
+def test_document_artifact_slices_recompute_their_decisions(real_report) -> None:
+    dimension = next(
+        s for s in real_report["slices"] if s["slice_id"] == "document_dimension_decision"
+    )
+    reranker = next(
+        s for s in real_report["slices"] if s["slice_id"] == "document_reranker_decision"
+    )
+    assert dimension["status"] == reranker["status"] == "pass"
+    dim_values = {c["metric"]: c["value"] for c in dimension["checks"]}
+    assert dim_values["selector_reproduces_selection"] == 1.0
+    rer_values = {c["metric"]: c["value"] for c in reranker["checks"]}
+    assert rer_values["every_mode_has_a_reason_code"] == 1.0
+    assert rer_values["selected_mode_reason_is_ok"] == 1.0
+    assert rer_values["threshold_null_unless_mode_a"] == 1.0
+    # Two of the three closed modes were measured and rejected, with reasons.
+    assert rer_values["rejected_mode_count"] == 2.0
+
+
+def test_document_live_slice_is_manual_and_never_runs_in_ci(real_report) -> None:
+    live = next(
+        s for s in real_report["slices"] if s["slice_id"] == "document_retrieval_live"
+    )
+    assert live["status"] == "manual" and live["checks"] == []
 
 
 def test_manual_and_delegated_statuses(real_report) -> None:
@@ -499,7 +564,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 20   # every registered slice, none skipped
+    assert len(report["slices"]) == 23   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #
@@ -531,3 +596,128 @@ def test_full_gates_run_is_pure_no_socket_no_subprocess(monkeypatch) -> None:
 
     report = run_gates(load_policy(DEFAULT_POLICY_PATH), REPO_ROOT)
     assert report["exit_code"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-073 §54 — negative proofs: a tampered artifact or gold must FAIL
+# --------------------------------------------------------------------------- #
+def _document_slice(policy_slices, slice_id: str):
+    return next(s for s in policy_slices if s.slice_id == slice_id)
+
+
+def _run_document_slice(tmp_root, slice_id: str, adapter_name: str):
+    """Run one document slice against a tree rooted at ``tmp_root``."""
+    from eval.gates import ADAPTERS, SliceOutcome, load_policy
+
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    entry = _document_slice(policy.slices, slice_id)
+    outcome = SliceOutcome()
+    ADAPTERS[adapter_name](entry, outcome, tmp_root)
+    return outcome
+
+
+def _mirror_tree(tmp_path):
+    """A writable mirror of the paths the document slices read."""
+    import shutil
+
+    root = tmp_path / "tree"
+    for relative in (
+        "backend/eval/baselines/document_reranker_decision.json",
+        "backend/eval/baselines/document_dimension_decision.json",
+        "backend/eval/dataset/document_retrieval/corpus.jsonl",
+        "backend/eval/dataset/document_retrieval/queries.jsonl",
+        "backend/eval/dataset/document_retrieval/qrels.jsonl",
+        "backend/eval/dataset/document_grounding_gold.jsonl",
+    ):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / relative, destination)
+    return root
+
+
+def test_a_tampered_qrel_file_breaks_the_gold_chain(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    qrels = root / "backend/eval/dataset/document_retrieval/qrels.jsonl"
+    kept = qrels.read_text(encoding="utf-8").splitlines()[:-1]  # shrink the gold
+    qrels.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    outcome = _run_document_slice(root, "document_retrieval", "document_retrieval")
+    assert outcome.status == "fail"
+    assert any("qrels" in str(failure) for failure in outcome.failures)
+
+
+def test_a_wrong_decision_mode_fails_the_slice(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    path = root / "backend/eval/baselines/document_reranker_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["decision_mode"] = "accept_all_rank_only"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    outcome = _run_document_slice(root, "document_retrieval", "document_retrieval")
+    assert outcome.status == "fail"
+
+
+def test_a_non_null_threshold_fails_the_slice(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    path = root / "backend/eval/baselines/document_reranker_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["threshold"] = 0.5
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    outcome = _run_document_slice(root, "document_retrieval", "document_retrieval")
+    assert outcome.status == "fail"
+
+
+def test_a_forbidden_id_in_the_served_ranking_fails_the_slice(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    path = root / "backend/eval/baselines/document_reranker_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["metrics"]["rrf_raw"]["forbidden_ids"] = ["c21"]  # cross-project leak
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    outcome = _run_document_slice(root, "document_retrieval", "document_retrieval")
+    assert outcome.status == "fail"
+
+
+def test_a_quality_regression_fails_the_slice(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    path = root / "backend/eval/baselines/document_reranker_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["metrics"]["rrf_raw"]["ndcg_at_10"] = 0.80
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    outcome = _run_document_slice(root, "document_retrieval", "document_retrieval")
+    assert outcome.status == "fail"
+
+
+def test_a_wrong_selected_dimension_fails_the_artifact_slice(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    path = root / "backend/eval/baselines/document_dimension_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["selection"]["selected_dimension"] = 4096  # not what the numbers support
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    outcome = _run_document_slice(
+        root, "document_dimension_decision", "document_dimension_decision"
+    )
+    assert outcome.status == "fail"
+
+
+def test_a_missing_mode_reason_code_fails_the_artifact_slice(tmp_path) -> None:
+    root = _mirror_tree(tmp_path)
+    path = root / "backend/eval/baselines/document_reranker_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["mode_evaluation"]["accept_all_rank_only"].pop("reason_code")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    outcome = _run_document_slice(
+        root, "document_reranker_decision", "document_reranker_decision"
+    )
+    assert outcome.status == "fail"
+
+
+def test_the_gates_runner_has_no_baseline_write_capability() -> None:
+    """§57 — the runner reads artifacts; it can never accept a new baseline."""
+    import ast
+
+    source = (REPO_ROOT / "backend/eval/gates.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in ("write_text", "write_bytes"):
+                rendered = ast.dump(node)
+                assert "baselines" not in rendered, "the runner must never write a baseline"
+    assert "--accept" not in source and "--update-baseline" not in source

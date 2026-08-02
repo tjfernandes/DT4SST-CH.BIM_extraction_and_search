@@ -154,7 +154,8 @@ def test_route_mapping_expected_values_are_hand_written() -> None:
     expected = {
         Route.HYBRID_SEMANTIC: ResidencyProfile.P_ONLINE_TEXT,
         Route.MULTIMODAL: ResidencyProfile.P_ONLINE_MM,
-        Route.DOCUMENT_HYBRID: ResidencyProfile.P_ONLINE_MM,
+        # HBIM-073 §36 / §4 C-2 — textual chunk retrieval is a TEXT route.
+        Route.DOCUMENT_HYBRID: ResidencyProfile.P_ONLINE_TEXT,
         Route.EXACT_LOOKUP: None,
         Route.AGGREGATION: None,
         Route.STRUCTURED: None,
@@ -559,3 +560,66 @@ def test_no_future_service_can_be_loaded_by_any_plan() -> None:
 
 def test_math_import_is_used_for_finiteness_only() -> None:
     assert math.isfinite(1.0)  # guards the import used by validate_mib
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-073 §34/§36 — the document route's exact service set
+# --------------------------------------------------------------------------- #
+def test_document_route_requires_the_embedding_service_only() -> None:
+    """The reviewed mode is ``disabled_rrf_only``: the reranker is never called,
+    so it is not a requirement — while the embedding service is."""
+    from models.residency import ServiceName, required_services_for_route
+
+    assert required_services_for_route(Route.DOCUMENT_HYBRID, degraded=False) == (
+        ServiceName.EMB_QWEN3_8B,
+    )
+
+
+def test_document_route_never_requests_a_visual_or_ocr_service() -> None:
+    from models.residency import ServiceName, required_services_for_route
+
+    required = set(required_services_for_route(Route.DOCUMENT_HYBRID, degraded=False))
+    for forbidden in (ServiceName.JINA_CLIP, ServiceName.OCR, ServiceName.VLM_8B,
+                      ServiceName.VLM_32B, ServiceName.COLQWEN):
+        assert forbidden not in required, forbidden
+
+
+def test_document_route_availability_ignores_the_reranker() -> None:
+    """Embedding present + reranker absent ⇒ the document route is available;
+    embedding absent ⇒ it is not. Both decided from the exact service set."""
+    from models.residency import ServiceName, required_services_for_route
+
+    required = set(required_services_for_route(Route.DOCUMENT_HYBRID, degraded=False))
+    resident_without_reranker = {ServiceName.EMB_QWEN3_8B}
+    assert required <= resident_without_reranker
+    assert not required <= set()
+
+
+def test_element_route_service_set_is_unchanged_by_this_milestone() -> None:
+    from models.residency import ServiceName, required_services_for_route
+
+    assert required_services_for_route(Route.HYBRID_SEMANTIC, degraded=False) == (
+        ServiceName.EMB_QWEN3_8B,
+        ServiceName.RERANK_QWEN3_8B,
+    )
+
+
+def test_every_route_service_set_is_a_subset_of_its_profile() -> None:
+    """The exact set may narrow a profile; it may never exceed it."""
+    from models.residency import PROFILE_CATALOG, required_services_for_route
+
+    for route in Route:
+        profile = profile_for_route(route, degraded=False)
+        services = set(required_services_for_route(route, degraded=False))
+        if profile is None:
+            assert services == set(), route
+        else:
+            members = {member.service for member in PROFILE_CATALOG[profile].members}
+            assert services <= members, route
+
+
+def test_degraded_routes_dispatch_no_service() -> None:
+    from models.residency import required_services_for_route
+
+    for route in Route:
+        assert required_services_for_route(route, degraded=True) == (), route

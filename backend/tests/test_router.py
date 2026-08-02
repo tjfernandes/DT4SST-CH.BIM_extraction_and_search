@@ -555,7 +555,10 @@ def test_routing_is_independent_of_pythonhashseed() -> None:
 # =========================================================================== #
 def test_capability_map_is_total_and_uses_only_legacy_strategies() -> None:
     assert set(api_main.BASE_STRATEGY) == set(Route)
-    assert set(api_main.BASE_STRATEGY.values()) <= LEGACY_STRATEGIES
+    # HBIM-073 §37 — the document route now names its own real strategy; every
+    # other route still maps to a legacy one.
+    assert set(api_main.BASE_STRATEGY.values()) <= LEGACY_STRATEGIES | {"document_hybrid"}
+    assert api_main.BASE_STRATEGY[Route.DOCUMENT_HYBRID] == "document_hybrid"
 
 
 def test_capability_map_is_read_only() -> None:
@@ -563,10 +566,39 @@ def test_capability_map_is_read_only() -> None:
         api_main.BASE_STRATEGY[Route.CHAT] = "semantic"  # type: ignore[index]
 
 
-def test_unimplemented_routes_are_exactly_the_three_without_backend() -> None:
-    assert api_main.UNIMPLEMENTED_ROUTES == frozenset(
-        {Route.GRAPH, Route.MULTIMODAL, Route.DOCUMENT_HYBRID}
-    )
+def test_unimplemented_routes_are_exactly_the_two_without_backend() -> None:
+    """HBIM-073 §37 — the document route left the *static* unimplemented set.
+
+    Graph and multimodal genuinely have no backend and stay. The document route
+    now has one, so its availability is decided per request by the fail-closed
+    activation check rather than by a constant.
+    """
+    assert api_main.UNIMPLEMENTED_ROUTES == frozenset({Route.GRAPH, Route.MULTIMODAL})
+    assert Route.DOCUMENT_HYBRID not in api_main.UNIMPLEMENTED_ROUTES
+
+
+def test_document_route_degrades_exactly_as_before_while_activation_is_off() -> None:
+    """§37 — with activation off every pre-HBIM-073 response is unchanged."""
+    from types import SimpleNamespace
+
+    assert api_main.document_route_unavailable(SimpleNamespace(enabled=False)) is True
+    assert api_main.document_route_unavailable(SimpleNamespace(enabled=True)) is False
+    context = RouterContext(has_previous_results=False)
+    strategy, degraded = api_main.execution_strategy(_decision(Route.DOCUMENT_HYBRID), context)
+    assert (strategy, degraded) == (api_main.DOCUMENT_DEGRADED_STRATEGY, True)
+    assert strategy == "semantic"
+
+
+def test_document_activation_failure_degrades_and_never_raises(monkeypatch) -> None:
+    """A misconfigured deployment must degrade, not 500."""
+    import shared.config as config
+
+    class Exploding:
+        def __init__(self, *a, **k):
+            raise RuntimeError("misconfigured")
+
+    monkeypatch.setattr(config, "DocumentActivationSettings", Exploding)
+    assert api_main.document_route_unavailable() is True
 
 
 def _decision(target: Route) -> RoutingDecision:
@@ -581,14 +613,19 @@ def test_execution_strategy_over_all_sixteen_combinations(
 ) -> None:
     context = RouterContext(has_previous_results=has_previous)
     strategy, degraded = api_main.execution_strategy(_decision(target), context)
-    assert strategy in LEGACY_STRATEGIES
+    assert strategy in LEGACY_STRATEGIES | {"document_hybrid"}
 
     d1 = target in api_main.UNIMPLEMENTED_ROUTES
     d2 = target is Route.EXACT_LOOKUP and not has_previous
-    assert degraded is (d1 or d2)
+    # D3 (HBIM-073 §37): the document route degrades while activation is off,
+    # which is the default in every test environment.
+    d3 = target is Route.DOCUMENT_HYBRID and api_main.document_route_unavailable()
+    assert degraded is (d1 or d2 or d3)
 
     if d2:
         assert strategy == "structured"
+    elif d3:
+        assert strategy == api_main.DOCUMENT_DEGRADED_STRATEGY
     else:
         assert strategy == api_main.BASE_STRATEGY[target]
 

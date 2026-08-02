@@ -1,539 +1,737 @@
 {
-  "policy_version": "hbim-060-policy-v1",
-  "slices": [
+ "policy_version": "hbim-060-policy-v1",
+ "slices": [
+  {
+   "checks": [
     {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "exact_id_success"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "zero_result_correctness"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "filter_correctness"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "semantic_correctness"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "aggregation_exactness"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "pagination_integrity"
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "hbim005-synthetic-legacy-v1",
-      "delegated_to": "evaluation-opensearch",
-      "execution": "testcontainers",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/dataset.json",
-          "sha256": "2fc153624404fe3a4a54ff52e4b34a4d40e3b348171e3d6e4061d1464afc5268"
-        },
-        {
-          "path": "backend/eval/dataset/corpus.jsonl",
-          "sha256": "7b83750e43aecca68fe98794dbad7078265c77e987b92d4866e80a578f4ff7a5"
-        },
-        {
-          "path": "backend/eval/dataset/qrels.jsonl",
-          "sha256": "63524a5565739a84a42647f9b1099795bc193c716c8a35de34cd76db1a060b0e"
-        },
-        {
-          "path": "backend/eval/dataset/queries.jsonl",
-          "sha256": "01ffb1dba51e64ede583d622fe3cc092810f354675680db522e5f045c3dcc8c8"
-        },
-        {
-          "path": "backend/eval/baselines/current_system.json",
-          "sha256": "32d940aa20494f8fe6744734636abc432bf42cdda7d345a72c9440d93077e9a6"
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "hbim005_opensearch",
-      "title": "HBIM-005 synthetic OpenSearch evaluation (identity half; metrics run in evaluation-opensearch)"
+     "comparator": "exact_one",
+     "metric": "exact_id_success"
     },
     {
-      "checks": [
-        {
-          "comparator": "gte_threshold",
-          "metric": "routing_accuracy",
-          "threshold": 0.95
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "routing-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/routing_gold.jsonl",
-          "sha256": "8a837749d5c37b37adb26ad1f8f161b4c145b2471be60b1a49273b19467edd62"
-        }
-      ],
-      "min_cases": 86,
-      "slice_id": "routing_accuracy",
-      "title": "HBIM-040 routing accuracy recomputed through the real router"
+     "comparator": "exact_one",
+     "metric": "zero_result_correctness"
     },
     {
-      "checks": [],
-      "classification": "integrity",
-      "corpus_id": "parser-gold-v1",
-      "delegated_to": "backend-unit",
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/parser_gold.jsonl",
-          "sha256": "e4b7a24b7bb0041117878f4466d2a8e6826845599b077e521c5654b3432ca87a"
-        }
-      ],
-      "min_cases": 96,
-      "slice_id": "parser_gold_integrity",
-      "title": "HBIM-041 parser gold integrity (behaviour gated in test_parser_gold.py)"
+     "comparator": "exact_one",
+     "metric": "filter_correctness"
     },
     {
-      "checks": [],
-      "classification": "integrity",
-      "corpus_id": "semantic-gold-canonical-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/baselines/semantic_model_quality.json",
-          "sha256": "9016ca0c5e89a946dc85efde135b5aa78b60b4b6cd39dca195743d986713aad8"
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "semantic_gold_integrity",
-      "title": "HBIM-005B semantic gold files match the artifact-declared checksums"
+     "comparator": "exact_one",
+     "metric": "semantic_correctness"
     },
     {
-      "checks": [],
-      "classification": "artifact",
-      "corpus_id": "semantic-gold-canonical-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/baselines/semantic_model_quality.json",
-          "sha256": "9016ca0c5e89a946dc85efde135b5aa78b60b4b6cd39dca195743d986713aad8"
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "semantic_model_baseline",
-      "title": "HBIM-005B semantic model quality artifact (recomputation is manual_live)"
+     "comparator": "exact_one",
+     "metric": "aggregation_exactness"
     },
     {
-      "checks": [],
-      "classification": "artifact",
-      "corpus_id": "semantic-gold-canonical-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/baselines/dimension_decision.json",
-          "sha256": "353b115e9b6f4a3049a1b9ba225722f1d932d1c098328903fbfab0cb339cafd0"
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "dimension_decision",
-      "title": "HBIM-031 dimension decision artifact + chain to semantic artifact"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "gates_all_passed"
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "g1_margin",
-          "threshold": 0.0
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "g2_margin",
-          "threshold": 0.0
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "semantic-gold-canonical-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/baselines/reranker_decision.json",
-          "sha256": "cb74b6434daaf5698f936f517f84eb2a4e041575a42de34fffe2b451539d3fa1"
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "reranker_decision",
-      "title": "HBIM-051 reranker decision: chain + recorded gates re-verified numerically"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "citation_validity"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "claim_citation_coverage"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "support_validity"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "abstention_correctness"
-        },
-        {
-          "comparator": "exact_zero",
-          "metric": "false_answer_rate"
-        },
-        {
-          "comparator": "exact",
-          "metric": "mismatch_count",
-          "reference": 0
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "grounding-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/grounding_gold.jsonl",
-          "sha256": "e42e2cec8aa906d91548a4972b3cb23b136f75648db2db8837fb019699adc594"
-        }
-      ],
-      "min_cases": 29,
-      "slice_id": "grounding_gold",
-      "title": "HBIM-053 grounding gold recomputed through the real validation pipeline"
-    },
-    {
-      "checks": [],
-      "classification": "unit_delegated",
-      "corpus_id": "none",
-      "delegated_to": "backend-unit",
-      "execution": "unit_delegated",
-      "inputs": [
-        {
-          "path": "backend/tests/test_api_pagination_snapshot.py",
-          "sha256": null
-        },
-        {
-          "path": "backend/tests/test_evidence_pack.py",
-          "sha256": null
-        },
-        {
-          "path": "backend/tests/test_evidence_api.py",
-          "sha256": null
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "snapshot_evidence_integrity",
-      "title": "HBIM-051/052 snapshot + EvidencePack integrity (95 tests in backend-unit)"
-    },
-    {
-      "checks": [],
-      "classification": "manual_live",
-      "corpus_id": "none",
-      "delegated_to": null,
-      "execution": "manual_live",
-      "inputs": [],
-      "min_cases": null,
-      "slice_id": "live_service_suites",
-      "title": "GPU/model/reranker/residency live suites (markers 37/19/15/10); operator-run"
-    },
-    {
-      "checks": [],
-      "classification": "unavailable_future",
-      "corpus_id": "none",
-      "delegated_to": null,
-      "execution": "unavailable_future",
-      "inputs": [],
-      "min_cases": null,
-      "slice_id": "document_retrieval",
-      "title": "blocked on HBIM-073 document retrieval (HBIM-070 delivered ingestion and indexability)"
-    },
-    {
-      "checks": [],
-      "classification": "unavailable_future",
-      "corpus_id": "none",
-      "delegated_to": null,
-      "execution": "unavailable_future",
-      "inputs": [],
-      "min_cases": null,
-      "slice_id": "graph_retrieval",
-      "title": "blocked on HBIM-079+ graph pipeline"
-    },
-    {
-      "checks": [],
-      "classification": "unavailable_future",
-      "corpus_id": "none",
-      "delegated_to": null,
-      "execution": "unavailable_future",
-      "inputs": [],
-      "min_cases": null,
-      "slice_id": "multimodal_retrieval",
-      "title": "blocked on HBIM-090+ multimodal milestones"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "page_provenance_accuracy"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "parse_status_accuracy"
-        },
-        {
-          "comparator": "exact",
-          "metric": "mismatch_count",
-          "reference": 0
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "document-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/document_gold.jsonl",
-          "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
-        },
-        {
-          "path": "backend/eval/fixtures/make_synthetic_pdf.py",
-          "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
-        }
-      ],
-      "min_cases": 8,
-      "slice_id": "document_ingestion",
-      "title": "HBIM-070 born-digital ingestion: page provenance and OCR-required classification"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "chunk_determinism_accuracy"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "section_provenance_accuracy"
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "document-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/document_gold.jsonl",
-          "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
-        },
-        {
-          "path": "backend/eval/fixtures/make_synthetic_pdf.py",
-          "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
-        }
-      ],
-      "min_cases": 8,
-      "slice_id": "document_chunking",
-      "title": "HBIM-070 deterministic chunking replayed from the recorded block gold"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "indexable_term_accuracy"
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "document-gold-v1",
-      "delegated_to": "integration-opensearch",
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/document_gold.jsonl",
-          "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
-        },
-        {
-          "path": "backend/eval/fixtures/make_synthetic_pdf.py",
-          "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
-        }
-      ],
-      "min_cases": 8,
-      "slice_id": "document_indexability",
-      "title": "HBIM-070 indexable term provenance; the BM25 half runs in integration-opensearch"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "merge_chunk_accuracy"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "ocr_flag_accuracy"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "region_propagation_accuracy"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "confidence_accuracy"
-        },
-        {
-          "comparator": "exact",
-          "metric": "mismatch_count",
-          "reference": 0
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "ocr-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/ocr_gold.jsonl",
-          "sha256": "bd3f7bfdd367ca3eef8fc82e4b935fb0b1b3d7e5065ded8937dd58ee54656e0c"
-        },
-        {
-          "path": "backend/eval/fixtures/make_scanned_pdf.py",
-          "sha256": "34efbb423085d32d16af50907daff0e28101471378d9930a690aa0a29edbdc3c"
-        }
-      ],
-      "min_cases": 11,
-      "slice_id": "document_ocr_merge",
-      "title": "HBIM-071 recorded OCR regions replayed through the real merge/region/chunk logic"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "gates_all_passed"
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "vram_margin_mib",
-          "threshold": 0.0
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "warm_margin_s",
-          "threshold": 0.0
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "cold_margin_s",
-          "threshold": 0.0
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "cer_margin",
-          "threshold": 0.0
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "wer_margin",
-          "threshold": 0.0
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "ocr-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/baselines/ocr_decision.json",
-          "sha256": "19643ff58eeb90d114f04a785487196278b59b04014cda23b3ffb2e696d1b400"
-        }
-      ],
-      "min_cases": null,
-      "slice_id": "ocr_decision",
-      "title": "HBIM-071 OCR decision: chain to recorded gold + recorded gates re-verified numerically"
-    },
-    {
-      "checks": [],
-      "classification": "manual_live",
-      "corpus_id": "none",
-      "delegated_to": null,
-      "execution": "manual_live",
-      "inputs": [],
-      "min_cases": null,
-      "slice_id": "ocr_live_suite",
-      "title": "HBIM-071 live OCR suite (marker ocr_service; GPU + loopback vLLM); operator-run"
-    },
-    {
-      "checks": [
-        {
-          "comparator": "exact_one",
-          "metric": "precision_element_id"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "precision_global_id"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "precision_exact_name"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "precision_exact_name_location"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "precision_fuzzy_name"
-        },
-        {
-          "comparator": "exact_zero",
-          "metric": "false_positive_rate"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "ambiguity_rejection"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "project_isolation"
-        },
-        {
-          "comparator": "exact_one",
-          "metric": "outcome_accuracy"
-        },
-        {
-          "comparator": "gte_threshold",
-          "metric": "recall",
-          "threshold": 1.0
-        },
-        {
-          "comparator": "exact",
-          "metric": "mismatch_count",
-          "reference": 0
-        }
-      ],
-      "classification": "blocking",
-      "corpus_id": "entity-linking-gold-v1",
-      "delegated_to": null,
-      "execution": "pure",
-      "inputs": [
-        {
-          "path": "backend/eval/dataset/entity_linking_gold.jsonl",
-          "sha256": "661422d574dadcde6fecc784551f7d571b1ec5cd9e2037908a667cc1a301d8eb"
-        }
-      ],
-      "min_cases": 24,
-      "slice_id": "entity_linking",
-      "title": "HBIM-072 authored link gold replayed through the real deterministic linker"
+     "comparator": "exact_one",
+     "metric": "pagination_integrity"
     }
-  ]
+   ],
+   "classification": "blocking",
+   "corpus_id": "hbim005-synthetic-legacy-v1",
+   "delegated_to": "evaluation-opensearch",
+   "execution": "testcontainers",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/dataset.json",
+     "sha256": "2fc153624404fe3a4a54ff52e4b34a4d40e3b348171e3d6e4061d1464afc5268"
+    },
+    {
+     "path": "backend/eval/dataset/corpus.jsonl",
+     "sha256": "7b83750e43aecca68fe98794dbad7078265c77e987b92d4866e80a578f4ff7a5"
+    },
+    {
+     "path": "backend/eval/dataset/qrels.jsonl",
+     "sha256": "63524a5565739a84a42647f9b1099795bc193c716c8a35de34cd76db1a060b0e"
+    },
+    {
+     "path": "backend/eval/dataset/queries.jsonl",
+     "sha256": "01ffb1dba51e64ede583d622fe3cc092810f354675680db522e5f045c3dcc8c8"
+    },
+    {
+     "path": "backend/eval/baselines/current_system.json",
+     "sha256": "32d940aa20494f8fe6744734636abc432bf42cdda7d345a72c9440d93077e9a6"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "hbim005_opensearch",
+   "title": "HBIM-005 synthetic OpenSearch evaluation (identity half; metrics run in evaluation-opensearch)"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "gte_threshold",
+     "metric": "routing_accuracy",
+     "threshold": 0.95
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "routing-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/routing_gold.jsonl",
+     "sha256": "8a837749d5c37b37adb26ad1f8f161b4c145b2471be60b1a49273b19467edd62"
+    }
+   ],
+   "min_cases": 86,
+   "slice_id": "routing_accuracy",
+   "title": "HBIM-040 routing accuracy recomputed through the real router"
+  },
+  {
+   "checks": [],
+   "classification": "integrity",
+   "corpus_id": "parser-gold-v1",
+   "delegated_to": "backend-unit",
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/parser_gold.jsonl",
+     "sha256": "e4b7a24b7bb0041117878f4466d2a8e6826845599b077e521c5654b3432ca87a"
+    }
+   ],
+   "min_cases": 96,
+   "slice_id": "parser_gold_integrity",
+   "title": "HBIM-041 parser gold integrity (behaviour gated in test_parser_gold.py)"
+  },
+  {
+   "checks": [],
+   "classification": "integrity",
+   "corpus_id": "semantic-gold-canonical-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/semantic_model_quality.json",
+     "sha256": "9016ca0c5e89a946dc85efde135b5aa78b60b4b6cd39dca195743d986713aad8"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "semantic_gold_integrity",
+   "title": "HBIM-005B semantic gold files match the artifact-declared checksums"
+  },
+  {
+   "checks": [],
+   "classification": "artifact",
+   "corpus_id": "semantic-gold-canonical-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/semantic_model_quality.json",
+     "sha256": "9016ca0c5e89a946dc85efde135b5aa78b60b4b6cd39dca195743d986713aad8"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "semantic_model_baseline",
+   "title": "HBIM-005B semantic model quality artifact (recomputation is manual_live)"
+  },
+  {
+   "checks": [],
+   "classification": "artifact",
+   "corpus_id": "semantic-gold-canonical-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/dimension_decision.json",
+     "sha256": "353b115e9b6f4a3049a1b9ba225722f1d932d1c098328903fbfab0cb339cafd0"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "dimension_decision",
+   "title": "HBIM-031 dimension decision artifact + chain to semantic artifact"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "gates_all_passed"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "g1_margin",
+     "threshold": 0.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "g2_margin",
+     "threshold": 0.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "semantic-gold-canonical-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/reranker_decision.json",
+     "sha256": "cb74b6434daaf5698f936f517f84eb2a4e041575a42de34fffe2b451539d3fa1"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "reranker_decision",
+   "title": "HBIM-051 reranker decision: chain + recorded gates re-verified numerically"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "citation_validity"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "claim_citation_coverage"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "support_validity"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "abstention_correctness"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "false_answer_rate"
+    },
+    {
+     "comparator": "exact",
+     "metric": "mismatch_count",
+     "reference": 0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "grounding-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/grounding_gold.jsonl",
+     "sha256": "e42e2cec8aa906d91548a4972b3cb23b136f75648db2db8837fb019699adc594"
+    }
+   ],
+   "min_cases": 29,
+   "slice_id": "grounding_gold",
+   "title": "HBIM-053 grounding gold recomputed through the real validation pipeline"
+  },
+  {
+   "checks": [],
+   "classification": "unit_delegated",
+   "corpus_id": "none",
+   "delegated_to": "backend-unit",
+   "execution": "unit_delegated",
+   "inputs": [
+    {
+     "path": "backend/tests/test_api_pagination_snapshot.py",
+     "sha256": null
+    },
+    {
+     "path": "backend/tests/test_evidence_pack.py",
+     "sha256": null
+    },
+    {
+     "path": "backend/tests/test_evidence_api.py",
+     "sha256": null
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "snapshot_evidence_integrity",
+   "title": "HBIM-051/052 snapshot + EvidencePack integrity (95 tests in backend-unit)"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "live_service_suites",
+   "title": "GPU/model/reranker/residency live suites (markers 37/19/15/10); operator-run"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "gte_threshold",
+     "metric": "corpus_chunks",
+     "threshold": 24.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "corpus_queries",
+     "threshold": 16.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "qrel_rows",
+     "threshold": 26.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "selected_dimension",
+     "threshold": 1024.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "decision_mode_is_reviewed"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "threshold_is_null"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "forbidden_id_graded_count"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "forbidden_ids_returned"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "ndcg_at_10",
+     "threshold": 0.946141
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "recall_at_10",
+     "threshold": 0.976191
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "mrr_at_10",
+     "threshold": 1.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "document_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "page_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "stable_citation_accuracy"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "storage_id_leak_count"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "public_citation_exposes_storage_id"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "abstention_correctness"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "false_answer_rate"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "uncited_claim_count"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "zero_evidence_provider_calls"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "grounding_cases",
+     "threshold": 12.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "document-retrieval-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/document_reranker_decision.json",
+     "sha256": "46a4adf4df4118a3881814758d70ff0135ea47f4d5bf9e28a31b088d72a61b03"
+    },
+    {
+     "path": "backend/eval/baselines/document_dimension_decision.json",
+     "sha256": "181d5122c8a25f9c513cb719004058ddc0cf184c17ad8a0710414f134ad690e7"
+    },
+    {
+     "path": "backend/eval/dataset/document_retrieval/corpus.jsonl",
+     "sha256": "e957eacd7227ff12410085a423c2348c8140b721c4e5789b8dddfbacef830e28"
+    },
+    {
+     "path": "backend/eval/dataset/document_retrieval/queries.jsonl",
+     "sha256": "7d2c88ea2571912cca9d413db54729d222beca01aa6452ea6d02f5fcaabce82a"
+    },
+    {
+     "path": "backend/eval/dataset/document_retrieval/qrels.jsonl",
+     "sha256": "8fa5d86f257262f29a8ab1b81e903653a7cda951e05ac2c5e1ae3b1706f9f492"
+    },
+    {
+     "path": "backend/eval/dataset/document_grounding_gold.jsonl",
+     "sha256": "4b9fea355eeaa2624c97b87bfbe741e44ffc3953062e5c6c95aac31990e19a41"
+    }
+   ],
+   "min_cases": 16,
+   "slice_id": "document_retrieval",
+   "title": "HBIM-073 document retrieval: corrected gold integrity, the served raw-RRF ranking, citation identity and zero-relevant abstention"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "selector_reproduces_selection"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "selected_dimension",
+     "threshold": 1024.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "tolerance",
+     "threshold": 0.02
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "document-retrieval-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/document_dimension_decision.json",
+     "sha256": "181d5122c8a25f9c513cb719004058ddc0cf184c17ad8a0710414f134ad690e7"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "document_dimension_decision",
+   "title": "HBIM-073 chunk dimension decision: hash-pinned, selector recomputed numerically"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "every_mode_has_a_reason_code"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "selected_mode_is_closed"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "selected_mode_reason_is_ok"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "threshold_null_unless_mode_a"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "rejected_mode_count",
+     "threshold": 2.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "document-retrieval-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/document_reranker_decision.json",
+     "sha256": "46a4adf4df4118a3881814758d70ff0135ea47f4d5bf9e28a31b088d72a61b03"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "document_reranker_decision",
+   "title": "HBIM-073 document acceptance decision: closed three-mode contract re-verified"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "document-retrieval-gold-v1",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "document_retrieval_live",
+   "title": "HBIM-073 operator-run live embedding benchmark and reranker calibration (never in standard CI)"
+  },
+  {
+   "checks": [],
+   "classification": "unavailable_future",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "unavailable_future",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "graph_retrieval",
+   "title": "blocked on HBIM-079+ graph pipeline"
+  },
+  {
+   "checks": [],
+   "classification": "unavailable_future",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "unavailable_future",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "multimodal_retrieval",
+   "title": "blocked on HBIM-090+ multimodal milestones"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "page_provenance_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "parse_status_accuracy"
+    },
+    {
+     "comparator": "exact",
+     "metric": "mismatch_count",
+     "reference": 0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "document-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/document_gold.jsonl",
+     "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
+    },
+    {
+     "path": "backend/eval/fixtures/make_synthetic_pdf.py",
+     "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
+    }
+   ],
+   "min_cases": 8,
+   "slice_id": "document_ingestion",
+   "title": "HBIM-070 born-digital ingestion: page provenance and OCR-required classification"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "chunk_determinism_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "section_provenance_accuracy"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "document-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/document_gold.jsonl",
+     "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
+    },
+    {
+     "path": "backend/eval/fixtures/make_synthetic_pdf.py",
+     "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
+    }
+   ],
+   "min_cases": 8,
+   "slice_id": "document_chunking",
+   "title": "HBIM-070 deterministic chunking replayed from the recorded block gold"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "indexable_term_accuracy"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "document-gold-v1",
+   "delegated_to": "integration-opensearch",
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/document_gold.jsonl",
+     "sha256": "1cfd7ff7fc46e6458c2c460ed30158ac468d53d87374bfb61bfac75c29f077bd"
+    },
+    {
+     "path": "backend/eval/fixtures/make_synthetic_pdf.py",
+     "sha256": "a89f8ed616e13d1aa27c7b183134c924a7ed30067791a15a3c7b9dd643d3cadf"
+    }
+   ],
+   "min_cases": 8,
+   "slice_id": "document_indexability",
+   "title": "HBIM-070 indexable term provenance; the BM25 half runs in integration-opensearch"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "merge_chunk_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "ocr_flag_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "region_propagation_accuracy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "confidence_accuracy"
+    },
+    {
+     "comparator": "exact",
+     "metric": "mismatch_count",
+     "reference": 0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "ocr-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/ocr_gold.jsonl",
+     "sha256": "bd3f7bfdd367ca3eef8fc82e4b935fb0b1b3d7e5065ded8937dd58ee54656e0c"
+    },
+    {
+     "path": "backend/eval/fixtures/make_scanned_pdf.py",
+     "sha256": "34efbb423085d32d16af50907daff0e28101471378d9930a690aa0a29edbdc3c"
+    }
+   ],
+   "min_cases": 11,
+   "slice_id": "document_ocr_merge",
+   "title": "HBIM-071 recorded OCR regions replayed through the real merge/region/chunk logic"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "gates_all_passed"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "vram_margin_mib",
+     "threshold": 0.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "warm_margin_s",
+     "threshold": 0.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "cold_margin_s",
+     "threshold": 0.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "cer_margin",
+     "threshold": 0.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "wer_margin",
+     "threshold": 0.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "ocr-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/ocr_decision.json",
+     "sha256": "19643ff58eeb90d114f04a785487196278b59b04014cda23b3ffb2e696d1b400"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "ocr_decision",
+   "title": "HBIM-071 OCR decision: chain to recorded gold + recorded gates re-verified numerically"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "ocr_live_suite",
+   "title": "HBIM-071 live OCR suite (marker ocr_service; GPU + loopback vLLM); operator-run"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "precision_element_id"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "precision_global_id"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "precision_exact_name"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "precision_exact_name_location"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "precision_fuzzy_name"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "false_positive_rate"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "ambiguity_rejection"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "project_isolation"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "outcome_accuracy"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "recall",
+     "threshold": 1.0
+    },
+    {
+     "comparator": "exact",
+     "metric": "mismatch_count",
+     "reference": 0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "entity-linking-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/entity_linking_gold.jsonl",
+     "sha256": "661422d574dadcde6fecc784551f7d571b1ec5cd9e2037908a667cc1a301d8eb"
+    }
+   ],
+   "min_cases": 24,
+   "slice_id": "entity_linking",
+   "title": "HBIM-072 authored link gold replayed through the real deterministic linker"
+  }
+ ]
 }
