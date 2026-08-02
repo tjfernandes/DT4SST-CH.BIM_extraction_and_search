@@ -165,6 +165,20 @@ jobs:
           backend/eval/graph_fixtures.py
           backend/eval/graph_pipeline_selector.py
           backend/eval/graph_pipeline_benchmark.py
+          backend/geometry/__init__.py
+          backend/geometry/ids.py
+          backend/geometry/numerics.py
+          backend/geometry/serialization.py
+          backend/geometry/units.py
+          backend/geometry/validation.py
+          backend/geometry/algorithms.py
+          backend/geometry/schema.py
+          backend/geometry/extractor.py
+          backend/geometry/indexer.py
+          backend/eval/geometry_fixtures.py
+          backend/eval/geometry_gold.py
+          backend/eval/geometry_conformance.py
+          backend/eval/geometry_benchmark.py
 
   document-parse:
     runs-on: ubuntu-latest

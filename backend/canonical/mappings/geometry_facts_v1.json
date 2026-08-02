@@ -1,0 +1,152 @@
+{
+  "_meta": {
+    "algorithm": "world_triangulation_aabb_v1",
+    "algorithm_version": "1",
+    "coordinate_space_contract": "world_cartesian; local Cartesian world frame in metres; never geodetic",
+    "created_by": "HBIM-080",
+    "engine": "ifcopenshell",
+    "engine_version": "0.8.3.post1",
+    "geometry_schema_version": "hbim-080-geometry-v1",
+    "geometry_version": "hbim-080-geometry-worldaabb-v1",
+    "mapping_version": "1",
+    "quality_artifact": "backend/eval/baselines/geometry_decision.json",
+    "quantization": "6-decimal ROUND_HALF_EVEN metres; -0.0 normalised; no exponent form in checksums",
+    "record_type": "geometry_fact",
+    "unit_contract": "coordinates already metres from create_shape; units resolved independently from IfcProject.UnitsInContext; absent units are unit_undetermined, never assumed metres"
+  },
+  "_source": {
+    "enabled": true
+  },
+  "dynamic": "strict",
+  "properties": {
+    "algorithm": {
+      "type": "keyword"
+    },
+    "algorithm_version": {
+      "type": "keyword"
+    },
+    "bbox_max_x_m": {
+      "type": "double"
+    },
+    "bbox_max_y_m": {
+      "type": "double"
+    },
+    "bbox_max_z_m": {
+      "type": "double"
+    },
+    "bbox_min_x_m": {
+      "type": "double"
+    },
+    "bbox_min_y_m": {
+      "type": "double"
+    },
+    "bbox_min_z_m": {
+      "type": "double"
+    },
+    "canonical_sha256": {
+      "type": "keyword"
+    },
+    "centroid_kind": {
+      "type": "keyword"
+    },
+    "centroid_x_m": {
+      "type": "double"
+    },
+    "centroid_y_m": {
+      "type": "double"
+    },
+    "centroid_z_m": {
+      "type": "double"
+    },
+    "coordinate_space": {
+      "type": "keyword"
+    },
+    "element_id": {
+      "type": "keyword"
+    },
+    "engine": {
+      "type": "keyword"
+    },
+    "engine_version": {
+      "type": "keyword"
+    },
+    "geometry_id": {
+      "type": "keyword"
+    },
+    "geometry_schema_version": {
+      "type": "keyword"
+    },
+    "geometry_version": {
+      "type": "keyword"
+    },
+    "global_id": {
+      "type": "keyword"
+    },
+    "has_orientation": {
+      "type": "boolean"
+    },
+    "ifc_class": {
+      "type": "keyword"
+    },
+    "issues": {
+      "type": "keyword"
+    },
+    "length_unit": {
+      "type": "keyword"
+    },
+    "map_conversion_present": {
+      "type": "boolean"
+    },
+    "orientation_method": {
+      "type": "keyword"
+    },
+    "orientation_separation": {
+      "type": "double"
+    },
+    "orientation_x": {
+      "type": "double"
+    },
+    "orientation_y": {
+      "type": "double"
+    },
+    "orientation_z": {
+      "type": "double"
+    },
+    "project_id": {
+      "type": "keyword"
+    },
+    "representation_identifiers": {
+      "type": "keyword"
+    },
+    "representative_point_x_m": {
+      "type": "double"
+    },
+    "representative_point_y_m": {
+      "type": "double"
+    },
+    "representative_point_z_m": {
+      "type": "double"
+    },
+    "source_id": {
+      "type": "keyword"
+    },
+    "source_sha256": {
+      "type": "keyword"
+    },
+    "status": {
+      "type": "keyword"
+    },
+    "triangle_count": {
+      "type": "long"
+    },
+    "unit_conversion_factor": {
+      "type": "double"
+    },
+    "vertex_count": {
+      "type": "long"
+    },
+    "world_transform_applied": {
+      "type": "boolean"
+    }
+  }
+}

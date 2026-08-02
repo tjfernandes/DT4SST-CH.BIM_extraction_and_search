@@ -1,0 +1,194 @@
+{
+ "corpus_id": "geometry-gold-v1",
+ "fixtures": [
+  {
+   "family": "placement",
+   "filename": "gge-01-translated.ifc",
+   "fixture_id": "gge-01-translated",
+   "ifc_schema": "IFC4",
+   "notes": "pure translation; bbox offsets exactly",
+   "project_id": "proj-geom",
+   "sha256": "2edffb9e58b3057754168c301f677db5640c280ba99bfd407c170f8c066ba666"
+  },
+  {
+   "family": "placement",
+   "filename": "gge-02-rotated.ifc",
+   "fixture_id": "gge-02-rotated",
+   "ifc_schema": "IFC4",
+   "notes": "45 degrees about Z; orientation must be the true axis",
+   "project_id": "proj-geom",
+   "sha256": "d98da6cf3f53fc96c713f24b8632686ad2a0801c59d2098aad68abf608fa0cc9"
+  },
+  {
+   "family": "placement",
+   "filename": "gge-03-nested.ifc",
+   "fixture_id": "gge-03-nested",
+   "ifc_schema": "IFC4",
+   "notes": "three-level nested IfcLocalPlacement composition",
+   "project_id": "proj-geom",
+   "sha256": "3418f2310e7bbd3ee8b0e6d67c1d289bdba0482287b064d00bf75a49ccf6e8ba"
+  },
+  {
+   "family": "representation",
+   "filename": "gge-04-mapped.ifc",
+   "fixture_id": "gge-04-mapped",
+   "ifc_schema": "IFC4",
+   "notes": "one mapped representation reused by two elements",
+   "project_id": "proj-geom",
+   "sha256": "14662831b2de5403538145a7d216ed80f06fc33db614dbaa0cb9bc8930c80d08"
+  },
+  {
+   "family": "units",
+   "filename": "gge-05-millimetre.ifc",
+   "fixture_id": "gge-05-millimetre",
+   "ifc_schema": "IFC4",
+   "notes": "millimetre model; a 1000 mm cube yields a 1.0 m extent",
+   "project_id": "proj-geom",
+   "sha256": "a78521eb7994bff6606f92b51b4224af97ee9be0bedd6bb3bbd1ed66201e1d87"
+  },
+  {
+   "family": "units",
+   "filename": "gge-06-metre.ifc",
+   "fixture_id": "gge-06-metre",
+   "ifc_schema": "IFC4",
+   "notes": "metre model; the same STEP numbers yield 1000 m",
+   "project_id": "proj-geom",
+   "sha256": "8afd1b4a5362506e2d93ecfcc517b08174e12c491551d7a222c55f32dfa06559"
+  },
+  {
+   "family": "topology",
+   "filename": "gge-07-disconnected.ifc",
+   "fixture_id": "gge-07-disconnected",
+   "ifc_schema": "IFC4",
+   "notes": "two disjoint solids in one element",
+   "project_id": "proj-geom",
+   "sha256": "fdd63bc363901608121177e6481f39a96be77c7e3eec38e361cba07c27cd6e74"
+  },
+  {
+   "family": "topology",
+   "filename": "gge-08-opening.ifc",
+   "fixture_id": "gge-08-opening",
+   "ifc_schema": "IFC4",
+   "notes": "wall with a through IfcOpeningElement void",
+   "project_id": "proj-geom",
+   "sha256": "5125fe6cbb747c971133a1f08eda105be74f42aa773b0e7d7ccc2d1767f7bbe8"
+  },
+  {
+   "family": "topology",
+   "filename": "gge-09-thin-planar.ifc",
+   "fixture_id": "gge-09-thin-planar",
+   "ifc_schema": "IFC4",
+   "notes": "3 x 2 x 0.001 m plate; valid, very small extent on one axis",
+   "project_id": "proj-geom",
+   "sha256": "579e582ad5cebeea888f90b80eb9eb542aa77889da8f399a7f53273077f1969e"
+  },
+  {
+   "family": "degenerate",
+   "filename": "gge-10-near-degenerate.ifc",
+   "fixture_id": "gge-10-near-degenerate",
+   "ifc_schema": "IFC4",
+   "notes": "extent at the quantisation quantum",
+   "project_id": "proj-geom",
+   "sha256": "8f4b8126563ae47bb9feeee552078ae01a49b934e582ece68075a9f83dc03977"
+  },
+  {
+   "family": "orientation",
+   "filename": "gge-11-symmetric-cube.ifc",
+   "fixture_id": "gge-11-symmetric-cube",
+   "ifc_schema": "IFC4",
+   "notes": "orientation absent, orientation_ambiguous_symmetry",
+   "project_id": "proj-geom",
+   "sha256": "2aeb56ff3198a0222fdf44acbb7c5b0c0bdcf891297ef82059eed3420a7a2e93"
+  },
+  {
+   "family": "orientation",
+   "filename": "gge-12-elongated.ifc",
+   "fixture_id": "gge-12-elongated",
+   "ifc_schema": "IFC4",
+   "notes": "4 x 0.3 x 0.3 m; orientation present and exact",
+   "project_id": "proj-geom",
+   "sha256": "6055fd51ba5d1104619a018f5577abbcd7edbf4b72908d0a8d153d968f17e85f"
+  },
+  {
+   "family": "failure",
+   "filename": "gge-13-missing-rep.ifc",
+   "fixture_id": "gge-13-missing-rep",
+   "ifc_schema": "IFC4",
+   "notes": "no Representation; missing_representation, not an error",
+   "project_id": "proj-geom",
+   "sha256": "cc9c6ce64849f5fa9d075b19300c20ba7942e60e3862d713f2fef148f4a6c211"
+  },
+  {
+   "family": "failure",
+   "filename": "gge-14-unsupported-rep.ifc",
+   "fixture_id": "gge-14-unsupported-rep",
+   "ifc_schema": "IFC4",
+   "notes": "a representation this engine cannot triangulate",
+   "project_id": "proj-geom",
+   "sha256": "fecc3d960ee61f486e2234982d2eb3a9ea8565316f4c6011d382ec4dafdb2cf4"
+  },
+  {
+   "family": "failure",
+   "filename": "gge-15-malformed-shape.ifc",
+   "fixture_id": "gge-15-malformed-shape",
+   "ifc_schema": "IFC4",
+   "notes": "create_shape raises; shape_creation_failed",
+   "project_id": "proj-geom",
+   "sha256": "fac37a95c57bb26a450af6c0ddadc6fb11ad5d9d0fd773e9262275ddb72ec203"
+  },
+  {
+   "family": "range",
+   "filename": "gge-16-extreme-coords.ifc",
+   "fixture_id": "gge-16-extreme-coords",
+   "ifc_schema": "IFC4",
+   "notes": "large but within MAX_ABS_COORDINATE_M",
+   "project_id": "proj-geom",
+   "sha256": "09eb3ee62f3a0d6a06fe992f0892b20d544d1ea7502575cc551a5938a0805dd7"
+  },
+  {
+   "family": "range",
+   "filename": "gge-17-non-finite.ifc",
+   "fixture_id": "gge-17-non-finite",
+   "ifc_schema": "IFC4",
+   "notes": "unbuildable profile; typed failure rather than a NaN record",
+   "project_id": "proj-geom",
+   "sha256": "cf7b75f9538834bd4af20fda095a3045c4b2d55119ebf058cf3eb4f50ef6ef69"
+  },
+  {
+   "family": "limits",
+   "filename": "gge-18-resource-bound.ifc",
+   "fixture_id": "gge-18-resource-bound",
+   "ifc_schema": "IFC4",
+   "notes": "many solids; exercises the bounded consumption path",
+   "project_id": "proj-geom",
+   "sha256": "78e3d97c10c3b7f0cbb940b0384827098afcfa1b815aa4e73e17d0b17f0436e8"
+  },
+  {
+   "family": "determinism",
+   "filename": "gge-19-reversed-order.ifc",
+   "fixture_id": "gge-19-reversed-order",
+   "ifc_schema": "IFC4",
+   "notes": "same elements declared in reversed order",
+   "project_id": "proj-geom",
+   "sha256": "5c1143683f1efa2d3b877fe4023f57c9f5055e2174a58cde95cbf9acebbaae89"
+  },
+  {
+   "family": "isolation",
+   "filename": "gge-20-cross-project.ifc",
+   "fixture_id": "gge-20-cross-project",
+   "ifc_schema": "IFC2X3",
+   "notes": "a second project; zero identity leakage",
+   "project_id": "proj-other",
+   "sha256": "e5fb2350fe4d6ea654a714bc6a9d612ed93704d8f3901e3acf2b05db812e311e"
+  },
+  {
+   "family": "units",
+   "filename": "gge-21-no-units.ifc",
+   "fixture_id": "gge-21-no-units",
+   "ifc_schema": "IFC2X3",
+   "notes": "no UnitsInContext length unit; unit_undetermined, not metres",
+   "project_id": "proj-geom",
+   "sha256": "a2cdbc686fea8d906247606f119d45c12f3a7908844a184b6d1bd7a0c0e64a12"
+  }
+ ]
+}

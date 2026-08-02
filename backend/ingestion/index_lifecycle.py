@@ -102,6 +102,10 @@ RECORD_TYPES: tuple[str, ...] = (
     # HBIM-070 §19: appended LAST so the historical four remain the exact
     # prefix and every ordering assertion keeps its meaning.
     "chunk",
+    # HBIM-080 §61-§62: the separate geometry-fact index, appended last for the
+    # same reason. Alias and physical names follow the spec literally
+    # (geometry_facts / geometry_facts_v<N>).
+    "geometry_fact",
 )
 
 _REGISTRY: Mapping[str, RecordTypeSpec] = MappingProxyType(
@@ -115,6 +119,9 @@ _REGISTRY: Mapping[str, RecordTypeSpec] = MappingProxyType(
         ),
         "document": RecordTypeSpec("document", "hbim_documents", "documents_v1.json"),
         "chunk": RecordTypeSpec("chunk", "hbim_chunks", "chunks_v1.json"),
+        "geometry_fact": RecordTypeSpec(
+            "geometry_fact", "geometry_facts", "geometry_facts_v1.json"
+        ),
     }
 )
 
@@ -192,6 +199,9 @@ _MAPPING_VERSIONS: Mapping[str, Mapping[str, str]] = MappingProxyType(
                 "4": "chunks_v4.json",
             }
         ),
+        # HBIM-080 §61: exactly one geometry mapping version; strict, no vector,
+        # no mesh. A new geometry_version requires a new mapping version here.
+        "geometry_fact": MappingProxyType({"1": "geometry_facts_v1.json"}),
     }
 )
 

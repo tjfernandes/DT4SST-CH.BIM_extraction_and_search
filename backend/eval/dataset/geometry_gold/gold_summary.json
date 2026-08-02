@@ -1,0 +1,8 @@
+{
+ "corpus_id": "geometry-gold-v1",
+ "element_count": 24,
+ "family_count": 11,
+ "fixture_count": 21,
+ "geometry_schema_version": "hbim-080-geometry-v1",
+ "geometry_version": "hbim-080-geometry-worldaabb-v1"
+}

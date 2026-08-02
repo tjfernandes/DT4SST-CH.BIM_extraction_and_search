@@ -189,12 +189,14 @@ def test_mapping_file_set_is_exactly_the_four_v1_plus_elements_v2() -> None:
     # HBIM-070 §19.3 added exactly two additive mappings; HBIM-071 §21 added
     # exactly two more (documents_v3, chunks_v2); HBIM-072 §21 added exactly
     # one (chunks_v3); HBIM-073 §22 added exactly one (chunks_v4, the
-    # vectorized additive successor). The set stays CLOSED at eleven.
+    # vectorized additive successor); HBIM-080 §61 added exactly one
+    # (geometry_facts_v1, strict and vector-free). The set stays CLOSED at
+    # twelve.
     json_files = {p.name for p in MAPPINGS_DIR.glob("*.json")}
     assert json_files == FILENAMES | {
         "elements_v2.json", "documents_v2.json", "chunks_v1.json",
         "documents_v3.json", "chunks_v2.json", "chunks_v3.json",
-        "chunks_v4.json",
+        "chunks_v4.json", "geometry_facts_v1.json",
     }
 
 

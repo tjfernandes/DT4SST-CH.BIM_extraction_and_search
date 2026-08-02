@@ -130,7 +130,8 @@ def _mapping(record_type: str) -> dict[str, Any]:
 def test_registry_is_exactly_five_record_types() -> None:
     # HBIM-070 §19: chunk appended LAST; the historical four stay the prefix.
     assert il.RECORD_TYPES == (
-        "element", "property_fact", "classification_fact", "document", "chunk"
+        "element", "property_fact", "classification_fact", "document", "chunk",
+        "geometry_fact",
     )
     assert set(il.RECORD_TYPES) == {il.get_spec(rt).record_type for rt in il.RECORD_TYPES}
 
@@ -146,7 +147,11 @@ def test_aliases_are_exact_and_do_not_reuse_bim_elements() -> None:
         assert il.get_spec(rt).alias == alias
     aliases = {il.get_spec(rt).alias for rt in il.RECORD_TYPES}
     assert "bim_elements" not in aliases
-    assert all(a.startswith("hbim_") for a in aliases)
+    # The historical five keep the hbim_ prefix; HBIM-080 §62 names the
+    # geometry alias literally ("geometry_facts").
+    historical = {il.get_spec(rt).alias for rt in il.RECORD_TYPES[:5]}
+    assert all(a.startswith("hbim_") for a in historical)
+    assert il.get_spec("geometry_fact").alias == "geometry_facts"
 
 
 def test_chunk_is_the_fifth_record_type() -> None:
@@ -155,7 +160,13 @@ def test_chunk_is_the_fifth_record_type() -> None:
         "element", "property_fact", "classification_fact", "document"
     )
     assert il.RECORD_TYPES[4] == "chunk"
-    assert len(il.RECORD_TYPES) == 5
+    # HBIM-080 §61-§62: geometry_fact appended LAST; historical five unchanged.
+    assert il.RECORD_TYPES[5] == "geometry_fact"
+    assert len(il.RECORD_TYPES) == 6
+    geometry_spec = il.get_spec("geometry_fact")
+    assert geometry_spec.alias == "geometry_facts"
+    assert geometry_spec.mapping_filename == "geometry_facts_v1.json"
+    assert il.physical_index_name("geometry_fact", 1) == "geometry_facts_v1"
     spec = il.get_spec("chunk")
     assert spec.alias == "hbim_chunks"
     assert spec.mapping_filename == "chunks_v1.json"
@@ -446,7 +457,7 @@ def test_promote_all_first_promotion_single_update_aliases_call() -> None:
     results = il.promote_all(client, 1)
     assert client.count("update_aliases") == 1  # ONE call for the five aliases
     body = next(c[1] for c in client.calls if c[0] == "update_aliases")
-    assert len(body["actions"]) == 5  # five add actions (HBIM-070)
+    assert len(body["actions"]) == 6  # six add actions (HBIM-070 + HBIM-080)
     assert all(r.outcome is il.PromoteOutcome.PROMOTED for r in results)
     for rt in il.RECORD_TYPES:
         alias = il.get_spec(rt).alias
@@ -462,7 +473,7 @@ def test_promote_all_swap_is_one_call_with_eight_actions() -> None:
     il.promote_all(client, 2)
     assert client.count("update_aliases") == 1
     body = next(c[1] for c in client.calls if c[0] == "update_aliases")
-    assert len(body["actions"]) == 10  # five remove + five add (HBIM-070)
+    assert len(body["actions"]) == 12  # six remove + six add (HBIM-070 + HBIM-080)
 
 
 def test_promote_all_fails_before_mutation_when_any_target_missing() -> None:
