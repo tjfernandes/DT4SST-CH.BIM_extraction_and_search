@@ -1,0 +1,17 @@
+{
+ "corpus_id": "relations-gold-v1",
+ "derived_family_count": 21,
+ "material_identity_vectors": {
+  "brick_facing": "gn_04a3922c4b9bfbddf8788b50dd849bcf",
+  "brick_masonry": "gn_4a66e4a1aa47e3c1a0d49c887692e6ad"
+ },
+ "native_family_count": 17,
+ "relation_schema_version": "hbim-081-relations-v1",
+ "tolerance_candidates": [
+  "0.000000",
+  "0.000500",
+  "0.001000",
+  "0.002000",
+  "0.005000"
+ ]
+}

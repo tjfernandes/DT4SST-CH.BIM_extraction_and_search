@@ -1,0 +1,227 @@
+{
+ "corpus_id": "relations-gold-v1",
+ "derived_families": [
+  {
+   "family_id": "rdf-01-disjoint",
+   "notes": "far apart on every axis"
+  },
+  {
+   "family_id": "rdf-02-exact-touch",
+   "notes": "faces flush at x=1"
+  },
+  {
+   "family_id": "rdf-03-gap-inside",
+   "notes": "0.0005 m gap: inside 0.001, outside 0.0"
+  },
+  {
+   "family_id": "rdf-04-gap-outside",
+   "notes": "0.01 m gap: outside every candidate"
+  },
+  {
+   "family_id": "rdf-05-containment",
+   "notes": "a strictly contains b"
+  },
+  {
+   "family_id": "rdf-06-equal-boxes",
+   "notes": "identical boxes: neither contains"
+  },
+  {
+   "family_id": "rdf-07-intersection",
+   "notes": "interiors overlap on all axes"
+  },
+  {
+   "family_id": "rdf-08-above-overlap",
+   "notes": "ABOVE with XY overlap"
+  },
+  {
+   "family_id": "rdf-09-above-no-xy",
+   "notes": "vertical separation, no XY overlap"
+  },
+  {
+   "family_id": "rdf-10-symmetry",
+   "notes": "endpoint reversal yields one edge"
+  },
+  {
+   "family_id": "rdf-11-inverse",
+   "notes": "no BELOW/WITHIN edge is emitted"
+  },
+  {
+   "family_id": "rdf-12-invalid-geometry",
+   "notes": "a failed status cannot participate"
+  },
+  {
+   "family_id": "rdf-13-partial-eligible",
+   "notes": "partial with advisory-only issues"
+  },
+  {
+   "family_id": "rdf-14-cross-project",
+   "notes": "a foreign project's fact is excluded"
+  },
+  {
+   "family_id": "rdf-15-stale-version",
+   "notes": "staleness. MEASURED: GeometryFact.geometry_version is a Literal, so a stale fact is UNCONSTRUCTIBLE. The family therefore holds valid facts and is evaluated against a mismatched EXPECTED version, which is how staleness can actually arise: a caller asking for a generation the facts do not belong to"
+  },
+  {
+   "family_id": "rdf-16-duplicate-facts",
+   "notes": "a repeated element_id is excluded"
+  },
+  {
+   "family_id": "rdf-17-quantum-boundary",
+   "notes": "gap at the 1 um quantum"
+  },
+  {
+   "family_id": "rdf-18-dense-cluster",
+   "notes": "12 mutually touching boxes"
+  },
+  {
+   "family_id": "rdf-19-sparse-scale",
+   "notes": "40 well-separated boxes"
+  },
+  {
+   "family_id": "rdf-20-broadphase-worst",
+   "notes": "30 boxes sharing one X interval: B1's degenerate input"
+  },
+  {
+   "family_id": "rdf-21-unit-undetermined",
+   "notes": "unit_undetermined can never participate"
+  }
+ ],
+ "native_fixtures": [
+  {
+   "family_id": "rnf-01-hierarchy",
+   "filename": "rnf-01-hierarchy.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "project/site/building/storey/space hierarchy",
+   "project_id": "proj-rel",
+   "sha256": "013535646b74806007573383dc2b8463897452664b36c7c844aa389140f51cf8"
+  },
+  {
+   "family_id": "rnf-02-aggregation",
+   "filename": "rnf-02-aggregation.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "generic aggregation over a non-spatial pair",
+   "project_id": "proj-rel",
+   "sha256": "7a22969c1c7c5cdf6af1717b05385598d9921d00ab2a3c3e0501259b9bd923df"
+  },
+  {
+   "family_id": "rnf-03-nesting",
+   "filename": "rnf-03-nesting.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "nesting with multiplicity",
+   "project_id": "proj-rel",
+   "sha256": "0ee8f07e575f65ef1bca9df196572e3121fa6659e49e4dff2a1c3a344316ef56"
+  },
+  {
+   "family_id": "rnf-04-type",
+   "filename": "rnf-04-type.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "type assignment",
+   "project_id": "proj-rel",
+   "sha256": "1c82676605507f7ecb84b56ff842bd36a29a26052adf6ee0e777e7e95d80ece8"
+  },
+  {
+   "family_id": "rnf-05-material-direct",
+   "filename": "rnf-05-material-direct.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "direct IfcMaterial",
+   "project_id": "proj-rel",
+   "sha256": "dfabbe1889a2697f723cc7d5380ea3920a47ce44a6ec653af7d1522c2129d55b"
+  },
+  {
+   "family_id": "rnf-06-material-duplicate-name",
+   "filename": "rnf-06-material-duplicate-name.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "same Name, different Category: must be TWO nodes",
+   "project_id": "proj-rel",
+   "sha256": "d21072e250b057e3f20bcc06a296f78541ecf771952a34799336559ae9f55a47"
+  },
+  {
+   "family_id": "rnf-07-material-sets",
+   "filename": "rnf-07-material-sets.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "layer / profile / constituent sets traversed to their materials",
+   "project_id": "proj-rel",
+   "sha256": "27c44e9b6bbb0408c1fc436a61dd995fc9fee41ca2524d6149cc85adea715d31"
+  },
+  {
+   "family_id": "rnf-08-void-fill",
+   "filename": "rnf-08-void-fill.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "VOIDS and FILLS directions",
+   "project_id": "proj-rel",
+   "sha256": "8b349504326ee4ebf6959f75cbdaa35c8bce3be08f411b76fa81dd2145b10929"
+  },
+  {
+   "family_id": "rnf-09-boundary",
+   "filename": "rnf-09-boundary.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "space boundary, physical and virtual qualifiers",
+   "project_id": "proj-rel",
+   "sha256": "302eb15704fd6d8079ac9bf63c2bf16c0407fe02c2da6184f52bea2ce391199d"
+  },
+  {
+   "family_id": "rnf-10-boundary-missing",
+   "filename": "rnf-10-boundary-missing.ifc",
+   "ifc_schema": "IFC2X3",
+   "notes": "virtual boundary with no related element. MEASURED: RelatedBuildingElement is optional in IFC2X3 and MANDATORY in IFC4, so this case is only constructible in IFC2X3",
+   "project_id": "proj-rel",
+   "sha256": "f2240ab180c84f7052c5f67b2b62b3621f15e19f3328f265958945727cc5ee48"
+  },
+  {
+   "family_id": "rnf-11-group-system",
+   "filename": "rnf-11-group-system.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "IfcGroup vs IfcSystem selects the predicate by class",
+   "project_id": "proj-rel",
+   "sha256": "d00fbdf0a28a3f82d7ab1b643e92a9bdbfae17c4dfac853d523d1e0eaf8d56ff"
+  },
+  {
+   "family_id": "rnf-12-connections",
+   "filename": "rnf-12-connections.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "IfcRelConnectsElements and both subtypes",
+   "project_id": "proj-rel",
+   "sha256": "4a508b59940fc319a202af80d824eff120fa9477bbeef0100cbb0ce2c3f069d2"
+  },
+  {
+   "family_id": "rnf-13-ports",
+   "filename": "rnf-13-ports.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "HAS_PORT and CONNECTS_PORT; a port is never an element",
+   "project_id": "proj-rel",
+   "sha256": "7ce6a168a415c7fd5fb81df2bf6a9b88dc55fcd9a026e525910c3183cb97aa47"
+  },
+  {
+   "family_id": "rnf-14-malformed",
+   "filename": "rnf-14-malformed.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "missing endpoints and an unsupported subtype",
+   "project_id": "proj-rel",
+   "sha256": "63a6269086aa5e334c6464e298aad8707274264fdd1ec73e383b85b0a74088c8"
+  },
+  {
+   "family_id": "rnf-15-multiplicity",
+   "filename": "rnf-15-multiplicity.ifc",
+   "ifc_schema": "IFC4",
+   "notes": "two distinct relations over one pair stay two edges",
+   "project_id": "proj-rel",
+   "sha256": "0caf7acb26cb26fc18801cf4934905405c94eb335f79324b8e5d89baf301b757"
+  },
+  {
+   "family_id": "rnf-16-cross-project",
+   "filename": "rnf-16-cross-project.ifc",
+   "ifc_schema": "IFC2X3",
+   "notes": "a second project; zero identity leakage",
+   "project_id": "proj-other",
+   "sha256": "6cf26a6b75efa1cfbbcfa34ec17cbc516c389290b17ae281d2e8c6d410448cff"
+  },
+  {
+   "family_id": "rnf-17-ifc2x3",
+   "filename": "rnf-17-ifc2x3.ifc",
+   "ifc_schema": "IFC2X3",
+   "notes": "IFC2X3 hierarchy, material (Name only) and boundary",
+   "project_id": "proj-rel",
+   "sha256": "a363523b6df27ef251740b811473a53759f95b66481563dd78ce9c2c4e92869f"
+  }
+ ]
+}

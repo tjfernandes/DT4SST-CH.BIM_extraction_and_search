@@ -179,6 +179,19 @@ jobs:
           backend/eval/geometry_gold.py
           backend/eval/geometry_conformance.py
           backend/eval/geometry_benchmark.py
+          backend/relations/__init__.py
+          backend/relations/ids.py
+          backend/relations/validation.py
+          backend/relations/schema.py
+          backend/relations/serialization.py
+          backend/relations/assembler.py
+          backend/relations/native_ifc.py
+          backend/relations/derived.py
+          backend/relations/broad_phase.py
+          backend/relations/selectors.py
+          backend/eval/relation_fixtures.py
+          backend/eval/relation_gold.py
+          backend/eval/relation_benchmark.py
 
   document-parse:
     runs-on: ubuntu-latest
