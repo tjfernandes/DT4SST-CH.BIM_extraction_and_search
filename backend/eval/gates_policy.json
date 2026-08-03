@@ -970,6 +970,288 @@
    "title": "HBIM-080 operator-run real-model campaign (manual_unavailable is valid; never in CI)"
   },
   {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "relation_schema_version_pinned"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "node_kind_count",
+     "threshold": 11.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "native_table_rows",
+     "threshold": 17.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "issue_code_count",
+     "threshold": 10.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "issue_codes_classified"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "derived_vocabulary_is_p1"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_inverse_predicates"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "v1_predicate_values_preserved"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "port_predicates_additive_only"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "provenance_structurally_disjoint"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "native_rejects_geometry_provenance"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "material_collision_fixed"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "port_is_not_an_element"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "revision_not_in_edge_identity"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "tolerance_changes_derived_identity"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "tolerance_never_changes_native_identity"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "symmetric_identity_order_invariant"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "relation_contract",
+   "title": "HBIM-081 relation contract: schemas, identities, provenance separation, revisions"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "bars_recompute"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "failed_bars_match"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "native_predicates_covered",
+     "threshold": 16.0
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "invented_native_edges"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "lost_native_edges"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "duplicate_edges"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "self_edges"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "cross_project_edges"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "native_provenance_incomplete"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "global_id_mismatches"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "material_policy_nodes",
+     "threshold": 2.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "port_nodes_present",
+     "threshold": 1.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "native_families",
+     "threshold": 17.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "native_table_rows",
+     "threshold": 17.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "relations-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/relation_metrics.json",
+     "sha256": "b4d749e031eeec005ab8c03b33e258a78b5d1faca2439f92c2db7e42e7cf09a9"
+    },
+    {
+     "path": "backend/eval/baselines/relation_decision.json",
+     "sha256": "ea0c7ee2d4d26fdd79cecc3b0c4e48fa0d545f217d93d05e663c0ccea8ee63e5"
+    },
+    {
+     "path": "backend/eval/dataset/relations_gold/fixtures_manifest.json",
+     "sha256": "d17c3a7d8ea31fec3ad65e04224cc08eea8634871d13d0da4ffdce47d5d8925b"
+    },
+    {
+     "path": "backend/eval/dataset/relations_gold/native_gold.json",
+     "sha256": "690bb520a4477643bf4ae3ab7a408448603939459e177cfe42712c04eef2074c"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "native_relation_quality",
+   "title": "HBIM-081 native relations: corpus chain and exact bar recomputation"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "raw_chained"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "metrics_checksum_valid"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "decision_checksum_valid"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "decision_recomputes"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "selected_tolerance_recomputes"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "selected_broad_phase_recomputes"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "hbim_082_consistent"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "all_bars_pass"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "derived_gold_mismatches"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "derived_provenance_incomplete"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "symmetric_order_violations"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "inverse_duplicates"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "broad_phase_recall_exact"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "broad_phase_relation_equality"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "determinism_agrees"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "derived_families",
+     "threshold": 20.0
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "network_attempts"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "relations-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/relation_metrics.json",
+     "sha256": "b4d749e031eeec005ab8c03b33e258a78b5d1faca2439f92c2db7e42e7cf09a9"
+    },
+    {
+     "path": "backend/eval/baselines/relation_decision.json",
+     "sha256": "ea0c7ee2d4d26fdd79cecc3b0c4e48fa0d545f217d93d05e663c0ccea8ee63e5"
+    },
+    {
+     "path": "backend/eval/dataset/relations_gold/derived_gold.json",
+     "sha256": "7395b0280d2022b2754732d79f10b3731eb077a58818770b5f14b78ab0fe3309"
+    },
+    {
+     "path": "backend/eval/dataset/relations_gold/gold_summary.json",
+     "sha256": "0fc3f7734ad524c9e9e55ff310e82356e6442a63f40aa94952f0dcb2c7d1a8f8"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "derived_relation_quality",
+   "title": "HBIM-081 derived relations: geometry lineage, per-tolerance bars, both selectors"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "relation_generation_live",
+   "title": "HBIM-081 operator-run relation campaign (manual_unavailable is valid; never in CI)"
+  },
+  {
    "checks": [],
    "classification": "unavailable_future",
    "corpus_id": "none",

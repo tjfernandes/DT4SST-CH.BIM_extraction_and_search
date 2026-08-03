@@ -1,0 +1,87 @@
+{
+ "rnf-01-hierarchy": {
+  "ifc_schema": "IFC4",
+  "notes": "project/site/building/storey/space hierarchy",
+  "project_id": "proj-rel"
+ },
+ "rnf-02-aggregation": {
+  "ifc_schema": "IFC4",
+  "notes": "generic aggregation over a non-spatial pair",
+  "project_id": "proj-rel"
+ },
+ "rnf-03-nesting": {
+  "ifc_schema": "IFC4",
+  "notes": "nesting with multiplicity",
+  "project_id": "proj-rel"
+ },
+ "rnf-04-type": {
+  "ifc_schema": "IFC4",
+  "notes": "type assignment",
+  "project_id": "proj-rel"
+ },
+ "rnf-05-material-direct": {
+  "ifc_schema": "IFC4",
+  "notes": "direct IfcMaterial",
+  "project_id": "proj-rel"
+ },
+ "rnf-06-material-duplicate-name": {
+  "ifc_schema": "IFC4",
+  "notes": "same Name, different Category: must be TWO nodes",
+  "project_id": "proj-rel"
+ },
+ "rnf-07-material-sets": {
+  "ifc_schema": "IFC4",
+  "notes": "layer / profile / constituent sets traversed to their materials",
+  "project_id": "proj-rel"
+ },
+ "rnf-08-void-fill": {
+  "ifc_schema": "IFC4",
+  "notes": "VOIDS and FILLS directions",
+  "project_id": "proj-rel"
+ },
+ "rnf-09-boundary": {
+  "ifc_schema": "IFC4",
+  "notes": "space boundary, physical and virtual qualifiers",
+  "project_id": "proj-rel"
+ },
+ "rnf-10-boundary-missing": {
+  "ifc_schema": "IFC2X3",
+  "notes": "virtual boundary with no related element. MEASURED: RelatedBuildingElement is optional in IFC2X3 and MANDATORY in IFC4, so this case is only constructible in IFC2X3",
+  "project_id": "proj-rel"
+ },
+ "rnf-11-group-system": {
+  "ifc_schema": "IFC4",
+  "notes": "IfcGroup vs IfcSystem selects the predicate by class",
+  "project_id": "proj-rel"
+ },
+ "rnf-12-connections": {
+  "ifc_schema": "IFC4",
+  "notes": "IfcRelConnectsElements and both subtypes",
+  "project_id": "proj-rel"
+ },
+ "rnf-13-ports": {
+  "ifc_schema": "IFC4",
+  "notes": "HAS_PORT and CONNECTS_PORT; a port is never an element",
+  "project_id": "proj-rel"
+ },
+ "rnf-14-malformed": {
+  "ifc_schema": "IFC4",
+  "notes": "missing endpoints and an unsupported subtype",
+  "project_id": "proj-rel"
+ },
+ "rnf-15-multiplicity": {
+  "ifc_schema": "IFC4",
+  "notes": "two distinct relations over one pair stay two edges",
+  "project_id": "proj-rel"
+ },
+ "rnf-16-cross-project": {
+  "ifc_schema": "IFC2X3",
+  "notes": "a second project; zero identity leakage",
+  "project_id": "proj-other"
+ },
+ "rnf-17-ifc2x3": {
+  "ifc_schema": "IFC2X3",
+  "notes": "IFC2X3 hierarchy, material (Name only) and boundary",
+  "project_id": "proj-rel"
+ }
+}

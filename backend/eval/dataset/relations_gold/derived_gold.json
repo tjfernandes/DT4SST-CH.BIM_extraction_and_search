@@ -1,0 +1,883 @@
+{
+ "rdf-01-disjoint": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-02-exact-touch": {
+  "0.000000": [
+   {
+    "directed": false,
+    "edge_id": "gd_cb74c9155246e1fd27be6582e9d87e7c",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_18f78799fbc1a1cbcf602056c2be7970",
+    "target_node_id": "el_7d79a99877660d152bc9c5e17eb0f68d"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_77e2e8ca7f0034a637bb4b7dde257447",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_18f78799fbc1a1cbcf602056c2be7970",
+    "target_node_id": "el_7d79a99877660d152bc9c5e17eb0f68d"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_465430aca1f3e2be59c28693f0144e1e",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_18f78799fbc1a1cbcf602056c2be7970",
+    "target_node_id": "el_7d79a99877660d152bc9c5e17eb0f68d"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_2a4915de5db1802bf036d93931f8dfcf",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_18f78799fbc1a1cbcf602056c2be7970",
+    "target_node_id": "el_7d79a99877660d152bc9c5e17eb0f68d"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_2912c94550061d1458f559a84e2aed56",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_18f78799fbc1a1cbcf602056c2be7970",
+    "target_node_id": "el_7d79a99877660d152bc9c5e17eb0f68d"
+   }
+  ]
+ },
+ "rdf-03-gap-inside": {
+  "0.000000": [],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_30cd475854eb79e39397decd947a9fa9",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_661724b2088ccc2cf24a057292faa151",
+    "target_node_id": "el_e06a08f9d36ddc6495a3e9b4dfc495b3"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_2bd7515f253bbfac718c40f347bb3f26",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_661724b2088ccc2cf24a057292faa151",
+    "target_node_id": "el_e06a08f9d36ddc6495a3e9b4dfc495b3"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_48ab7145243ef983677e65ddd870ce00",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_661724b2088ccc2cf24a057292faa151",
+    "target_node_id": "el_e06a08f9d36ddc6495a3e9b4dfc495b3"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_6658fe075c0e7f5b38ed776f4c2f9934",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_661724b2088ccc2cf24a057292faa151",
+    "target_node_id": "el_e06a08f9d36ddc6495a3e9b4dfc495b3"
+   }
+  ]
+ },
+ "rdf-04-gap-outside": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-05-containment": {
+  "0.000000": [
+   {
+    "directed": true,
+    "edge_id": "gd_8dcf69a01bdc18123fee3c4d2e7b0caf",
+    "predicate": "CONTAINS_GEOM",
+    "source_node_id": "el_5279db0db30242a2a11c376072130bf7",
+    "target_node_id": "el_6c99f19e42561ed6470fa9006ea79d46"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": true,
+    "edge_id": "gd_e71373a13b152c5abad63bd15b6e8cf7",
+    "predicate": "CONTAINS_GEOM",
+    "source_node_id": "el_5279db0db30242a2a11c376072130bf7",
+    "target_node_id": "el_6c99f19e42561ed6470fa9006ea79d46"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": true,
+    "edge_id": "gd_beaa2af3db8eba38a69d82576b69ffc9",
+    "predicate": "CONTAINS_GEOM",
+    "source_node_id": "el_5279db0db30242a2a11c376072130bf7",
+    "target_node_id": "el_6c99f19e42561ed6470fa9006ea79d46"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": true,
+    "edge_id": "gd_f8408b8b681158734f3ce1ae63e49157",
+    "predicate": "CONTAINS_GEOM",
+    "source_node_id": "el_5279db0db30242a2a11c376072130bf7",
+    "target_node_id": "el_6c99f19e42561ed6470fa9006ea79d46"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": true,
+    "edge_id": "gd_0ccf390cfe59d31cf0cc48756421b979",
+    "predicate": "CONTAINS_GEOM",
+    "source_node_id": "el_5279db0db30242a2a11c376072130bf7",
+    "target_node_id": "el_6c99f19e42561ed6470fa9006ea79d46"
+   }
+  ]
+ },
+ "rdf-06-equal-boxes": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-07-intersection": {
+  "0.000000": [
+   {
+    "directed": false,
+    "edge_id": "gd_ae72d0ec057783e0ba111af0c89e9f55",
+    "predicate": "INTERSECTS",
+    "source_node_id": "el_157fb5d86a00c76af5ef11a9c8d80b96",
+    "target_node_id": "el_4bda43e0a38c2fee3bb48fe9721b9647"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_5e6a7d0f71984f0be4ae11eb2a3a7198",
+    "predicate": "INTERSECTS",
+    "source_node_id": "el_157fb5d86a00c76af5ef11a9c8d80b96",
+    "target_node_id": "el_4bda43e0a38c2fee3bb48fe9721b9647"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_a8132da739f72ddf71962f7e88ee6beb",
+    "predicate": "INTERSECTS",
+    "source_node_id": "el_157fb5d86a00c76af5ef11a9c8d80b96",
+    "target_node_id": "el_4bda43e0a38c2fee3bb48fe9721b9647"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_a596e1f61fc34a90986ccc8c2256cb6e",
+    "predicate": "INTERSECTS",
+    "source_node_id": "el_157fb5d86a00c76af5ef11a9c8d80b96",
+    "target_node_id": "el_4bda43e0a38c2fee3bb48fe9721b9647"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_2d1d11cda200a1b704e3b332a22ebcef",
+    "predicate": "INTERSECTS",
+    "source_node_id": "el_157fb5d86a00c76af5ef11a9c8d80b96",
+    "target_node_id": "el_4bda43e0a38c2fee3bb48fe9721b9647"
+   }
+  ]
+ },
+ "rdf-08-above-overlap": {
+  "0.000000": [
+   {
+    "directed": true,
+    "edge_id": "gd_ec2fb5888cb2c498eb31cf61e773c26a",
+    "predicate": "ABOVE",
+    "source_node_id": "el_3d1f06a38e09921098ffbe420b491aba",
+    "target_node_id": "el_136da6f29fb7e5e4631c7732f26d17d7"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": true,
+    "edge_id": "gd_caed76f0298c2baf7038b74af4dbd440",
+    "predicate": "ABOVE",
+    "source_node_id": "el_3d1f06a38e09921098ffbe420b491aba",
+    "target_node_id": "el_136da6f29fb7e5e4631c7732f26d17d7"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": true,
+    "edge_id": "gd_51f60c9d62da649dd2c2d985653d5a2a",
+    "predicate": "ABOVE",
+    "source_node_id": "el_3d1f06a38e09921098ffbe420b491aba",
+    "target_node_id": "el_136da6f29fb7e5e4631c7732f26d17d7"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": true,
+    "edge_id": "gd_0fa542d4cf6f1e466bb66bae0371348b",
+    "predicate": "ABOVE",
+    "source_node_id": "el_3d1f06a38e09921098ffbe420b491aba",
+    "target_node_id": "el_136da6f29fb7e5e4631c7732f26d17d7"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": true,
+    "edge_id": "gd_4493c293e836d2450549a6df26787d47",
+    "predicate": "ABOVE",
+    "source_node_id": "el_3d1f06a38e09921098ffbe420b491aba",
+    "target_node_id": "el_136da6f29fb7e5e4631c7732f26d17d7"
+   }
+  ]
+ },
+ "rdf-09-above-no-xy": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-10-symmetry": {
+  "0.000000": [
+   {
+    "directed": false,
+    "edge_id": "gd_e7ee5a107b81393cbf83c91f77284b9d",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_12de1c1b6305c4e00f422efc272186f6",
+    "target_node_id": "el_99f322164640448565d2e63e1146732b"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_0edbf2aa6c851290010754c7e852a75a",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_12de1c1b6305c4e00f422efc272186f6",
+    "target_node_id": "el_99f322164640448565d2e63e1146732b"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_eeba35cf7682137723c7c7c792f38a44",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_12de1c1b6305c4e00f422efc272186f6",
+    "target_node_id": "el_99f322164640448565d2e63e1146732b"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_ffd59fa3d80b74307dda04ac4396420d",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_12de1c1b6305c4e00f422efc272186f6",
+    "target_node_id": "el_99f322164640448565d2e63e1146732b"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_da1293d2d7124c33323ca8c487f58984",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_12de1c1b6305c4e00f422efc272186f6",
+    "target_node_id": "el_99f322164640448565d2e63e1146732b"
+   }
+  ]
+ },
+ "rdf-11-inverse": {
+  "0.000000": [
+   {
+    "directed": true,
+    "edge_id": "gd_a6be7a4da1973c899edb473ccc4715ea",
+    "predicate": "ABOVE",
+    "source_node_id": "el_b28b53869a22506194eee6900b710321",
+    "target_node_id": "el_9ccc448441fe004f7ea4abce3a446dec"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": true,
+    "edge_id": "gd_70f39725b8198204fb9774791dd45907",
+    "predicate": "ABOVE",
+    "source_node_id": "el_b28b53869a22506194eee6900b710321",
+    "target_node_id": "el_9ccc448441fe004f7ea4abce3a446dec"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": true,
+    "edge_id": "gd_2ce1a7c811f8cb1c41d0b67d8b3f271d",
+    "predicate": "ABOVE",
+    "source_node_id": "el_b28b53869a22506194eee6900b710321",
+    "target_node_id": "el_9ccc448441fe004f7ea4abce3a446dec"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": true,
+    "edge_id": "gd_4bce2ec765b3e029755ea3d9bca9fd23",
+    "predicate": "ABOVE",
+    "source_node_id": "el_b28b53869a22506194eee6900b710321",
+    "target_node_id": "el_9ccc448441fe004f7ea4abce3a446dec"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": true,
+    "edge_id": "gd_ae6c5bfbf4cac3973c4d2b41c44ce267",
+    "predicate": "ABOVE",
+    "source_node_id": "el_b28b53869a22506194eee6900b710321",
+    "target_node_id": "el_9ccc448441fe004f7ea4abce3a446dec"
+   }
+  ]
+ },
+ "rdf-12-invalid-geometry": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-13-partial-eligible": {
+  "0.000000": [
+   {
+    "directed": false,
+    "edge_id": "gd_787a844417ee179eae55ed9276d214b6",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_113e7c106ccb891cac48ebaaf71a4dae",
+    "target_node_id": "el_280e6a91eaff00c9d94d9dbc9b4227f7"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_6b151a7867b666b51abf256002acfa92",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_113e7c106ccb891cac48ebaaf71a4dae",
+    "target_node_id": "el_280e6a91eaff00c9d94d9dbc9b4227f7"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_d7d12a93746ef55f7ef62851965b2323",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_113e7c106ccb891cac48ebaaf71a4dae",
+    "target_node_id": "el_280e6a91eaff00c9d94d9dbc9b4227f7"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_12b8ab3eedfc691d5e887aafe041cb9b",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_113e7c106ccb891cac48ebaaf71a4dae",
+    "target_node_id": "el_280e6a91eaff00c9d94d9dbc9b4227f7"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_19577d5dbdb9f4fda285053a7aa28341",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_113e7c106ccb891cac48ebaaf71a4dae",
+    "target_node_id": "el_280e6a91eaff00c9d94d9dbc9b4227f7"
+   }
+  ]
+ },
+ "rdf-14-cross-project": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-15-stale-version": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-16-duplicate-facts": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-17-quantum-boundary": {
+  "0.000000": [],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_2df197151a205530c40ed3d6fa954433",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_3bb0cbe76bf5aef285f8128a1ac82128",
+    "target_node_id": "el_98e59c94108bceae3a676744f55d9f3c"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_b281a1d9292059f23e3fc59b7ead7d5e",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_3bb0cbe76bf5aef285f8128a1ac82128",
+    "target_node_id": "el_98e59c94108bceae3a676744f55d9f3c"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_532106a21c4d151fa5c09ea43ceb32c6",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_3bb0cbe76bf5aef285f8128a1ac82128",
+    "target_node_id": "el_98e59c94108bceae3a676744f55d9f3c"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_52007b11ab93b5c80786b138c5194da6",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_3bb0cbe76bf5aef285f8128a1ac82128",
+    "target_node_id": "el_98e59c94108bceae3a676744f55d9f3c"
+   }
+  ]
+ },
+ "rdf-18-dense-cluster": {
+  "0.000000": [
+   {
+    "directed": false,
+    "edge_id": "gd_1407224499e7cb00e780358f9fac1819",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_30e9d11d523411d29179630baf219341",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_5a97be42e125271b421ee87470582fe3",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5",
+    "target_node_id": "el_820d25860f495d79f0c1baed7ee61a9f"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_66af7d1dc70cd92ed85744bc8bc74957",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_776da6d483376c7edc48cdfd7add5a2e",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_819d6cf75cf366522ccc61f008411d99",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_2c840606bdb60aada056215e2c5479b2"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_82f099caf22f61be4226adeebdfb04e0",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_c02f8bb133ab377b5fbe05cd7f1b7047",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_cfe757cf2ec4d6db8c076d8a4cce0e3c",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_e20d646128c52bc85441db234663b7d2",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_ee66fd44e9194bd0552eecdc7394ba01",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   }
+  ],
+  "0.000500": [
+   {
+    "directed": false,
+    "edge_id": "gd_1dc760c527cf6ca3a85df6cab9320ff7",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_41fb35b7f8f8686633da3abad04b3201",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_660aa33e8d32c6fbcd31b52081e823cd",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_2c840606bdb60aada056215e2c5479b2"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_731d59f57b742291ecd8d792c2385b7d",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5",
+    "target_node_id": "el_820d25860f495d79f0c1baed7ee61a9f"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_819b68faec53428d434482039d21716b",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_939cb0544dc023381bbd6787f8765dd3",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_a8641344b4761221fb4eb400a1e4b38f",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_b0816d07e3ccbed090ab49800a3532cd",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_e4c46ee20a76ef11537b0bc91ceec47f",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_f4a498444d861c1c9d3bacc99a8ebf76",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_fabfc3d72196ccb0e6b6eb72343d7bfd",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   }
+  ],
+  "0.001000": [
+   {
+    "directed": false,
+    "edge_id": "gd_11046fdb5c26db06eaa09794c732d373",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_1770ba49bdd2a26e3e953babfc93a6a1",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_31987fd11bcd058f637114c877d38dc4",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_4890421dc546a6b87607f14d53c9609c",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_acf136759e13d6c0220a0c8612b771a5",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_c535752fd4fd8dbb88e7657268726017",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_cc6ebc3c057f27d5150d97dc8ba2995b",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_d885242456a10a896959a3b10ffcaede",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5",
+    "target_node_id": "el_820d25860f495d79f0c1baed7ee61a9f"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_db2ace4ff57a7afd25801c9af0accd0c",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_dc4f11d7534507438d081aa0016f9656",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_2c840606bdb60aada056215e2c5479b2"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_e08ee2afed92fa7ff90789b3774e31d6",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9"
+   }
+  ],
+  "0.002000": [
+   {
+    "directed": false,
+    "edge_id": "gd_16d8d6a0be391efafd31e399cddc70dd",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_2d42a8fbdafff69b7cf62517e86d18fd",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_31d5b802fa1cb8d1a3a5e2f5e6c477aa",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5",
+    "target_node_id": "el_820d25860f495d79f0c1baed7ee61a9f"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_320d98d9a25d9da3089dacbc9662b8b8",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_5b9ff43b6f2ce54500b745cb7d8bd716",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_682eca53941b60309b322a6642136c26",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_6c1aaf54a7f1b4083372b46e0d20fcc8",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_2c840606bdb60aada056215e2c5479b2"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_a4e0ad12335a0210263567085788ef41",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_e4158be1bd0e53d37d283eb5041bea13",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_ee1c8dbc6f1a8e5c2d01852424afd629",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_f63263f1e53d0f2ff71a09c04c3a1aa7",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   }
+  ],
+  "0.005000": [
+   {
+    "directed": false,
+    "edge_id": "gd_2372bd51d45b42324bfed5c949b96227",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_2519c5598d781982edfaa93b55cab471",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_2ec83e00787936767f92e9b5883b76fa",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_6b31586bfb03f464d6d5c3c78853883d",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_59796890b1f38b0d295566b65c23b1c0",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_7af948e5ebf204950734c68152ae517b",
+    "target_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_722b035a9e6538f9ef601795413eb823",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_9e4bcc2fdc2481cc6506ba12628a74b9",
+    "target_node_id": "el_bf6578f906ea4ab6d7a19f4177e1ef8a"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_9011d38e840cb88806fae41c704c311d",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_90144ce2b9888116494e9e5a26a79606"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_92514e46ad0ee261fe73c50bc799f58c",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_0189b8dab9cc2302e59ce7cf72bd0835",
+    "target_node_id": "el_2c840606bdb60aada056215e2c5479b2"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_93161e1e8a066f8ef8d16770911418e5",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3",
+    "target_node_id": "el_ee48749c28edb498cdf5f82a21a0bc1e"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_d405d53c38016e3c6d8c7f48fc021c7e",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_dfeb5110206771bd720858978935327c",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_2e27b51b6a4a8fb9a028c75a2f4d88c5",
+    "target_node_id": "el_820d25860f495d79f0c1baed7ee61a9f"
+   },
+   {
+    "directed": false,
+    "edge_id": "gd_fcba8ac44abad0d9c32d773e08dadcb9",
+    "predicate": "TOUCHES",
+    "source_node_id": "el_21e07030da73bd4b6201406639526e68",
+    "target_node_id": "el_ae0abbd57f8e1e0e36b015d13ef80fe3"
+   }
+  ]
+ },
+ "rdf-19-sparse-scale": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-20-broadphase-worst": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ },
+ "rdf-21-unit-undetermined": {
+  "0.000000": [],
+  "0.000500": [],
+  "0.001000": [],
+  "0.002000": [],
+  "0.005000": []
+ }
+}

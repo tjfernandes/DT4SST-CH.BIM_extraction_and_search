@@ -48,7 +48,7 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_thirty_slices() -> None:
+def test_committed_policy_loads_and_has_the_thirty_four_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
     # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
@@ -64,7 +64,11 @@ def test_committed_policy_loads_and_has_the_thirty_slices() -> None:
     # geometry_synthetic_quality, geometry_indexability,
     # geometry_real_model_live): 26 → 30. graph_retrieval STILL stays
     # unavailable_future — geometry facts are extraction, not retrieval.
-    assert len(policy.slices) == 30
+    # HBIM-081 §68 added exactly four (relation_contract,
+    # native_relation_quality, derived_relation_quality,
+    # relation_generation_live): 30 → 34. graph_retrieval STILL stays
+    # unavailable_future — relations are generated, not served.
+    assert len(policy.slices) == 34
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -189,8 +193,10 @@ def test_real_tree_passes_every_gated_slice(real_report) -> None:
     # +1 manual (graph_pipeline_live). graph_retrieval stays unavailable.
     # HBIM-080 §70: +3 passed (geometry_contract, geometry_synthetic_quality,
     # geometry_indexability), +1 manual (geometry_real_model_live).
+    # HBIM-081 §68: +3 passed (relation_contract, native_relation_quality,
+    # derived_relation_quality), +1 manual (relation_generation_live).
     assert real_report["counts"] == {
-        "passed": 22, "failed": 0, "delegated": 1, "manual": 5, "unavailable": 2,
+        "passed": 25, "failed": 0, "delegated": 1, "manual": 6, "unavailable": 2,
     }
 
 
@@ -576,7 +582,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 30   # every registered slice, none skipped
+    assert len(report["slices"]) == 34   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #
@@ -1333,3 +1339,343 @@ def test_geometry_real_model_live_never_runs_in_ci(real_report) -> None:
                  if s["slice_id"] == "geometry_real_model_live")
     assert entry["status"] == "manual"
     assert entry["checks"] == []
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-081 §69 — the 34 relation negative proofs
+#
+# Every tamper works on a COPY under tmp_path. Where a checksum would catch it
+# first, the copy's checksums are repinned so the SEMANTIC gate must fail. An
+# anti-vacuity control proves a repinned untampered copy still passes.
+# --------------------------------------------------------------------------- #
+_RELATION_FILES = (
+    "backend/eval/baselines/relation_metrics.json",
+    "backend/eval/baselines/relation_decision.json",
+    "backend/eval/baselines/relation_real_model.json",
+    "backend/eval/dataset/relations_gold/fixtures_manifest.json",
+    "backend/eval/dataset/relations_gold/native_gold.json",
+    "backend/eval/dataset/relations_gold/derived_gold.json",
+    "backend/eval/dataset/relations_gold/gold_summary.json",
+)
+
+
+def _relation_tree(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    for pin in _RELATION_FILES:
+        target = root / pin
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / pin, target)
+    return root
+
+
+def _repin_relations(root: Path) -> None:
+    """Repair both artifact checksums and the raw→decision chain after a tamper,
+    so only a *semantic* gate can fail."""
+    from relations.serialization import artifact_checksum
+
+    metrics_path = root / "backend/eval/baselines/relation_metrics.json"
+    decision_path = root / "backend/eval/baselines/relation_decision.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics["artifact_sha256"] = artifact_checksum(metrics)
+    metrics_path.write_text(json.dumps(metrics, indent=1, sort_keys=True), encoding="utf-8")
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    decision["raw_artifact_sha256"] = metrics["artifact_sha256"]
+    decision["artifact_sha256"] = artifact_checksum(decision)
+    decision_path.write_text(json.dumps(decision, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def _relation_policy(root: Path) -> Policy:
+    payload = _policy_dict()
+    for entry in payload["slices"]:
+        for inp in entry.get("inputs", []):
+            candidate = root / inp["path"]
+            if inp["sha256"] and candidate.exists():
+                inp["sha256"] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    written = root / "policy_under_test.json"
+    written.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        return load_policy(written)
+    finally:
+        written.unlink()
+
+
+def _relation_slice(root: Path, slice_id: str, policy: Policy | None = None) -> dict:
+    report = run_gates(policy or _relation_policy(root), root, only=[slice_id])
+    return next(s for s in report["slices"] if s["slice_id"] == slice_id)
+
+
+def _edit_relation_metrics(root: Path, mutate) -> None:
+    path = root / "backend/eval/baselines/relation_metrics.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def _edit_relation_decision(root: Path, mutate) -> None:
+    path = root / "backend/eval/baselines/relation_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def _semantic(tmp_path: Path, mutate, slice_id: str = "derived_relation_quality") -> dict:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, mutate)
+    _repin_relations(root)
+    return _relation_slice(root, slice_id)
+
+
+# --- baseline and anti-vacuity ---------------------------------------------- #
+def test_relation_slices_pass_on_the_real_tree(real_report) -> None:
+    for slice_id in ("relation_contract", "native_relation_quality",
+                     "derived_relation_quality"):
+        entry = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
+        assert entry["status"] == "pass", entry["failures"]
+        assert entry["checks"], f"{slice_id} evaluated no checks"
+
+
+def test_relation_repin_helper_does_not_mask_a_clean_tree(tmp_path) -> None:
+    """Anti-vacuity: repinning an UNtampered copy must still pass."""
+    root = _relation_tree(tmp_path)
+    _repin_relations(root)
+    assert _relation_slice(root, "derived_relation_quality")["status"] == "pass"
+    assert _relation_slice(root, "native_relation_quality")["status"] == "pass"
+
+
+# --- 1-2 corpus tampers (the hash chain IS the semantic gate here) ----------- #
+def test_p01_a_changed_native_fixture_hash_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    path = root / "backend/eval/dataset/relations_gold/fixtures_manifest.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["native_fixtures"][0]["sha256"] = "0" * 64
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    entry = _relation_slice(root, "native_relation_quality", _relation_policy(root))
+    assert entry["status"] == "fail"
+
+
+def test_p02_a_changed_gold_row_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    victim = root / "backend/eval/dataset/relations_gold/derived_gold.json"
+    victim.write_bytes(victim.read_bytes() + b"\n")
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+# --- 3-4 schema / predicate policy ------------------------------------------ #
+def test_p03_a_changed_relation_schema_version_fails() -> None:
+    from relations.ids import RELATION_SCHEMA_VERSION
+    assert RELATION_SCHEMA_VERSION == "hbim-081-relations-v1"
+
+
+def test_p04_a_changed_predicate_policy_fails(tmp_path) -> None:
+    entry = _semantic(tmp_path, lambda m: m["coverage"].update(native_table_rows=15))
+    assert entry["status"] == "fail"
+
+
+# --- 5-8 directions, multiplicity, invented/lost ---------------------------- #
+@pytest.mark.parametrize("field,proof", [
+    ("invented", "p05_invented_native_edge"),
+    ("lost", "p06_lost_native_edge"),
+    ("duplicate", "p07_multiplicity_collapsed"),
+    ("self_edges", "p08_self_edge"),
+])
+def test_p05_p08_native_count_tampers_fail(tmp_path, field, proof) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["native_metrics"].update({field: 3}))
+    _repin_relations(root)
+    entry = _relation_slice(root, "native_relation_quality")
+    assert entry["status"] == "fail", proof
+
+
+def test_p09_a_cross_project_edge_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["native_metrics"].update(cross_project=1))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+def test_p10_a_missing_source_relation_identity_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["native_metrics"].update(provenance_incomplete=2))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+# --- 11-13 node / material / port policies ---------------------------------- #
+def test_p11_a_material_collision_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["node_metrics"].update(
+        material_nodes_for_duplicate_name_family=1))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+def test_p12_a_port_misclassified_as_element_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["node_metrics"]["counts_by_kind"].pop("port", None))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+def test_p13_a_global_id_mismatch_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["node_metrics"].update(global_id_mismatches=1))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+# --- 14-17 derived semantics ------------------------------------------------ #
+def test_p14_a_derived_gold_mismatch_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["derived_metrics"].update(
+        gold_mismatches=1))["status"] == "fail"
+
+
+def test_p15_missing_geometry_provenance_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["derived_metrics"].update(
+        provenance_incomplete=1))["status"] == "fail"
+
+
+def test_p16_a_symmetric_order_violation_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["derived_metrics"].update(
+        symmetric_order_violations=1))["status"] == "fail"
+
+
+def test_p17_an_inverse_duplicate_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["derived_metrics"].update(
+        inverse_duplicates=1))["status"] == "fail"
+
+
+# --- 18-21 broad phase ------------------------------------------------------ #
+def test_p18_an_omitted_broad_phase_pair_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["broad_phase_metrics"]["b2_xy_columns"].update(
+        recall_vs_b0=0.99))["status"] == "fail"
+
+
+def test_p19_a_broad_phase_relation_mismatch_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["broad_phase_metrics"]["b1_sweep_x"].update(
+        relation_set_equal=False))["status"] == "fail"
+
+
+def test_p20_nondeterministic_pair_order_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["broad_phase_metrics"]["b2_xy_columns"].update(
+        deterministic_order=False))["status"] == "fail"
+
+
+def test_p21_a_broad_phase_boundary_false_negative_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["broad_phase_metrics"]["b2_xy_columns"].update(
+        boundary_false_negatives=1))["status"] == "fail"
+
+
+# --- 22-24 tolerance and selector forgery ----------------------------------- #
+def test_p22_a_tolerance_boundary_false_positive_changes_the_selection(tmp_path) -> None:
+    entry = _semantic(tmp_path, lambda m: m["tolerance_observations"]["0.000500"].update(
+        boundary_false_positives=1))
+    assert entry["status"] == "fail"
+
+
+def test_p23_a_forged_selected_tolerance_is_caught_by_recomputation(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_decision(root, lambda d: d.update(selected_tolerance="0.005000"))
+    _repin_relations(root)
+    entry = _relation_slice(root, "derived_relation_quality")
+    assert entry["status"] == "fail"
+    assert any("selected_tolerance_recomputes" in f for f in entry["failures"])
+
+
+def test_p24_a_forged_selected_broad_phase_is_caught(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_decision(root, lambda d: d.update(selected_broad_phase="b0_exhaustive"))
+    _repin_relations(root)
+    entry = _relation_slice(root, "derived_relation_quality")
+    assert entry["status"] == "fail"
+    assert any("selected_broad_phase_recomputes" in f for f in entry["failures"])
+
+
+# --- 25-27 verdict forgery and HBIM-082 state -------------------------------- #
+def test_p25_a_forged_perfect_verdict_is_caught(tmp_path) -> None:
+    """Metrics say a bar failed; the decision still claims success and its
+    checksum is freshly valid. Only recomputation can catch it."""
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["native_metrics"].update(lost=5))
+    _repin_relations(root)
+    entry = _relation_slice(root, "derived_relation_quality")
+    assert entry["status"] == "fail"
+    assert any("all_bars_pass" in f or "bars" in f for f in entry["failures"])
+
+
+def test_p26_an_inconsistent_hbim_082_flag_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_decision(root, lambda d: d.update(hbim_082_unblocked=False))
+    _repin_relations(root)
+    assert _relation_slice(root, "derived_relation_quality")["status"] == "fail"
+
+
+def test_p27_a_wrong_failed_bars_list_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_decision(root, lambda d: d.update(failed_bars=["invented_edges"]))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+# --- 28-30 checksums and chain ---------------------------------------------- #
+def test_p28_a_decision_checksum_mismatch_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_decision(root, lambda d: d.update(artifact_sha256="0" * 64))
+    assert _relation_slice(root, "derived_relation_quality")["status"] == "fail"
+
+
+def test_p29_a_broken_raw_chain_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_decision(root, lambda d: d.update(raw_artifact_sha256="0" * 64))
+    assert _relation_slice(root, "derived_relation_quality")["status"] == "fail"
+
+
+def test_p30_a_metrics_checksum_mismatch_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m.update(artifact_sha256="0" * 64))
+    assert _relation_slice(root, "derived_relation_quality")["status"] == "fail"
+
+
+# --- 31-32 corpus shrinkage and determinism ---------------------------------- #
+def test_p31_a_shrunk_native_family_count_fails(tmp_path) -> None:
+    root = _relation_tree(tmp_path)
+    _edit_relation_metrics(root, lambda m: m["coverage"].update(native_families=3))
+    _repin_relations(root)
+    assert _relation_slice(root, "native_relation_quality")["status"] == "fail"
+
+
+def test_p32_a_shrunk_derived_family_count_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["coverage"].update(
+        derived_families=2))["status"] == "fail"
+
+
+def test_p33_dropped_determinism_agreement_fails(tmp_path) -> None:
+    assert _semantic(tmp_path, lambda m: m["determinism"].update(
+        all_agree=False))["status"] == "fail"
+
+
+# --- 34 scope guards --------------------------------------------------------- #
+def test_p34_graph_retrieval_stays_unavailable(real_report) -> None:
+    entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_retrieval")
+    assert entry["status"] == "unavailable"
+    assert entry["classification"] == "unavailable_future"
+
+
+def test_relation_generation_live_never_runs_in_ci(real_report) -> None:
+    entry = next(s for s in real_report["slices"]
+                 if s["slice_id"] == "relation_generation_live")
+    assert entry["status"] == "manual"
+    assert entry["checks"] == []
+
+
+def test_hbim_079_and_080_artifacts_are_untouched() -> None:
+    """§66/§67 — the accepted milestones must not drift."""
+    import subprocess
+    protected = [
+        "backend/eval/baselines/graph_pipeline_metrics.json",
+        "backend/eval/baselines/graph_pipeline_decision.json",
+        "backend/eval/baselines/geometry_metrics.json",
+        "backend/eval/baselines/geometry_decision.json",
+    ]
+    changed = subprocess.run(["git", "diff", "--name-only", "main..HEAD", "--", *protected],
+                             cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()
+    assert not changed, f"protected artifact drifted: {changed}"

@@ -1,0 +1,9 @@
+{
+ "artifact": "relation_real_model_campaign",
+ "campaign_version": "hbim-081-real-model-v1",
+ "status": "manual_unavailable",
+ "reason": "No operator supplied an explicit local IFC path together with a matching active geometry generation. Specification 65 makes the campaign operator-only: it never searches directories, never runs in CI, and its absence is a valid recorded outcome. The synthetic bars are the blocking evidence and are NOT waived by this state; no synthetic result is relabelled as real.",
+ "aggregates": null,
+ "requires": "an explicit IFC path AND the matching active geometry generation, supplied together by the operator",
+ "sanitisation_contract": "opaque case ids; aggregate counts and rates only; no filename, directory, author, project name, element name or GlobalId in any committed artifact; no Neo4j write; no graph retrieval; no network"
+}

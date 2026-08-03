@@ -1,0 +1,763 @@
+{
+ "artifact": "relation_metrics",
+ "artifact_sha256": "ba6dc648c88ce6c5e6bd88908e00353d957d684760f29967c3fb0c521b43048c",
+ "benchmark_version": "hbim-081-relation-benchmark-v1",
+ "broad_phase_metrics": {
+  "b0_exhaustive": {
+   "boundary_false_negatives": 0,
+   "candidate_pairs": 6470,
+   "deterministic_order": true,
+   "recall_vs_b0": 1.0,
+   "reduction": 0.0,
+   "relation_set_equal": true,
+   "within_resource_bounds": true
+  },
+  "b1_sweep_x": {
+   "boundary_false_negatives": 0,
+   "candidate_pairs": 2279,
+   "deterministic_order": true,
+   "recall_vs_b0": 1.0,
+   "reduction": 0.647759,
+   "relation_set_equal": true,
+   "within_resource_bounds": true
+  },
+  "b2_xy_columns": {
+   "boundary_false_negatives": 0,
+   "candidate_pairs": 171,
+   "deterministic_order": true,
+   "recall_vs_b0": 1.0,
+   "reduction": 0.97357,
+   "relation_set_equal": true,
+   "within_resource_bounds": true
+  }
+ },
+ "corpus_id": "relations-gold-v1",
+ "coverage": {
+  "analytic_facts": 118,
+  "derived_families": 21,
+  "ifc_schemas": [
+   "IFC2X3",
+   "IFC4"
+  ],
+  "native_families": 17,
+  "native_table_rows": 17,
+  "tolerance_candidates": [
+   "0.000000",
+   "0.000500",
+   "0.001000",
+   "0.002000",
+   "0.005000"
+  ]
+ },
+ "derived_metrics": {
+  "gold_mismatches": 0,
+  "inverse_duplicates": 0,
+  "per_family_per_tolerance": {
+   "rdf-01-disjoint": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-02-exact-touch": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    }
+   },
+   "rdf-03-gap-inside": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    }
+   },
+   "rdf-04-gap-outside": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-05-containment": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "CONTAINS_GEOM": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "CONTAINS_GEOM": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "CONTAINS_GEOM": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "CONTAINS_GEOM": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "CONTAINS_GEOM": 1
+     }
+    }
+   },
+   "rdf-06-equal-boxes": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-07-intersection": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "INTERSECTS": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "INTERSECTS": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "INTERSECTS": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "INTERSECTS": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "INTERSECTS": 1
+     }
+    }
+   },
+   "rdf-08-above-overlap": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    }
+   },
+   "rdf-09-above-no-xy": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-10-symmetry": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    }
+   },
+   "rdf-11-inverse": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "ABOVE": 1
+     }
+    }
+   },
+   "rdf-12-invalid-geometry": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-13-partial-eligible": {
+    "0.000000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    }
+   },
+   "rdf-14-cross-project": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-15-stale-version": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-16-duplicate-facts": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-17-quantum-boundary": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.001000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.002000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    },
+    "0.005000": {
+     "edges": 1,
+     "predicates": {
+      "TOUCHES": 1
+     }
+    }
+   },
+   "rdf-18-dense-cluster": {
+    "0.000000": {
+     "edges": 11,
+     "predicates": {
+      "TOUCHES": 11
+     }
+    },
+    "0.000500": {
+     "edges": 11,
+     "predicates": {
+      "TOUCHES": 11
+     }
+    },
+    "0.001000": {
+     "edges": 11,
+     "predicates": {
+      "TOUCHES": 11
+     }
+    },
+    "0.002000": {
+     "edges": 11,
+     "predicates": {
+      "TOUCHES": 11
+     }
+    },
+    "0.005000": {
+     "edges": 11,
+     "predicates": {
+      "TOUCHES": 11
+     }
+    }
+   },
+   "rdf-19-sparse-scale": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-20-broadphase-worst": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   },
+   "rdf-21-unit-undetermined": {
+    "0.000000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.000500": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.001000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.002000": {
+     "edges": 0,
+     "predicates": {}
+    },
+    "0.005000": {
+     "edges": 0,
+     "predicates": {}
+    }
+   }
+  },
+  "provenance_incomplete": 0,
+  "symmetric_order_violations": 0
+ },
+ "determinism": {
+  "all_agree": true,
+  "payload_hashes": [
+   "926086b85a8abebbc61f954d173c7233c308ce4a7f85dd2e0584a88737c91701",
+   "926086b85a8abebbc61f954d173c7233c308ce4a7f85dd2e0584a88737c91701",
+   "926086b85a8abebbc61f954d173c7233c308ce4a7f85dd2e0584a88737c91701",
+   "926086b85a8abebbc61f954d173c7233c308ce4a7f85dd2e0584a88737c91701"
+  ],
+  "runs": 4
+ },
+ "gold_sha256": {
+  "derived_gold.json": "7395b0280d2022b2754732d79f10b3731eb077a58818770b5f14b78ab0fe3309",
+  "fixtures_manifest.json": "d17c3a7d8ea31fec3ad65e04224cc08eea8634871d13d0da4ffdce47d5d8925b",
+  "gold_summary.json": "0fc3f7734ad524c9e9e55ff310e82356e6442a63f40aa94952f0dcb2c7d1a8f8",
+  "native_gold.json": "690bb520a4477643bf4ae3ab7a408448603939459e177cfe42712c04eef2074c"
+ },
+ "isolation": {
+  "environment_mutation_detected": false,
+  "network_attempts": 0,
+  "unexpected_subprocess_attempts": 0
+ },
+ "limitations": [
+  "Fixtures are synthetic; real-model behaviour is evidenced only by the operator campaign, which may honestly be manual_unavailable.",
+  "Derived relations are axis-aligned bounding-box statements inherited from HBIM-080; two elements whose boxes touch may not touch physically.",
+  "IFC2X3 exposes only Name on IfcMaterial, so two same-named materials merge in that schema (measured).",
+  "The frozen corpus does not exercise CONTAINS; row 6 is covered by a test-local model instead, and the gap is pinned by a test."
+ ],
+ "native_fixture_sha256": {
+  "rnf-01-hierarchy": "013535646b74806007573383dc2b8463897452664b36c7c844aa389140f51cf8",
+  "rnf-02-aggregation": "7a22969c1c7c5cdf6af1717b05385598d9921d00ab2a3c3e0501259b9bd923df",
+  "rnf-03-nesting": "0ee8f07e575f65ef1bca9df196572e3121fa6659e49e4dff2a1c3a344316ef56",
+  "rnf-04-type": "1c82676605507f7ecb84b56ff842bd36a29a26052adf6ee0e777e7e95d80ece8",
+  "rnf-05-material-direct": "dfabbe1889a2697f723cc7d5380ea3920a47ce44a6ec653af7d1522c2129d55b",
+  "rnf-06-material-duplicate-name": "d21072e250b057e3f20bcc06a296f78541ecf771952a34799336559ae9f55a47",
+  "rnf-07-material-sets": "27c44e9b6bbb0408c1fc436a61dd995fc9fee41ca2524d6149cc85adea715d31",
+  "rnf-08-void-fill": "8b349504326ee4ebf6959f75cbdaa35c8bce3be08f411b76fa81dd2145b10929",
+  "rnf-09-boundary": "302eb15704fd6d8079ac9bf63c2bf16c0407fe02c2da6184f52bea2ce391199d",
+  "rnf-10-boundary-missing": "f2240ab180c84f7052c5f67b2b62b3621f15e19f3328f265958945727cc5ee48",
+  "rnf-11-group-system": "d00fbdf0a28a3f82d7ab1b643e92a9bdbfae17c4dfac853d523d1e0eaf8d56ff",
+  "rnf-12-connections": "4a508b59940fc319a202af80d824eff120fa9477bbeef0100cbb0ce2c3f069d2",
+  "rnf-13-ports": "7ce6a168a415c7fd5fb81df2bf6a9b88dc55fcd9a026e525910c3183cb97aa47",
+  "rnf-14-malformed": "63a6269086aa5e334c6464e298aad8707274264fdd1ec73e383b85b0a74088c8",
+  "rnf-15-multiplicity": "0caf7acb26cb26fc18801cf4934905405c94eb335f79324b8e5d89baf301b757",
+  "rnf-16-cross-project": "6cf26a6b75efa1cfbbcfa34ec17cbc516c389290b17ae281d2e8c6d410448cff",
+  "rnf-17-ifc2x3": "a363523b6df27ef251740b811473a53759f95b66481563dd78ce9c2c4e92869f"
+ },
+ "native_metrics": {
+  "counts_by_predicate": {
+   "AGGREGATES": 1,
+   "BOUNDS_SPACE": 2,
+   "CONNECTS_PORT": 1,
+   "CONNECTS_TO": 5,
+   "FILLS": 1,
+   "HAS_BUILDING": 5,
+   "HAS_MATERIAL": 9,
+   "HAS_PORT": 2,
+   "HAS_SITE": 5,
+   "HAS_SPACE": 5,
+   "HAS_STOREY": 5,
+   "HAS_TYPE": 1,
+   "MEMBER_OF_GROUP": 1,
+   "MEMBER_OF_SYSTEM": 1,
+   "NESTS": 3,
+   "VOIDS": 1
+  },
+  "cross_project": 0,
+  "duplicate": 0,
+  "invented": 0,
+  "issue_counts": {
+   "duplicate_endpoint_in_relation": 1,
+   "missing_endpoint": 1,
+   "unknown_endpoint": 1,
+   "unsupported_material_select": 1,
+   "unsupported_relation_subtype": 1
+  },
+  "lost": 0,
+  "predicates_covered": 16,
+  "provenance_incomplete": 0,
+  "self_edges": 0
+ },
+ "node_metrics": {
+  "counts_by_kind": {
+   "building": 5,
+   "element": 30,
+   "group": 1,
+   "material": 8,
+   "port": 2,
+   "project": 17,
+   "site": 5,
+   "space": 5,
+   "storey": 5,
+   "system": 1,
+   "type": 1
+  },
+  "cross_project_nodes": 0,
+  "global_id_mismatches": 0,
+  "material_nodes_for_duplicate_name_family": 2,
+  "port_nodes_are_first_class": true
+ },
+ "operational_volatile": {
+  "campaign_wall_clock_ms": 1247.904
+ },
+ "relation_schema_version": "hbim-081-relations-v1",
+ "tolerance_observations": {
+  "0.000000": {
+   "boundary_false_negatives": 0,
+   "boundary_false_positives": 0,
+   "f1": 1.0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "tolerant_contacts_recovered": true
+  },
+  "0.000500": {
+   "boundary_false_negatives": 0,
+   "boundary_false_positives": 0,
+   "f1": 1.0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "tolerant_contacts_recovered": true
+  },
+  "0.001000": {
+   "boundary_false_negatives": 0,
+   "boundary_false_positives": 0,
+   "f1": 1.0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "tolerant_contacts_recovered": true
+  },
+  "0.002000": {
+   "boundary_false_negatives": 0,
+   "boundary_false_positives": 0,
+   "f1": 1.0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "tolerant_contacts_recovered": true
+  },
+  "0.005000": {
+   "boundary_false_negatives": 0,
+   "boundary_false_positives": 0,
+   "f1": 1.0,
+   "precision": 1.0,
+   "recall": 1.0,
+   "tolerant_contacts_recovered": true
+  }
+ }
+}

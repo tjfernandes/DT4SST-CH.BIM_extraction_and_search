@@ -961,6 +961,209 @@ def _eval_document_reranker_decision(entry: Slice, outcome: SliceOutcome, root: 
     _apply_checks(entry, outcome, metrics)
 
 
+def _eval_relation_contract(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-081 §68.1 — schemas, identities, provenance separation, revisions.
+
+    Pure: no IFC library, no fixtures. Proves the frozen contract that makes a
+    derived relation structurally unable to impersonate a native one, and that
+    a generation revision can never become a semantic edge identity.
+    """
+    from graph.predicates import GraphPredicate as _V1P
+    from pydantic import ValidationError as _VE
+    from relations.ids import (
+        RELATION_SCHEMA_VERSION,
+        derived_edge_id,
+        material_node_id,
+        native_edge_id,
+        native_revision_id,
+        port_node_id,
+    )
+    from relations.schema import DerivedProvenance, NativeProvenance, NativeRelation
+    from relations.validation import (
+        ADVISORY_CODES,
+        DERIVED_PREDICATES_P1,
+        FATAL_FOR_EDGE_CODES,
+        NATIVE_TABLE,
+        RelationIssueCode,
+        RelationNodeKind,
+        RelationPredicate,
+    )
+
+    geom_v = "hbim-080-geometry-worldaabb-v1"
+    kw = dict(algorithm="aabb_overlap_v1", algorithm_version="1",
+              geometry_version=geom_v)
+    edge = native_edge_id("p", "VOIDS", "el_a", "el_b", "0" * 22, "0")
+    revision = native_revision_id(project_id="p", source_id="s",
+                                  source_sha256="x" * 64, ifc_schema="IFC4")
+    tol_a = derived_edge_id("p", "TOUCHES", "el_a", "el_b", directed=False,
+                            tolerance_m="0.000500", **kw)
+    tol_b = derived_edge_id("p", "TOUCHES", "el_a", "el_b", directed=False,
+                            tolerance_m="0.001000", **kw)
+
+    def _material_collision_fixed() -> bool:
+        return material_node_id("p", name="Brick", category="Masonry") != \
+            material_node_id("p", name="Brick", category="Facing")
+
+    def _port_is_not_an_element() -> bool:
+        from canonical.ids import element_id
+        return port_node_id("p", "0G") != element_id("p", "0G")
+
+    def _native_rejects_geometry_provenance() -> bool:
+        try:
+            NativeRelation(
+                edge_id="ge_x", project_id="p",
+                predicate=RelationPredicate.AGGREGATES,
+                source_node_id="el_a", target_node_id="el_b",
+                source_node_kind=RelationNodeKind.ELEMENT,
+                target_node_kind=RelationNodeKind.ELEMENT,
+                provenance=DerivedProvenance(
+                    geometry_generation_id="g", geometry_schema_version="s",
+                    geometry_version=geom_v, source_geometry_id_a="a",
+                    source_geometry_sha256_a="1", source_geometry_id_b="b",
+                    source_geometry_sha256_b="2", broad_phase="b0_exhaustive",
+                    broad_phase_version="1", tolerance_m="0.000500",
+                    derived_revision_id="dr_1"))
+            return False
+        except (_VE, ValueError):
+            return True
+
+    metrics_payload: dict[str, object] = {
+        "relation_schema_version_pinned":
+            1.0 if RELATION_SCHEMA_VERSION == "hbim-081-relations-v1" else 0.0,
+        "node_kind_count": float(len(list(RelationNodeKind))),
+        "native_table_rows": float(len(NATIVE_TABLE)),
+        "issue_code_count": float(len(list(RelationIssueCode))),
+        "issue_codes_classified": 1.0 if (
+            FATAL_FOR_EDGE_CODES.isdisjoint(ADVISORY_CODES)
+            and FATAL_FOR_EDGE_CODES | ADVISORY_CODES == set(RelationIssueCode)
+        ) else 0.0,
+        "derived_vocabulary_is_p1": 1.0 if {p.value for p in DERIVED_PREDICATES_P1}
+        == {"TOUCHES", "CONTAINS_GEOM", "INTERSECTS", "ABOVE"} else 0.0,
+        "no_inverse_predicates": 1.0 if not (
+            {"BELOW", "WITHIN", "NEAR", "ADJACENT_TO"} & {p.name for p in RelationPredicate}
+        ) else 0.0,
+        "v1_predicate_values_preserved": 1.0 if all(
+            RelationPredicate[m.name].value == m.value for m in _V1P) else 0.0,
+        "port_predicates_additive_only":
+            1.0 if len(list(RelationPredicate)) == len(list(_V1P)) + 2 else 0.0,
+        "provenance_structurally_disjoint": 1.0 if (
+            set(NativeProvenance.model_fields) & set(DerivedProvenance.model_fields)
+            == {"source_kind"}) else 0.0,
+        "native_rejects_geometry_provenance":
+            1.0 if _native_rejects_geometry_provenance() else 0.0,
+        "material_collision_fixed": 1.0 if _material_collision_fixed() else 0.0,
+        "port_is_not_an_element": 1.0 if _port_is_not_an_element() else 0.0,
+        "revision_not_in_edge_identity": 1.0 if revision != edge else 0.0,
+        "tolerance_changes_derived_identity": 1.0 if tol_a != tol_b else 0.0,
+        "tolerance_never_changes_native_identity": 1.0 if edge == native_edge_id(
+            "p", "VOIDS", "el_a", "el_b", "0" * 22, "0") else 0.0,
+        "symmetric_identity_order_invariant": 1.0 if derived_edge_id(
+            "p", "TOUCHES", "el_a", "el_b", directed=False,
+            tolerance_m="0.000500", **kw) == derived_edge_id(
+            "p", "TOUCHES", "el_b", "el_a", directed=False,
+            tolerance_m="0.000500", **kw) else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics_payload)
+
+
+def _eval_native_relation_quality(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-081 §68.2 — corpus chain plus native bar recomputation."""
+    from eval.relation_benchmark import evaluate
+
+    metrics = _load_json(root / "backend/eval/baselines/relation_metrics.json", outcome)
+    decision = _load_json(root / "backend/eval/baselines/relation_decision.json", outcome)
+    if metrics is None or decision is None:
+        return
+    manifest = _load_json(
+        root / "backend/eval/dataset/relations_gold/fixtures_manifest.json", outcome)
+    if manifest is None:
+        return
+    for row in manifest["native_fixtures"]:
+        if metrics["native_fixture_sha256"].get(row["family_id"]) != row["sha256"]:
+            outcome.fail(f"native fixture {row['family_id']} not chained to the manifest")
+    gold_dir = root / "backend/eval/dataset/relations_gold"
+    for name, pinned in metrics["gold_sha256"].items():
+        if sha256_of(gold_dir / name) != pinned:
+            outcome.fail(f"relation gold {name} no longer matches the metrics chain")
+    if outcome.status == "fail":
+        return
+
+    result = evaluate(metrics)
+    node = metrics["node_metrics"]
+    native = metrics["native_metrics"]
+    recorded = decision.get("bars") or {}
+    recomputed = {k: ("pass" if v else "fail") for k, v in sorted(result["bars"].items())}
+
+    metrics_payload: dict[str, object] = {
+        "bars_recompute": 1.0 if recorded == recomputed else 0.0,
+        "failed_bars_match": 1.0 if decision.get("failed_bars")
+        == result["failed_bars"] else 0.0,
+        "native_predicates_covered": float(native["predicates_covered"]),
+        "invented_native_edges": float(native["invented"]),
+        "lost_native_edges": float(native["lost"]),
+        "duplicate_edges": float(native["duplicate"]),
+        "self_edges": float(native["self_edges"]),
+        "cross_project_edges": float(native["cross_project"]),
+        "native_provenance_incomplete": float(native["provenance_incomplete"]),
+        "global_id_mismatches": float(node["global_id_mismatches"]),
+        "material_policy_nodes": float(node["material_nodes_for_duplicate_name_family"]),
+        "port_nodes_present": float(node["counts_by_kind"].get("port", 0)),
+        "native_families": float(metrics["coverage"]["native_families"]),
+        "native_table_rows": float(metrics["coverage"]["native_table_rows"]),
+    }
+    _apply_checks(entry, outcome, metrics_payload)
+
+
+def _eval_derived_relation_quality(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-081 §68.3 — geometry lineage, per-tolerance bars and **both**
+    selectors, recomputed. A recorded verdict is never trusted."""
+    from relations.serialization import artifact_checksum
+
+    from eval.relation_benchmark import decision_payload, evaluate
+
+    metrics = _load_json(root / "backend/eval/baselines/relation_metrics.json", outcome)
+    decision = _load_json(root / "backend/eval/baselines/relation_decision.json", outcome)
+    if metrics is None or decision is None:
+        return
+
+    result = evaluate(metrics)
+    rebuilt = decision_payload(metrics)
+    derived = metrics["derived_metrics"]
+    broad = metrics["broad_phase_metrics"]
+    optimised = {k: v for k, v in broad.items() if k != "b0_exhaustive"}
+
+    metrics_payload: dict[str, object] = {
+        "raw_chained": 1.0 if decision.get("raw_artifact_sha256")
+        == metrics.get("artifact_sha256") else 0.0,
+        "metrics_checksum_valid": 1.0 if metrics.get("artifact_sha256")
+        == artifact_checksum(metrics) else 0.0,
+        "decision_checksum_valid": 1.0 if decision.get("artifact_sha256")
+        == artifact_checksum(decision) else 0.0,
+        "decision_recomputes": 1.0 if rebuilt["artifact_sha256"]
+        == decision.get("artifact_sha256") else 0.0,
+        "selected_tolerance_recomputes": 1.0 if decision.get("selected_tolerance")
+        == result["tolerance"].selected else 0.0,
+        "selected_broad_phase_recomputes": 1.0 if decision.get("selected_broad_phase")
+        == result["broad_phase"].selected else 0.0,
+        "hbim_082_consistent": 1.0 if decision.get("hbim_082_unblocked")
+        == result["hbim_082_unblocked"] else 0.0,
+        "all_bars_pass": 1.0 if not result["failed_bars"] else 0.0,
+        "derived_gold_mismatches": float(derived["gold_mismatches"]),
+        "derived_provenance_incomplete": float(derived["provenance_incomplete"]),
+        "symmetric_order_violations": float(derived["symmetric_order_violations"]),
+        "inverse_duplicates": float(derived["inverse_duplicates"]),
+        "broad_phase_recall_exact": 1.0 if all(
+            row["recall_vs_b0"] == 1.0 for row in optimised.values()) else 0.0,
+        "broad_phase_relation_equality": 1.0 if all(
+            row["relation_set_equal"] for row in optimised.values()) else 0.0,
+        "determinism_agrees": 1.0 if metrics["determinism"]["all_agree"] else 0.0,
+        "derived_families": float(metrics["coverage"]["derived_families"]),
+        "network_attempts": float(metrics["isolation"]["network_attempts"]),
+    }
+    _apply_checks(entry, outcome, metrics_payload)
+
+
+
 def _eval_geometry_contract(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     """HBIM-080 §70.1 — schema, identity, numerics and vocabulary invariants.
 
@@ -1451,6 +1654,10 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "geometry_synthetic_quality": _eval_geometry_synthetic_quality,
     "geometry_indexability": _eval_geometry_indexability,
     "geometry_real_model_live": _eval_manual,
+    "relation_contract": _eval_relation_contract,
+    "native_relation_quality": _eval_native_relation_quality,
+    "derived_relation_quality": _eval_derived_relation_quality,
+    "relation_generation_live": _eval_manual,
     "graph_retrieval": _eval_unavailable,
     "multimodal_retrieval": _eval_unavailable,
 }

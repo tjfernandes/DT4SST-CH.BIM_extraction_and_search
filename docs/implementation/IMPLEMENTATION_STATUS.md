@@ -2,10 +2,101 @@
 
 ## Last completed issue
 
-HBIM-080 — canonical geometry extraction: deterministic, project-owned
-`GeometryFact` records extracted by the IfcOpenShell-only pipeline in explicit
-world metres, grounded by frozen analytic gold, persisted behind a safe
-additive index lifecycle. HBIM-081 is unblocked.
+HBIM-081 — canonical relations: authoritative IFC-native relations and
+geometry-derived spatial relations, produced by independent generators over
+`GeometryFact`, grounded by frozen independent gold and a re-validated
+tolerance. HBIM-082 is unblocked.
+
+## Status of HBIM-081
+
+**Complete.**
+
+### Architecture and contract
+
+R2 selected: the node set, the native relation set and the derived relation set
+are produced independently and composed by a **pure assembler** that validates
+cross-set invariants and reconciles nothing. The schema is the additive
+successor `hbim-081-relations-v1`: every one of graph IR v1's 19 predicate
+values survives unchanged, and the only additions are `HAS_PORT` and
+`CONNECTS_PORT` (21 total). Semantic identity is preserved by reusing the v1
+identity functions verbatim, so an unchanged relation keeps its HBIM-079 id;
+the sole identity change is the material natural key, a gated fix for a
+measured collision. Eleven node kinds, with `PORT` first-class — measured:
+`IfcDistributionPort < IfcPort < IfcProduct`, never `IfcElement`, so modelling
+a port as an element would have been wrong. Native and derived provenance share
+exactly one field (`source_kind`); a derived edge carries **both** endpoints'
+geometry id and checksum, mandatory at the type level, which graph IR v1's
+single-`source_id` provenance could not express. The two sets carry independent
+revisions and are independently owned.
+
+### Semantics
+
+Seventeen native rows, each naming its IFC class, direction and endpoint kinds;
+ten typed malformed codes, with `IfcRelInterferesElements` scanned explicitly so
+its §35 exclusion is recorded rather than silent (it is not a subtype of
+`IfcRelConnectsElements`, so a subtype guard could never have fired). Material
+identity is content-keyed over Name/Description/Category — `IfcMaterial` has no
+`GlobalId` and its STEP id is unstable across re-export. Derived relations use
+the P1 vocabulary only (`TOUCHES`, `CONTAINS_GEOM`, `INTERSECTS`, `ABOVE`);
+inverse meanings are reverse traversals, never duplicate edges, and symmetric
+members are stored once in canonical endpoint order — enforced at construction.
+Eligibility is restricted to advisory issue codes: a `unit_undetermined` fact
+can never participate, which is the direct consumer of HBIM-080's measured unit
+hazard.
+
+### Decisions re-validated, not inherited
+
+Tolerance is **0.000500 m**, not the HBIM-079 incumbent 0.001: §41 required
+re-validation against the five frozen candidates, and the frozen five-step
+selector chose the smallest non-zero candidate meeting every exact bar. Broad
+phase is **`b2_xy_columns`** — XY columns unbounded in Z, because `ABOVE` places
+no bound on the vertical gap, so a 3-D grid or a Z-sweep would be unsound by
+construction. Measured on the corpus: B0 6470 candidate pairs, B1 2279
+(64.78 percent reduction), B2 171 (97.36 percent reduction); all three exact
+against the B0 oracle with identical relation sets, so nothing was traded for
+speed. Both artifacts are recomputed from the metrics by a pure evaluator on
+every CI run — the recorded outcome is never trusted.
+
+### Evidence
+
+17 native families / 21 derived families / 118 analytic facts / IFC4 + IFC2X3.
+Gold is authored from the design tables, AST-proven independent of the
+producers, and hash-frozen before the first candidate execution. Conformance:
+**0 failures** over 105 derived family x tolerance gold comparisons and 17
+native families, with 0 invented, 0 lost, 0 duplicate, 0 cross-project, 0
+self-edge and 0 incomplete-provenance relations, and 0 symmetric-order
+violations. 16 of the 17 native rows are exercised by the corpus. All **28
+quality bars** pass, each separate and blocking, with no global score.
+Determinism: 4 runs byte-identical; volatile timings are excluded from every
+checksum (proven by reruns with differing timings producing identical artifact
+hashes). 200 relation unit tests across seven files, 10 integration tests over
+the corpus written to disk, plus 138 gate tests.
+
+### Gates
+
+HBIM-060 grows 30 → 34: `relation_contract` (17 checks),
+`native_relation_quality` (14), `derived_relation_quality` (17) and
+`relation_generation_live` (manual). The additions are purely additive; the
+three existing null pins are preserved. `graph_retrieval` remains
+`unavailable_future` — HBIM-081 produces relations, it does not serve them.
+
+### Real-model campaign
+
+`manual_unavailable`, recorded honestly in
+`backend/eval/baselines/relation_real_model.json`: no local real IFC path was
+supplied by the operator. The synthetic bars are the blocking evidence and are
+not waived by this state. No real or private IFC was used anywhere.
+
+### Limitations
+
+Fixtures are synthetic and small. Derived relations are axis-aligned
+bounding-box statements inherited from HBIM-080, so two elements whose boxes
+touch may not touch physically. IFC2X3 exposes only `Name` on `IfcMaterial`, so
+two same-named materials genuinely merge in that schema (measured, stated, not
+silently succeeded). The frozen corpus does not exercise the `CONTAINS` row of
+the native table; the gap is pinned by a named test and covered by a
+test-local model. Nothing is persisted: HBIM-081 produces a bundle and three
+lifecycle manifests, and HBIM-082 owns Neo4j, Cypher and graph retrieval.
 
 ## Status of HBIM-080
 
@@ -1873,9 +1964,11 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-080 unblocks **HBIM-081**
-(spatial relation derivation over `GeometryFact`), per the roadmap ordering.
-HBIM-081 owns tolerance; HBIM-080 owns none.
+None — awaiting the next issue in the roadmap. HBIM-081 unblocks **HBIM-082**
+(relation persistence and graph retrieval), per the roadmap ordering and the
+recomputed decision artifact. HBIM-082 owns Neo4j, Cypher, the `GRAPH_PATH`
+EvidencePack contribution and the `graph_retrieval` gate; HBIM-081 owns none of
+them.
 
 ## Scope of HBIM-042
 
