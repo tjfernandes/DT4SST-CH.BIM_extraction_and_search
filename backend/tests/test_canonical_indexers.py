@@ -216,7 +216,7 @@ def write_dir(tmp_path: Path, **overrides: str | None) -> Path:
     """
     target = tmp_path / "canonical"
     target.mkdir(parents=True, exist_ok=True)
-    for record_type in il.RECORD_TYPES:
+    for record_type in registry.RECORD_TYPES:
         spec = registry.get_indexer_spec(record_type)
         if record_type in overrides:
             content = overrides[record_type]
@@ -237,7 +237,7 @@ def golden(record_type: str) -> str:
 
 
 def specs_for(*record_types: str) -> list[registry.IndexerSpec]:
-    chosen = record_types or il.RECORD_TYPES
+    chosen = record_types or registry.RECORD_TYPES
     return [registry.get_indexer_spec(rt) for rt in chosen]
 
 
@@ -252,7 +252,7 @@ def run_index(
     require_empty: bool = False,
 ) -> tuple[common.RunReports, list[common.IndexReport]]:
     """Phase A + B + B' + C + D against the fake client."""
-    specs = specs_for(*(record_types or il.RECORD_TYPES))
+    specs = specs_for(*(record_types or registry.RECORD_TYPES))
     reports = common.RunReports(specs, dry_run=False, batch_size=batch_size)
     results = common.validate_all(specs, input_dir, reports)
     common.index_all(
@@ -277,7 +277,11 @@ def test_registry_is_exactly_five_record_types() -> None:
     assert registry.RECORD_TYPES == (
         "element", "property_fact", "classification_fact", "document", "chunk"
     )
-    assert registry.RECORD_TYPES is il.RECORD_TYPES
+    # HBIM-080 §61-§66: the lifecycle registry gained geometry_fact, whose
+    # writer is geometry.indexer.replace_project_geometry — deliberately NOT a
+    # JSONL CLI indexer. The file-driven set is now a strict subset.
+    assert set(registry.RECORD_TYPES) < set(il.RECORD_TYPES)
+    assert "geometry_fact" not in registry.RECORD_TYPES
 
 
 def test_chunk_indexer_is_registered_last() -> None:
@@ -292,7 +296,9 @@ def test_chunk_indexer_is_registered_last() -> None:
         "element", "property_fact", "classification_fact", "document"
     )
     assert registry.RECORD_TYPES[4] == "chunk"
-    assert registry.RECORD_TYPES == il.RECORD_TYPES  # both registries agree
+    # HBIM-080: the lifecycle superset carries geometry_fact; the file-driven
+    # registry stays the five JSONL-backed types.
+    assert set(registry.RECORD_TYPES) < set(il.RECORD_TYPES)
 
     spec = registry.get_indexer_spec("chunk")
     assert spec.record_type == "chunk"
@@ -739,7 +745,7 @@ def test_id_is_the_record_identity_field_verbatim(tmp_path: Path) -> None:
         "element": "el_", "property_fact": "pf_",
         "classification_fact": "cf_", "document": "doc_", "chunk": "ch_",
     }
-    for record_type in il.RECORD_TYPES:
+    for record_type in registry.RECORD_TYPES:
         spec = registry.get_indexer_spec(record_type)
         state = common._ScanState()
         for item in common.iter_projected(spec, input_dir / spec.input_filename, state):
@@ -798,7 +804,7 @@ def _document_paths(value: Any, prefix: str = "") -> set[str]:
     return paths
 
 
-@pytest.mark.parametrize("record_type", list(il.RECORD_TYPES))
+@pytest.mark.parametrize("record_type", list(registry.RECORD_TYPES))
 def test_projected_keys_are_a_subset_of_the_mapping(record_type: str, tmp_path: Path) -> None:
     """Static, offline proof that dynamic:strict can never be tripped."""
     allowed = _mapping_paths(il.load_mapping(record_type))
@@ -815,7 +821,7 @@ def test_projected_keys_are_a_subset_of_the_mapping(record_type: str, tmp_path: 
     assert seen > 0
 
 
-@pytest.mark.parametrize("record_type", list(il.RECORD_TYPES))
+@pytest.mark.parametrize("record_type", list(registry.RECORD_TYPES))
 def test_projection_golden_is_deterministic(record_type: str, tmp_path: Path) -> None:
     spec = registry.get_indexer_spec(record_type)
     input_dir = write_dir(tmp_path)
@@ -1112,6 +1118,10 @@ def test_only_two_integer_family_fields_exist_in_the_five_mappings() -> None:
         "chunk.page_span": "integer",
         "chunk.section_index": "integer",
         "chunk.char_count": "integer",
+        # HBIM-080 §61 — geometry counts are longs; bounds enforced at 2M/4M
+        # by the extractor (§43), far inside the long range.
+        "geometry_fact.triangle_count": "long",
+        "geometry_fact.vertex_count": "long",
     }
 
 
@@ -1133,6 +1143,9 @@ def test_integer_family_sweep_over_every_registered_mapping_version() -> None:
         "chunk.v1.page_span": "integer",
         "chunk.v1.section_index": "integer",
         "chunk.v1.char_count": "integer",
+        # HBIM-080 §61 — the geometry mapping's two count fields.
+        "geometry_fact.v1.triangle_count": "long",
+        "geometry_fact.v1.vertex_count": "long",
     }
     assert found == v1_defaults | {
         "element.v2.materials.ordinal": "integer",
@@ -1232,7 +1245,7 @@ def test_failed_validation_still_reports_every_record_type(tmp_path: Path) -> No
     with pytest.raises(common.RecordParseError) as excinfo:
         common.validate_all(specs, input_dir, reports)
     snapshot = excinfo.value.reports
-    assert [r.record_type for r in snapshot] == list(il.RECORD_TYPES)
+    assert [r.record_type for r in snapshot] == list(registry.RECORD_TYPES)
     assert snapshot[3].state is common.IndexState.FAILED
     assert snapshot[0].state is common.IndexState.VALIDATED
     assert snapshot[3].records_invalid == 1
@@ -2183,7 +2196,7 @@ def test_reimport_opens_no_socket(restore_package_modules: None) -> None:
     # The autouse socket guard fails the test if any reload opens a socket.
     for module in _PACKAGE_MODULES_IN_DEPENDENCY_ORDER:
         importlib.reload(module)
-    assert registry.RECORD_TYPES == il.RECORD_TYPES
+    assert set(registry.RECORD_TYPES) < set(il.RECORD_TYPES)
 
 
 # =========================================================================== #

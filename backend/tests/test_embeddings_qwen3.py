@@ -593,6 +593,9 @@ def test_v1_mappings_remain_vector_free_and_only_elements_v2_carries_the_vector(
         "documents_v3.json",
         "elements_v1.json",
         "elements_v2.json",
+        # HBIM-080 §61 — the geometry mapping: strict, numeric-only,
+        # deliberately vector-free (swept below like every non-vectorised file).
+        "geometry_facts_v1.json",
         "property_facts_v1.json",
     ]
     #: The closed set of vectorised mappings — exactly two, in two different

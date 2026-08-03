@@ -716,6 +716,260 @@
    "title": "HBIM-079 operator-run graph benchmark (never rerun heavy geometry in standard CI)"
   },
   {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "schema_version_pinned"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "geometry_version_pinned"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "status_count",
+     "threshold": 11.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "issue_codes_classified"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "issue_code_count",
+     "threshold": 19.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "negative_zero_normalised"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "half_even_rounding"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_exponent_form"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "identity_rerun_stable"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "identity_moves_with_config"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "element_identity_reused"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "fabricated_measurement_unconstructible"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "fake_centroid_unconstructible"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "centroid_kind_paired"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_tolerance_field"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_crs_or_mesh_field"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "element_prefix_enforced"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "geometry_contract",
+   "title": "HBIM-080 geometry facts: schema, identity, numerics, closed vocabularies"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "raw_chained"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "metrics_checksum_valid"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "decision_checksum_valid"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "decision_recomputes"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "bars_recompute"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "hbim_081_consistent"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "all_bars_pass"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "conformance_failures"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "fixture_count",
+     "threshold": 21.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "family_count",
+     "threshold": 8.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "expected_facts",
+     "threshold": 24.0
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "determinism_agrees"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "network_attempts"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "unexpected_subprocess_attempts"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "orientation_selector_preregistered"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "geometry-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/baselines/geometry_metrics.json",
+     "sha256": "33610994d2c7354016456f473edd3c7f15113063e4cb8414f25b3a2b07bafb37"
+    },
+    {
+     "path": "backend/eval/baselines/geometry_decision.json",
+     "sha256": "73cb05f3b488ba1a3fc9e7fbf403be7857b9cdb03c52bd607ef6109ab120f25c"
+    },
+    {
+     "path": "backend/eval/dataset/geometry_gold/fixtures_manifest.json",
+     "sha256": "814a6aa94df67cc2981904093242bd20c9331773689ce64b26008d3887b3a3d8"
+    },
+    {
+     "path": "backend/eval/dataset/geometry_gold/facts_gold.jsonl",
+     "sha256": "58fb908865a56162faa920161c34d76910708b2a5a8031ba7b77f4a641c3dee2"
+    },
+    {
+     "path": "backend/eval/dataset/geometry_gold/gold_summary.json",
+     "sha256": "73336bb5cb68c361daf6dd7a80bb12fe09086fe8c7f0e296be8d569fc5ca2b8e"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "geometry_synthetic_quality",
+   "title": "HBIM-080 synthetic quality: hash chain and bar recomputation"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "mapping_strict"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_mesh_or_vector_field"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "fields_bidirectional"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "meta_record_type"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "meta_geometry_version"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "registry_alias"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "registry_physical"
+    },
+    {
+     "comparator": "exact_zero",
+     "metric": "projection_forbidden_fields"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_null_values_projected"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "historical_registry_untouched"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/canonical/mappings/geometry_facts_v1.json",
+     "sha256": "6d48fce06f8a2874d9f8d2ae88cc9c5a3b150150fb72bd51efd0335dfa191ede"
+    },
+    {
+     "path": "backend/canonical/mappings/elements_v1.json",
+     "sha256": "7689a18b3f3c667f8860af235934cc309e6d88cfa856e7e03e0ede18bc8b7877"
+    },
+    {
+     "path": "backend/canonical/mappings/elements_v2.json",
+     "sha256": "27a4f6075d13b0cd48985565203cb111023f84c0d3770c04efacfeaff3b7e349"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "geometry_indexability",
+   "title": "HBIM-080 index projection: strict mapping, no mesh, historical mappings untouched"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "geometry_real_model_live",
+   "title": "HBIM-080 operator-run real-model campaign (manual_unavailable is valid; never in CI)"
+  },
+  {
    "checks": [],
    "classification": "unavailable_future",
    "corpus_id": "none",

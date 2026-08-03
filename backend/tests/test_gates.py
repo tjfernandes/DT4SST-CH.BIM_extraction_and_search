@@ -48,7 +48,7 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_twenty_six_slices() -> None:
+def test_committed_policy_loads_and_has_the_thirty_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
     # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
@@ -60,7 +60,11 @@ def test_committed_policy_loads_and_has_the_twenty_six_slices() -> None:
     # three (graph_ir_contract, graph_pipeline_decision, graph_pipeline_live):
     # 23 → 26. graph_retrieval stays unavailable_future — HBIM-079 decides the
     # extraction pipeline, it does not build a graph retrieval path.
-    assert len(policy.slices) == 26
+    # HBIM-080 §70 added exactly four (geometry_contract,
+    # geometry_synthetic_quality, geometry_indexability,
+    # geometry_real_model_live): 26 → 30. graph_retrieval STILL stays
+    # unavailable_future — geometry facts are extraction, not retrieval.
+    assert len(policy.slices) == 30
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -183,8 +187,10 @@ def test_real_tree_passes_every_gated_slice(real_report) -> None:
     # slices join it — two blocking artifact slices plus one manual_live.
     # HBIM-079 §52: +2 passed (graph_ir_contract, graph_pipeline_decision),
     # +1 manual (graph_pipeline_live). graph_retrieval stays unavailable.
+    # HBIM-080 §70: +3 passed (geometry_contract, geometry_synthetic_quality,
+    # geometry_indexability), +1 manual (geometry_real_model_live).
     assert real_report["counts"] == {
-        "passed": 19, "failed": 0, "delegated": 1, "manual": 4, "unavailable": 2,
+        "passed": 22, "failed": 0, "delegated": 1, "manual": 5, "unavailable": 2,
     }
 
 
@@ -570,7 +576,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 26   # every registered slice, none skipped
+    assert len(report["slices"]) == 30   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #
@@ -1085,3 +1091,245 @@ def test_the_repin_helper_itself_does_not_mask_a_clean_tree(tmp_path) -> None:
     _repin_checksums(root)
     entry = _graph_slice(root, _graph_policy(repin=root))
     assert entry["status"] == "pass", entry["failures"]
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-080 §71 — geometry negative proofs
+#
+# Every tamper works on a COPY under tmp_path. Where a checksum would catch the
+# tamper before the intended semantic gate, the copy's checksums are repinned
+# so the semantic check itself must fail. An anti-vacuity proof shows a
+# repinned untampered copy still passes.
+# --------------------------------------------------------------------------- #
+_GEOMETRY_FILES = (
+    "backend/eval/baselines/geometry_metrics.json",
+    "backend/eval/baselines/geometry_decision.json",
+    "backend/eval/dataset/geometry_gold/fixtures_manifest.json",
+    "backend/eval/dataset/geometry_gold/facts_gold.jsonl",
+    "backend/eval/dataset/geometry_gold/gold_summary.json",
+    "backend/canonical/mappings/geometry_facts_v1.json",
+    "backend/canonical/mappings/elements_v1.json",
+    "backend/canonical/mappings/elements_v2.json",
+)
+
+
+def _geometry_tree(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    for pin in _GEOMETRY_FILES:
+        target = root / pin
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / pin, target)
+    return root
+
+
+def _repin_geometry(root: Path) -> None:
+    """Repair both artifact checksums and the raw→decision chain after a tamper,
+    so only a *semantic* gate can fail."""
+    from graph.serialization import canonical_bytes, sha256_hex
+
+    from eval.geometry_benchmark import checksum_view
+
+    metrics_path = root / "backend/eval/baselines/geometry_metrics.json"
+    decision_path = root / "backend/eval/baselines/geometry_decision.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics["artifact_sha256"] = sha256_hex(canonical_bytes(checksum_view(metrics)))
+    metrics_path.write_text(json.dumps(metrics, indent=1, sort_keys=True), encoding="utf-8")
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    decision["raw_artifact_sha256"] = metrics["artifact_sha256"]
+    decision["artifact_sha256"] = sha256_hex(canonical_bytes(checksum_view(decision)))
+    decision_path.write_text(json.dumps(decision, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def _geometry_policy(root: Path) -> Policy:
+    payload = _policy_dict()
+    for entry in payload["slices"]:
+        for inp in entry.get("inputs", []):
+            candidate = root / inp["path"]
+            if inp["sha256"] and candidate.exists():
+                inp["sha256"] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    written = root / "policy_under_test.json"
+    written.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        return load_policy(written)
+    finally:
+        written.unlink()
+
+
+def _geometry_slice(root: Path, slice_id: str) -> dict:
+    report = run_gates(_geometry_policy(root), root, only=[slice_id])
+    return next(s for s in report["slices"] if s["slice_id"] == slice_id)
+
+
+def _edit_metrics(root: Path, mutate) -> None:
+    path = root / "backend/eval/baselines/geometry_metrics.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def _edit_decision(root: Path, mutate) -> None:
+    path = root / "backend/eval/baselines/geometry_decision.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def test_geometry_slices_pass_on_the_real_tree(real_report) -> None:
+    for slice_id in ("geometry_contract", "geometry_synthetic_quality",
+                     "geometry_indexability"):
+        entry = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
+        assert entry["status"] == "pass", entry["failures"]
+        assert entry["checks"], f"{slice_id} evaluated no checks"
+
+
+def test_geometry_repin_helper_does_not_mask_a_clean_tree(tmp_path) -> None:
+    """Anti-vacuity: repinning an UNtampered copy must still pass both slices."""
+    root = _geometry_tree(tmp_path)
+    _repin_geometry(root)
+    assert _geometry_slice(root, "geometry_synthetic_quality")["status"] == "pass"
+    assert _geometry_slice(root, "geometry_indexability")["status"] == "pass"
+
+
+# --- hash-chain proofs (the chain IS the semantic gate for corpus tampers) --- #
+def test_a_changed_gold_row_fails_the_chain(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    victim = root / "backend/eval/dataset/geometry_gold/facts_gold.jsonl"
+    victim.write_bytes(victim.read_bytes() + b"\n")
+    entry = _geometry_slice(root, "geometry_synthetic_quality")
+    assert entry["status"] == "fail"
+
+
+def test_a_changed_fixture_hash_in_the_manifest_fails_the_chain(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    path = root / "backend/eval/dataset/geometry_gold/fixtures_manifest.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["fixtures"][0]["sha256"] = "0" * 64
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    entry = _geometry_slice(root, "geometry_synthetic_quality")
+    assert entry["status"] == "fail"
+    assert any("chained" in f or "manifest" in f for f in entry["failures"])
+
+
+# --- semantic proofs (checksums repaired; the bar recomputation must fail) --- #
+def test_a_fabricated_conformance_failure_fails_bars_even_repinned(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: (
+        m["conformance"].__setitem__("failure_count", 3),
+        m["conformance"]["failures_by_check"].__setitem__("status", 3)))
+    _repin_geometry(root)
+    entry = _geometry_slice(root, "geometry_synthetic_quality")
+    assert entry["status"] == "fail"
+
+
+def test_orientation_injection_fails_bars_even_repinned(tmp_path) -> None:
+    """A symmetric fixture reported with an orientation shows up as an
+    orientation_present conformance failure; the bar must catch it."""
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: (
+        m["conformance"].__setitem__("failure_count", 1),
+        m["conformance"]["failures_by_check"].__setitem__("orientation_present", 1)))
+    _repin_geometry(root)
+    entry = _geometry_slice(root, "geometry_synthetic_quality")
+    assert entry["status"] == "fail"
+
+
+def test_a_shrunk_family_count_fails_even_repinned(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: m["coverage"].__setitem__("family_count", 3))
+    _repin_geometry(root)
+    assert _geometry_slice(root, "geometry_synthetic_quality")["status"] == "fail"
+
+
+def test_a_shrunk_case_count_fails_even_repinned(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: m["coverage"].__setitem__("fixture_count", 12))
+    _repin_geometry(root)
+    assert _geometry_slice(root, "geometry_synthetic_quality")["status"] == "fail"
+
+
+def test_dropped_determinism_agreement_fails_even_repinned(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: m["determinism"].__setitem__("all_agree", False))
+    _repin_geometry(root)
+    assert _geometry_slice(root, "geometry_synthetic_quality")["status"] == "fail"
+
+
+def test_a_recorded_network_attempt_fails_even_repinned(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: m["isolation"].__setitem__("network_attempts", 2))
+    _repin_geometry(root)
+    assert _geometry_slice(root, "geometry_synthetic_quality")["status"] == "fail"
+
+
+def test_a_forged_verdict_is_caught_by_recomputation(tmp_path) -> None:
+    """Flip the recorded verdict while every checksum is valid: only the
+    recomputation can catch it — the decisive never-trust-the-record proof."""
+    root = _geometry_tree(tmp_path)
+    _edit_metrics(root, lambda m: (
+        m["conformance"].__setitem__("failure_count", 5),
+        m["conformance"]["failures_by_check"].__setitem__("bbox", 5)))
+    _repin_geometry(root)
+    # decision still claims success; its checksum is freshly valid
+    entry = _geometry_slice(root, "geometry_synthetic_quality")
+    assert entry["status"] == "fail"
+    assert any("bars_recompute" in f or "all_bars_pass" in f
+               for f in entry["failures"]), entry["failures"]
+
+
+def test_an_inconsistent_hbim_081_flag_fails_even_repinned(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_decision(root, lambda d: d.__setitem__("hbim_081_unblocked", False))
+    _repin_geometry(root)
+    assert _geometry_slice(root, "geometry_synthetic_quality")["status"] == "fail"
+
+
+def test_a_decision_checksum_mismatch_fails(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    _edit_decision(root, lambda d: d.__setitem__("artifact_sha256", "0" * 64))
+    entry = _geometry_slice(root, "geometry_synthetic_quality")
+    assert entry["status"] == "fail"
+
+
+# --- indexability proofs ---------------------------------------------------- #
+def test_a_raw_mesh_field_in_the_mapping_fails(tmp_path) -> None:
+    root = _geometry_tree(tmp_path)
+    path = root / "backend/canonical/mappings/geometry_facts_v1.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["properties"]["vertices"] = {"type": "float"}
+    path.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    entry = _geometry_slice(root, "geometry_indexability")
+    assert entry["status"] == "fail"
+    assert any("no_mesh_or_vector_field" in f or "fields_bidirectional" in f
+               for f in entry["failures"])
+
+
+def test_an_altered_historical_mapping_fails(tmp_path) -> None:
+    """elements_v2.json is pinned as an input of geometry_indexability: the
+    hash IS the intended semantic gate for historical-mapping drift."""
+    root = _geometry_tree(tmp_path)
+    victim = root / "backend/canonical/mappings/elements_v2.json"
+    payload = json.loads(victim.read_text(encoding="utf-8"))
+    payload["_meta"]["mapping_version"] = "2-tampered"
+    victim.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    payload_policy = _policy_dict()   # committed pins, NOT repinned to the tamper
+    written = root / "policy.json"
+    written.write_text(json.dumps(payload_policy), encoding="utf-8")
+    policy = load_policy(written)
+    report = run_gates(policy, root, only=["geometry_indexability"])
+    entry = next(s for s in report["slices"] if s["slice_id"] == "geometry_indexability")
+    assert entry["status"] == "fail"
+    assert any("sha256 mismatch" in f for f in entry["failures"])
+
+
+def test_geometry_graph_retrieval_still_unavailable(real_report) -> None:
+    """HBIM-080 extracts geometry; it must not open a retrieval path."""
+    entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_retrieval")
+    assert entry["status"] == "unavailable"
+    assert entry["classification"] == "unavailable_future"
+
+
+def test_geometry_real_model_live_never_runs_in_ci(real_report) -> None:
+    entry = next(s for s in real_report["slices"]
+                 if s["slice_id"] == "geometry_real_model_live")
+    assert entry["status"] == "manual"
+    assert entry["checks"] == []

@@ -1,0 +1,9 @@
+{
+ "artifact": "geometry_real_model_campaign",
+ "campaign_version": "hbim-080-real-model-v1",
+ "status": "manual_unavailable",
+ "reason": "No local real IFC path was explicitly supplied by the operator in the implementation sessions. The campaign is operator-only by specification 59: it never searches directories, never runs in CI, and its absence is a valid, recorded outcome (specification 60). Synthetic bars are the blocking evidence and are not waived by this state.",
+ "aggregates": null,
+ "how_to_run": "Operator-only: invoke eval.geometry_benchmark helpers over explicitly supplied local paths; commit aggregates only (opaque case ids, rates, latency percentiles, peak RSS, counts). Never commit an IFC, a path, a name or a GlobalId.",
+ "sanitisation_contract": "opaque case ids; aggregate counts and rates only; no filename, directory, author, project name or IfcProject.Name in any committed artifact"
+}

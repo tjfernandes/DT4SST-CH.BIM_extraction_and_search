@@ -52,6 +52,20 @@ DOCS: dict[str, dict[str, Any]] = {
         "parser_name": "docling-pypdfium2", "parser_version": "2.115.0",
         "chunker_version": "hbim-070-chunker-v1",
     },
+    # HBIM-080 §61: the sixth record. Synthetic, strict-mapping-valid geometry
+    # fact — status without measurements, exactly as the schema gates it.
+    "geometry_fact": {
+        "geometry_id": "gf_1", "geometry_schema_version": "hbim-080-geometry-v1",
+        "geometry_version": "hbim-080-geometry-worldaabb-v1", "project_id": "p1",
+        "element_id": "el_1", "global_id": "0GidSynthetic1", "ifc_class": "IfcWall",
+        "source_id": "src_1", "source_sha256": "0" * 8, "engine": "ifcopenshell",
+        "engine_version": "0.8.3.post1", "algorithm": "world_triangulation_aabb_v1",
+        "algorithm_version": "1", "coordinate_space": "world_cartesian",
+        "world_transform_applied": True, "status": "missing_representation",
+        "issues": ["no_representation"], "has_orientation": False,
+        "map_conversion_present": False, "representation_identifiers": [],
+        "canonical_sha256": "c" * 16,
+    }
 }
 
 
@@ -95,7 +109,7 @@ def _alias_targets(client: OpenSearch, alias: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 def test_create_four_v1_with_valid_mappings_settings_and_meta(opensearch_client: OpenSearch) -> None:
     results = il.create_all(opensearch_client, 1)
-    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 5  # HBIM-070: +chunk
+    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 6  # HBIM-070: +chunk; HBIM-080: +geometry_fact
 
     for rt in il.RECORD_TYPES:
         physical = il.physical_index_name(rt, 1)
@@ -116,7 +130,7 @@ def test_repeated_create_is_idempotent(opensearch_client: OpenSearch) -> None:
     il.create_all(opensearch_client, 1)
     opensearch_client.index(index="hbim_elements_v1", id="keep", body=DOCS["element"], refresh=True)
     results = il.create_all(opensearch_client, 1)
-    assert [r.outcome for r in results] == [il.CreateOutcome.ALREADY_EXISTS_COMPATIBLE] * 5  # HBIM-070: +chunk
+    assert [r.outcome for r in results] == [il.CreateOutcome.ALREADY_EXISTS_COMPATIBLE] * 6  # HBIM-070: +chunk; HBIM-080: +geometry_fact
     # The pre-existing document survived (index was not recreated).
     assert opensearch_client.get(index="hbim_elements_v1", id="keep")["found"] is True
 

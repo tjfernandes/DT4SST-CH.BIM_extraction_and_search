@@ -2,10 +2,88 @@
 
 ## Last completed issue
 
-HBIM-079 — IFC graph pipeline feasibility: the canonical graph IR is frozen, the
-IfcOpenShell-only adapter passes every mandatory gate against independently
-authored gold, and a reproducible decision artifact selects it as the production
-pipeline. HBIM-080 is unblocked.
+HBIM-080 — canonical geometry extraction: deterministic, project-owned
+`GeometryFact` records extracted by the IfcOpenShell-only pipeline in explicit
+world metres, grounded by frozen analytic gold, persisted behind a safe
+additive index lifecycle. HBIM-081 is unblocked.
+
+## Status of HBIM-080
+
+**Complete.**
+
+### Architecture and contract
+
+G1 selected: a separate `GeometryFact` (schema `hbim-080-geometry-v1`,
+extraction contract `hbim-080-geometry-worldaabb-v1`) is the single source of
+truth; the `geometry_facts` index is a projection of it. No element schema or
+mapping successor exists; `ElementRecord` v1 and `elements_v1/v2` are
+byte-identical to main (hash-pinned in the `geometry_indexability` gate).
+`geometry_id` binds configuration, never measurements, via the repository
+netstring convention; `element_id` is reused verbatim from `canonical.ids`.
+
+### Semantics
+
+Coordinates are consumed from `create_shape` **as metres** (measured: mm, cm,
+m and foot models all normalise; a second conversion would square the factor).
+Units are resolved independently from `IfcProject.UnitsInContext`; a unitless
+model is `unit_undetermined`, never silently metres — fixture `gge-21` exists
+to keep that falsifiable. Eleven closed statuses; nineteen issue codes each
+classified fatal or advisory exactly once. `representative_point_m` is the
+AABB centre and is named as such; `centroid_m` carries only a surface or
+volume centroid with its kind, never the box centre. Orientation is O2
+mesh-covariance PCA (rival O1 preregistered and ineligible: 45 degrees of
+error on a rotated beam against a 1.0-degree bar), absent under the frozen
+1 percent eigenvalue-separation threshold, sign-normalised on quantised
+components so `-0.0` cannot split reruns.
+
+### Evidence
+
+21 fixtures / 11 families / IFC4+IFC2X3 / 24 expected facts, gold authored
+analytically from design tables (AST-proven independent of the extractor) and
+hash-frozen before the first candidate execution. Conformance: **239 checks,
+0 failures** — first run and every rerun. Determinism: 3 warm + 3 cold + 2
+reversed runs agree byte-for-byte; isolation shows 0 network, 0 unowned
+subprocess, no environment mutation. All 15 quality bars pass;
+`backend/eval/baselines/geometry_decision.json` is recomputed from
+`geometry_metrics.json` by a pure evaluator on every CI run, with volatile
+timings excluded from every checksum (proven: reruns with different timings
+produce identical artifact hashes).
+
+### Index lifecycle
+
+Strict `geometry_facts_v1.json` (43 fields, no vector, no mesh; bidirectional
+field coverage gated). Registry grows to six record types with the historical
+five untouched. Replacement materialises, validates, indexes, verifies count/
+scope/version/checksum with exact round-trips, reconciles staleness by
+explicit owned ids only, and never touches the alias; promotion is the
+existing atomic verified lifecycle call; rollback is a promote-back, proven
+byte-identical on a live cluster. A mid-write failure leaves the previous
+generation intact (tested).
+
+### Gates
+
+HBIM-060 grows 26 → 30: `geometry_contract` (17 checks),
+`geometry_synthetic_quality` (15, full hash chain + bar recomputation — the
+recorded verdict is never trusted), `geometry_indexability` (10) and
+`geometry_real_model_live` (manual). `graph_retrieval` remains
+`unavailable_future`.
+
+### Real-model campaign
+
+`manual_unavailable`, recorded honestly in
+`backend/eval/baselines/geometry_real_model.json`: no local real IFC path was
+supplied by the operator. The synthetic bars are the blocking evidence and are
+not waived by this state. No real or private IFC was used anywhere.
+
+### Limitations
+
+Fixtures are synthetic and small. Geometry is a triangulated approximation, so
+vertex/triangle counts are gold-bounded, not gold-exact. Volume centroid
+requires a closed manifold. Orientation is a single principal axis, absent when
+not uniquely defined. Georeferencing is not performed; coordinates are never
+labelled geodetic. No production consumer reads the geometry index in this
+milestone — the alias exists for HBIM-081, which owns tolerance and relation
+derivation.
 
 ## Status of HBIM-079
 
@@ -1795,13 +1873,9 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-079 unblocks **HBIM-080**
-(canonical geometric extraction by the selected pipeline), per ROADMAP §917.
-
-(The previous edition of this line described HBIM-079 as document follow-up
-behaviour. That was a forward-looking guess written during HBIM-073 and is
-contradicted by ROADMAP §908 and by the accepted HBIM-079 specification, both
-of which define HBIM-079 as the IFC graph pipeline feasibility milestone.)
+None — awaiting the next issue in the roadmap. HBIM-080 unblocks **HBIM-081**
+(spatial relation derivation over `GeometryFact`), per the roadmap ordering.
+HBIM-081 owns tolerance; HBIM-080 owns none.
 
 ## Scope of HBIM-042
 

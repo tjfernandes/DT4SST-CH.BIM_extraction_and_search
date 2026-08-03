@@ -27,10 +27,24 @@ from ingestion.indexers import (
 )
 from ingestion.indexers.common import IndexingError
 
-#: Deterministic processing order, straight from HBIM-021 (element,
+#: Deterministic processing order for the FILE-DRIVEN indexers (element,
 #: property_fact, classification_fact, document, chunk). HBIM-070 appended
 #: ``chunk`` last, so the original four remain the exact prefix.
-RECORD_TYPES: tuple[str, ...] = il.RECORD_TYPES
+#:
+#: HBIM-080 §61-§66: deliberately NOT ``il.RECORD_TYPES``. The lifecycle
+#: registry gained ``geometry_fact``, but geometry facts are not part of the
+#: HBIM-011 canonical JSONL producer contract — they are written by
+#: ``geometry.indexer.replace_project_geometry`` (materialise → validate →
+#: index → verify → reconcile), never by this CLI. Every type listed here MUST
+#: exist in the lifecycle registry; the converse is no longer true.
+RECORD_TYPES: tuple[str, ...] = (
+    "element",
+    "property_fact",
+    "classification_fact",
+    "document",
+    "chunk",
+)
+assert set(RECORD_TYPES) <= set(il.RECORD_TYPES)
 
 
 class UnknownRecordTypeError(IndexingError):

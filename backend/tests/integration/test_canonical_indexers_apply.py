@@ -109,7 +109,7 @@ def write_input(tmp_path: Path, *, edge_cases: bool = False, **overrides: str | 
     """Materialise a canonical input directory from the committed fixtures."""
     target = tmp_path / "canonical"
     target.mkdir(parents=True, exist_ok=True)
-    for record_type in il.RECORD_TYPES:
+    for record_type in registry.RECORD_TYPES:
         spec = registry.get_indexer_spec(record_type)
         if record_type in overrides:
             content = overrides[record_type]
@@ -129,7 +129,7 @@ def write_input(tmp_path: Path, *, edge_cases: bool = False, **overrides: str | 
 def create_targets(client: OpenSearch, physical_version: int = 1) -> dict[str, str]:
     """Create the four physical indices through the HBIM-021 lifecycle."""
     results = il.create_all(client, physical_version)
-    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 5  # HBIM-070: +chunk
+    assert [r.outcome for r in results] == [il.CreateOutcome.CREATED] * 6  # HBIM-070: +chunk; HBIM-080: +geometry_fact
     return {r.record_type: r.physical_index for r in results}
 
 
@@ -143,7 +143,7 @@ def run_index(
     allow_live_target: bool = False,
     require_empty: bool = False,
 ) -> list[common.IndexReport]:
-    specs = [registry.get_indexer_spec(rt) for rt in (record_types or il.RECORD_TYPES)]
+    specs = [registry.get_indexer_spec(rt) for rt in (record_types or registry.RECORD_TYPES)]
     reports = common.RunReports(specs, dry_run=False, batch_size=batch_size)
     results = common.validate_all(specs, input_dir, reports)
     common.index_all(
@@ -188,6 +188,10 @@ def test_index_four_jsonl_with_counts_and_round_trip(
     assert [r.state for r in reports] == [common.IndexState.VERIFIED] * 5  # HBIM-070: +chunk
 
     for record_type, physical in targets.items():
+        if record_type not in registry.RECORD_TYPES:
+            continue  # HBIM-080: geometry_fact has no JSONL input; its writer
+            # is geometry.indexer.replace_project_geometry, covered by
+            # test_geometry_index_lifecycle.py.
         expected = projected_documents(input_dir, record_type)
         opensearch_client.indices.refresh(index=physical)
         assert opensearch_client.count(index=physical)["count"] == len(expected)

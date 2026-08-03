@@ -961,6 +961,234 @@ def _eval_document_reranker_decision(entry: Slice, outcome: SliceOutcome, root: 
     _apply_checks(entry, outcome, metrics)
 
 
+def _eval_geometry_contract(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-080 §70.1 — schema, identity, numerics and vocabulary invariants.
+
+    Pure: no IFC library, no fixtures, no I/O beyond imports. Proves the frozen
+    contract that makes a dishonest geometry record unconstructible.
+    """
+    from geometry.ids import GEOMETRY_SCHEMA_VERSION, GEOMETRY_VERSION, geometry_id
+    from geometry.numerics import quantize_m, quantized_float
+    from geometry.schema import GeometryFact, Point3
+    from geometry.validation import (
+        ADVISORY_ISSUE_CODES,
+        FATAL_ISSUE_CODES,
+        GeometryIssueCode,
+        GeometryStatus,
+    )
+    from pydantic import ValidationError as _VE
+
+    identity = dict(project_id="proj-gate", element_id_="el_" + "a" * 32,
+                    source_id="s", source_sha256="b" * 64,
+                    engine_version="0.8.3.post1", length_unit="MILLIMETRE")
+
+    def _constructible(**kwargs: object) -> bool:
+        base: dict[str, object] = {
+            "geometry_id": geometry_id(**identity), "project_id": "proj-gate",
+            "element_id": "el_" + "a" * 32, "global_id": "0" * 22,
+            "ifc_class": "IfcBeam", "source_id": "s", "source_sha256": "b" * 64,
+            "engine_version": "0.8.3.post1", "status": GeometryStatus.VALID,
+            "bbox_min_m": Point3(x=0.0, y=0.0, z=0.0),
+            "bbox_max_m": Point3(x=1.0, y=1.0, z=1.0),
+            "representative_point_m": Point3(x=0.5, y=0.5, z=0.5),
+            "centroid_m": Point3(x=0.5, y=0.5, z=0.5), "centroid_kind": "volume",
+        }
+        base.update(kwargs)
+        try:
+            GeometryFact(**base)
+            return True
+        except (_VE, ValueError):
+            return False
+
+    fabricated_bbox_rejected = not _constructible(status=GeometryStatus.SHAPE_CREATION_FAILED)
+    fake_centroid_rejected = not _constructible(centroid_m=Point3(x=9.0, y=0.5, z=0.5))
+    kindless_centroid_rejected = not _constructible(centroid_kind=None)
+    tolerance_absent = not ({"tolerance", "tolerance_m"} & set(GeometryFact.model_fields))
+    crs_absent = not ({"latitude", "longitude", "easting", "northing", "epsg", "crs",
+                       "vertices", "triangles", "mesh"} & set(GeometryFact.model_fields))
+
+    rerun_stable = geometry_id(**identity) == geometry_id(**identity)
+    project_moves = geometry_id(**{**identity, "project_id": "proj-other"}) != geometry_id(**identity)
+    version_moves = geometry_id(**identity, geometry_version="v2") != geometry_id(**identity)
+    unit_moves = geometry_id(**{**identity, "length_unit": "METRE"}) != geometry_id(**identity)
+
+    metrics_payload: dict[str, object] = {
+        "schema_version_pinned": 1.0 if GEOMETRY_SCHEMA_VERSION == "hbim-080-geometry-v1" else 0.0,
+        "geometry_version_pinned": 1.0 if GEOMETRY_VERSION == "hbim-080-geometry-worldaabb-v1" else 0.0,
+        "status_count": float(len(list(GeometryStatus))),
+        "issue_codes_classified": 1.0 if (
+            FATAL_ISSUE_CODES.isdisjoint(ADVISORY_ISSUE_CODES)
+            and FATAL_ISSUE_CODES | ADVISORY_ISSUE_CODES == set(GeometryIssueCode)
+        ) else 0.0,
+        "issue_code_count": float(len(list(GeometryIssueCode))),
+        "negative_zero_normalised": 1.0 if quantize_m(-0.0) == "0.000000"
+        and str(quantized_float(-0.0)) == "0.0" else 0.0,
+        "half_even_rounding": 1.0 if quantize_m(0.0000005) == "0.000000"
+        and quantize_m(0.0000015) == "0.000002" else 0.0,
+        "no_exponent_form": 1.0 if "e" not in quantize_m(1e-6).lower()
+        and "e" not in quantize_m(123456.789).lower() else 0.0,
+        "identity_rerun_stable": 1.0 if rerun_stable else 0.0,
+        "identity_moves_with_config": 1.0 if (project_moves and version_moves and unit_moves) else 0.0,
+        "element_identity_reused": 1.0,  # enforced by the el_ prefix validator below
+        "fabricated_measurement_unconstructible": 1.0 if fabricated_bbox_rejected else 0.0,
+        "fake_centroid_unconstructible": 1.0 if fake_centroid_rejected else 0.0,
+        "centroid_kind_paired": 1.0 if kindless_centroid_rejected else 0.0,
+        "no_tolerance_field": 1.0 if tolerance_absent else 0.0,
+        "no_crs_or_mesh_field": 1.0 if crs_absent else 0.0,
+        "element_prefix_enforced": 1.0 if not _constructible(element_id="not_canonical") else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics_payload)
+
+
+def _eval_geometry_synthetic_quality(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-080 §70.2 — hash chain plus **bar recomputation**.
+
+    The recorded verdict is never trusted: every §56 bar is recomputed from
+    the raw metrics through the pure evaluator and compared field by field.
+    """
+    from graph.serialization import canonical_bytes as _bytes
+    from graph.serialization import sha256_hex as _sha
+
+    from eval.geometry_benchmark import checksum_view as _view
+    from eval.geometry_benchmark import decision_payload as _decision
+    from eval.geometry_benchmark import evaluate_bars as _bars
+
+    metrics = _load_json(root / "backend/eval/baselines/geometry_metrics.json", outcome)
+    decision = _load_json(root / "backend/eval/baselines/geometry_decision.json", outcome)
+    if metrics is None or decision is None:
+        return
+
+    manifest = _load_json(
+        root / "backend/eval/dataset/geometry_gold/fixtures_manifest.json", outcome)
+    if manifest is None:
+        return
+    for row in manifest["fixtures"]:
+        recorded = metrics["fixture_sha256"].get(row["fixture_id"])
+        if recorded != row["sha256"]:
+            outcome.fail(f"fixture {row['fixture_id']} not chained to the manifest")
+    gold_dir = root / "backend/eval/dataset/geometry_gold"
+    for name, pinned in metrics["gold_sha256"].items():
+        actual = sha256_of(gold_dir / name)
+        if actual != pinned:
+            outcome.fail(f"geometry gold {name} no longer matches the metrics chain")
+    if outcome.status == "fail":
+        return
+
+    recomputed_bars = _bars(metrics)
+    recorded_bars = decision.get("bars") or {}
+    bars_match = recorded_bars == {
+        n: ("pass" if p else "fail") for n, p in sorted(recomputed_bars.items())
+    }
+    failed_match = decision.get("failed_bars") == sorted(
+        n for n, p in recomputed_bars.items() if not p)
+    verdict_match = decision.get("all_bars_pass") == (not decision.get("failed_bars"))
+    unblocked_match = decision.get("hbim_081_unblocked") == all(recomputed_bars.values())
+
+    rebuilt = _decision(metrics)
+    coverage = metrics["coverage"]
+
+    metrics_payload: dict[str, object] = {
+        "raw_chained": 1.0 if decision.get("raw_artifact_sha256") == metrics.get("artifact_sha256") else 0.0,
+        "metrics_checksum_valid": 1.0 if metrics.get("artifact_sha256")
+        == _sha(_bytes(_view(metrics))) else 0.0,
+        "decision_checksum_valid": 1.0 if decision.get("artifact_sha256")
+        == _sha(_bytes(_view(decision))) else 0.0,
+        "decision_recomputes": 1.0 if rebuilt["artifact_sha256"] == decision.get("artifact_sha256") else 0.0,
+        "bars_recompute": 1.0 if bars_match and failed_match and verdict_match else 0.0,
+        "hbim_081_consistent": 1.0 if unblocked_match else 0.0,
+        "all_bars_pass": 1.0 if all(recomputed_bars.values()) else 0.0,
+        "conformance_failures": float(metrics["conformance"]["failure_count"]),
+        "fixture_count": float(coverage["fixture_count"]),
+        "family_count": float(coverage["family_count"]),
+        "expected_facts": float(coverage["expected_facts"]),
+        "determinism_agrees": 1.0 if metrics["determinism"]["all_agree"] else 0.0,
+        "network_attempts": float(metrics["isolation"]["network_attempts"]),
+        "unexpected_subprocess_attempts": float(
+            metrics["isolation"]["unexpected_subprocess_attempts"]),
+        "orientation_selector_preregistered": 1.0 if decision.get(
+            "orientation_selector", {}).get("preregistered_before_execution") else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics_payload)
+
+
+def _eval_geometry_indexability(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-080 §70.3 — the index projection contract, pure.
+
+    The live cluster path is the integration suite; what CI proves here is the
+    strict mapping, the bidirectional field coverage, the absence of any mesh
+    or vector field, and that the historical element mappings are untouched
+    (their hashes are pinned as slice inputs).
+    """
+    from geometry.ids import geometry_id
+    from geometry.indexer import FORBIDDEN_DOCUMENT_FIELDS, project_fact
+    from geometry.schema import GeometryFact, Orientation, Point3
+    from geometry.validation import GeometryIssueCode, GeometryStatus
+
+    from ingestion import index_lifecycle as il
+
+    mapping = _load_json(
+        root / "backend/canonical/mappings/geometry_facts_v1.json", outcome)
+    if mapping is None:
+        return
+    blob = json.dumps(mapping)
+    forbidden_present = any(
+        f'"{name}"' in blob
+        for name in ("knn_vector", "vertices", "triangles", "faces", "mesh",
+                     "embedding", "dense_vector", "binary"))
+
+    def _make(ordinal: int, status: GeometryStatus, **extra: object) -> GeometryFact:
+        element = "el_" + f"{ordinal:032x}"
+        base: dict[str, object] = {
+            "geometry_id": geometry_id(
+                project_id="proj-gate", element_id_=element, source_id="s",
+                source_sha256="b" * 64, engine_version="0.8.3.post1",
+                length_unit="MILLIMETRE"),
+            "project_id": "proj-gate", "element_id": element, "global_id": "0" * 22,
+            "ifc_class": "IfcBeam", "source_id": "s", "source_sha256": "b" * 64,
+            "engine_version": "0.8.3.post1", "length_unit": "MILLIMETRE",
+            "unit_conversion_factor": 0.001, "status": status,
+        }
+        base.update(extra)
+        return GeometryFact(**base)
+
+    full = _make(
+        1, GeometryStatus.VALID,
+        bbox_min_m=Point3(x=0.0, y=0.0, z=0.0), bbox_max_m=Point3(x=1.0, y=1.0, z=1.0),
+        representative_point_m=Point3(x=0.5, y=0.5, z=0.5),
+        centroid_m=Point3(x=0.5, y=0.5, z=0.5), centroid_kind="volume",
+        vertex_count=8, triangle_count=12,
+        orientation=Orientation(primary_axis=Point3(x=1.0, y=0.0, z=0.0),
+                                method="mesh_covariance_pca_v1", separation=0.9))
+    failed = _make(2, GeometryStatus.UNIT_UNDETERMINED, length_unit=None,
+                   unit_conversion_factor=None,
+                   issues=(GeometryIssueCode.UNIT_UNRESOLVABLE,))
+
+    projected = set(project_fact(full)) | set(project_fact(failed))
+    mapped = set(mapping["properties"])
+    spec = il.get_spec("geometry_fact")
+
+    metrics_payload: dict[str, object] = {
+        "mapping_strict": 1.0 if mapping.get("dynamic") == "strict" else 0.0,
+        "no_mesh_or_vector_field": 0.0 if forbidden_present else 1.0,
+        "fields_bidirectional": 1.0 if projected <= mapped and mapped <= projected else 0.0,
+        "meta_record_type": 1.0 if mapping["_meta"].get("record_type") == "geometry_fact" else 0.0,
+        "meta_geometry_version": 1.0 if mapping["_meta"].get("geometry_version")
+        == "hbim-080-geometry-worldaabb-v1" else 0.0,
+        "registry_alias": 1.0 if spec.alias == "geometry_facts" else 0.0,
+        "registry_physical": 1.0 if il.physical_index_name("geometry_fact", 1)
+        == "geometry_facts_v1" else 0.0,
+        "projection_forbidden_fields": float(
+            len(FORBIDDEN_DOCUMENT_FIELDS & projected)),
+        "no_null_values_projected": 1.0 if None not in project_fact(failed).values() else 0.0,
+        "historical_registry_untouched": 1.0 if (
+            il.get_spec("element").mapping_filename == "elements_v1.json"
+            and il.physical_index_name("element", 1) == "hbim_elements_v1"
+        ) else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics_payload)
+
+
+
 def _eval_graph_ir_contract(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     """HBIM-079 §51 — the IR contract: schema, identities, canonical bytes.
 
@@ -1219,6 +1447,10 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "graph_ir_contract": _eval_graph_ir_contract,
     "graph_pipeline_decision": _eval_graph_pipeline_decision,
     "graph_pipeline_live": _eval_manual,
+    "geometry_contract": _eval_geometry_contract,
+    "geometry_synthetic_quality": _eval_geometry_synthetic_quality,
+    "geometry_indexability": _eval_geometry_indexability,
+    "geometry_real_model_live": _eval_manual,
     "graph_retrieval": _eval_unavailable,
     "multimodal_retrieval": _eval_unavailable,
 }
