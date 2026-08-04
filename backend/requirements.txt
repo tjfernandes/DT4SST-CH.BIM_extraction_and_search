@@ -24,3 +24,7 @@ httpx~=0.28.1
 # extras — `models-local` (torch/HuggingFace/docling-ibm-models) is NOT
 # pulled, so the PDFium backend runs offline with no model weights.
 docling-slim[convert-core,format-pdf-pypdfium2]==2.115.0
+
+# HBIM-082 §10 — official Neo4j Python driver. 6.x supports server 4.4/5.x/2025.x;
+# the deployment server is Community 5.26.0 (LTS). No other graph dependency.
+neo4j~=6.2.0
