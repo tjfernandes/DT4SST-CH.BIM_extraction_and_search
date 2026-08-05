@@ -968,3 +968,201 @@ class EvidenceSettings(BaseSettings):
     in_response: bool = Field(
         default=False, validation_alias=AliasChoices("EVIDENCE_PACK_IN_RESPONSE")
     )
+
+
+class Neo4jConfigurationError(RuntimeError):
+    """HBIM-082 §33 — invalid Neo4j configuration.
+
+    Deliberately not a ``ValueError``: pydantic wraps validator ``ValueError``s
+    in a ``ValidationError`` that attaches the raw input, which here would
+    include the password.
+    """
+
+
+#: §33 — the only URI schemes a deployment may use. Anything else (``http``,
+#: ``file``, ``bolt+routing``) is a configuration error, not a fallback.
+NEO4J_URI_SCHEMES: frozenset[str] = frozenset(
+    {"bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"}
+)
+
+#: §60 — depth is drawn from a closed set because Cypher cannot parameterize a
+#: variable-length range; each member indexes a pre-written template.
+NEO4J_DEPTH_CHOICES: frozenset[int] = frozenset({1, 2, 3, 4, 5, 6})
+
+_NEO4J_DATABASE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.-]{2,62}$")
+
+
+class Neo4jSettings(BaseSettings):
+    """HBIM-082 §33 — Neo4j connection and bounds, fail-closed by default.
+
+    A **separate** class from every other settings object so a graph deployment
+    cannot inherit an OpenSearch host, an element alias or a snapshot secret.
+
+    Default **off**: without ``NEO4J_ENABLED`` the graph route degrades exactly
+    as it did before HBIM-082. Never instantiated at import, and constructing
+    one opens no socket and creates no driver.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file="backend/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
+        frozen=True,
+        protected_namespaces=(),
+    )
+
+    enabled: bool = Field(default=False, validation_alias=AliasChoices("NEO4J_ENABLED"))
+    uri: Optional[str] = Field(default=None, validation_alias=AliasChoices("NEO4J_URI"))
+    database: str = Field(default="neo4j", validation_alias=AliasChoices("NEO4J_DATABASE"))
+    username: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("NEO4J_USERNAME")
+    )
+    password: Optional[SecretStr] = Field(
+        default=None, validation_alias=AliasChoices("NEO4J_PASSWORD")
+    )
+    encrypted: bool = Field(default=False, validation_alias=AliasChoices("NEO4J_ENCRYPTED"))
+
+    connection_timeout_s: float = Field(
+        default=10.0, validation_alias=AliasChoices("NEO4J_CONNECTION_TIMEOUT_S")
+    )
+    acquisition_timeout_s: float = Field(
+        default=30.0, validation_alias=AliasChoices("NEO4J_ACQUISITION_TIMEOUT_S")
+    )
+    max_pool_size: int = Field(
+        default=20, validation_alias=AliasChoices("NEO4J_MAX_POOL_SIZE")
+    )
+    transaction_timeout_s: float = Field(
+        default=30.0, validation_alias=AliasChoices("NEO4J_TRANSACTION_TIMEOUT_S")
+    )
+    query_timeout_s: float = Field(
+        default=5.0, validation_alias=AliasChoices("NEO4J_QUERY_TIMEOUT_S")
+    )
+    write_batch_size: int = Field(
+        default=1000, validation_alias=AliasChoices("NEO4J_WRITE_BATCH_SIZE")
+    )
+    max_query_depth: int = Field(
+        default=4, validation_alias=AliasChoices("NEO4J_MAX_QUERY_DEPTH")
+    )
+    max_results: int = Field(default=50, validation_alias=AliasChoices("NEO4J_MAX_RESULTS"))
+    max_paths: int = Field(default=25, validation_alias=AliasChoices("NEO4J_MAX_PATHS"))
+    cleanup_retain_previous: bool = Field(
+        default=True, validation_alias=AliasChoices("NEO4J_CLEANUP_RETAIN_PREVIOUS")
+    )
+
+    @field_validator("uri")
+    @classmethod
+    def _uri_scheme_allowlisted(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        candidate = value.strip()
+        if not candidate:
+            return None
+        scheme = urlsplit(candidate).scheme.lower()
+        if scheme not in NEO4J_URI_SCHEMES:
+            # The URI may carry userinfo, so the value is never echoed back.
+            raise Neo4jConfigurationError(
+                f"NEO4J_URI scheme must be one of {sorted(NEO4J_URI_SCHEMES)}"
+            )
+        return candidate
+
+    @field_validator("database")
+    @classmethod
+    def _database_name_is_safe(cls, value: str) -> str:
+        candidate = value.strip()
+        if not _NEO4J_DATABASE_RE.match(candidate):
+            raise Neo4jConfigurationError(
+                "NEO4J_DATABASE must match ^[A-Za-z][A-Za-z0-9.-]{2,62}$"
+            )
+        return candidate
+
+    @field_validator("connection_timeout_s")
+    @classmethod
+    def _connection_timeout_in_range(cls, value: float) -> float:
+        return _neo4j_float_in_range(value, 1.0, 60.0, "NEO4J_CONNECTION_TIMEOUT_S")
+
+    @field_validator("acquisition_timeout_s")
+    @classmethod
+    def _acquisition_timeout_in_range(cls, value: float) -> float:
+        return _neo4j_float_in_range(value, 1.0, 120.0, "NEO4J_ACQUISITION_TIMEOUT_S")
+
+    @field_validator("transaction_timeout_s")
+    @classmethod
+    def _transaction_timeout_in_range(cls, value: float) -> float:
+        return _neo4j_float_in_range(value, 1.0, 300.0, "NEO4J_TRANSACTION_TIMEOUT_S")
+
+    @field_validator("query_timeout_s")
+    @classmethod
+    def _query_timeout_in_range(cls, value: float) -> float:
+        return _neo4j_float_in_range(value, 0.5, 60.0, "NEO4J_QUERY_TIMEOUT_S")
+
+    @field_validator("max_pool_size")
+    @classmethod
+    def _pool_in_range(cls, value: int) -> int:
+        return _neo4j_int_in_range(value, 1, 200, "NEO4J_MAX_POOL_SIZE")
+
+    @field_validator("write_batch_size")
+    @classmethod
+    def _batch_in_range(cls, value: int) -> int:
+        return _neo4j_int_in_range(value, 1, 10000, "NEO4J_WRITE_BATCH_SIZE")
+
+    @field_validator("max_results")
+    @classmethod
+    def _results_in_range(cls, value: int) -> int:
+        return _neo4j_int_in_range(value, 1, 200, "NEO4J_MAX_RESULTS")
+
+    @field_validator("max_paths")
+    @classmethod
+    def _paths_in_range(cls, value: int) -> int:
+        return _neo4j_int_in_range(value, 1, 100, "NEO4J_MAX_PATHS")
+
+    @field_validator("max_query_depth")
+    @classmethod
+    def _depth_is_a_closed_choice(cls, value: int) -> int:
+        if isinstance(value, bool) or value not in NEO4J_DEPTH_CHOICES:
+            raise Neo4jConfigurationError(
+                f"NEO4J_MAX_QUERY_DEPTH must be one of {sorted(NEO4J_DEPTH_CHOICES)}"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _enabled_requires_full_credentials(self) -> "Neo4jSettings":
+        """§33 — fail closed: an enabled but incomplete deployment is an error,
+        never a silent fallback to an anonymous or default connection."""
+        if not self.enabled:
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("NEO4J_URI", self.uri),
+                ("NEO4J_USERNAME", self.username),
+                ("NEO4J_PASSWORD", self.password),
+            )
+            if value is None or (isinstance(value, str) and not value.strip())
+        ]
+        if missing:
+            raise Neo4jConfigurationError(
+                f"NEO4J_ENABLED requires {', '.join(sorted(missing))}"
+            )
+        secret = self.password.get_secret_value() if self.password else ""
+        if len(secret) < 8:
+            raise Neo4jConfigurationError("NEO4J_PASSWORD must be at least 8 characters")
+        return self
+
+
+def _neo4j_float_in_range(value: float, low: float, high: float, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise Neo4jConfigurationError(f"{name} must be a number")
+    number = float(value)
+    if not math.isfinite(number) or not low <= number <= high:
+        raise Neo4jConfigurationError(f"{name} must be in [{low}, {high}]")
+    return number
+
+
+def _neo4j_int_in_range(value: int, low: int, high: int, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise Neo4jConfigurationError(f"{name} must be an int")
+    if not low <= value <= high:
+        raise Neo4jConfigurationError(f"{name} must be in [{low}, {high}]")
+    return value
