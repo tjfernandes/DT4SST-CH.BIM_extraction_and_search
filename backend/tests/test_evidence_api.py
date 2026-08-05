@@ -82,7 +82,7 @@ def test_hybrid_pack_carries_typed_per_method_provenance(chat) -> None:
     response, _e, _l, _os = chat(message=SEMANTIC_MESSAGE)
     pack = response.evidence
     assert pack is not None
-    assert pack.version == "hbim-073-evidence-v2"
+    assert pack.version == "hbim-082-evidence-v3"
     assert pack.route == "hybrid_semantic"
     assert pack.result_count == 2
     assert pack.total_hits == 6

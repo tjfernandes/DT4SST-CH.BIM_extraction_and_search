@@ -935,7 +935,8 @@ Ordenado por dependência e prioridade. Prioridade: **P0** (bloqueante/seguranç
 - **Dependências.** **HBIM-079** (IR canónico + pipeline selecionado), **HBIM-080** (factos geométricos), pré-requisitos do schema canónico (HBIM-010/011/012).
 - **Aceitação.** Relações IFC nativas completas e sem invenções + ≥1 classe derivada avaliada; precisão por predicado no `spatial_gold`; proveniência, tolerância e qualidade presentes em todas as arestas derivadas; dedup e rerun idempotentes.
 
-### HBIM-082 — Neo4j KG a partir do IR canónico + graph retrieval (Cypher) — **P3 / XL**
+### HBIM-082 — Neo4j KG a partir do IR canónico + graph retrieval (Cypher) — **P3 / XL** — **CONCLUÍDO E ATIVADO**
+- **Estado.** Concluído. O writer, o ciclo de vida de gerações, os 34 templates Cypher estáticos, a superfície tipada de nove intenções, a leitura read-only, a verificação independente de linhas físicas e a identidade de caminho foram implementados e validados; a **ativação** ligou-os ao router, à API, ao EvidencePack v3 (`hbim-082-evidence-v3`), às citações públicas de grafo e à política de regressão (34 → 38 slices). Detalhe, divergências e limitações em `IMPLEMENTATION_STATUS.md`, secção *Status of HBIM-082*.
 - **Descrição.** Persiste o **IR canónico de grafo** em Neo4j com um **writer próprio do projeto** e expõe graph retrieval tipado. Arquitetura obrigatória:
 
 ```text
@@ -957,7 +958,7 @@ IFC
 - **OpenSearch.** `relations_summary` permanece derivado/cache; **Neo4j continua a fonte de verdade das relações**.
 - **Ficheiros.** `ingestion/kg_builder.py`, `shared/neo4j.py`, `retrieval/graph.py`, `tests/test_graph_retrieval.py` (nomes finais na spec executável).
 - **Dependências.** **HBIM-081**, **HBIM-052**, e o **artefacto de decisão de HBIM-079**.
-- **Aceitação.** Rota `graph` devolve `graph_paths` tipados com proveniência; Neo4j é fonte de verdade; upsert idempotente e reconciliação de obsoletos provados; isolamento por projeto provado; nenhum objeto de biblioteca terceira persistido; nenhum Cypher gerado por LLM em produção.
+- **Aceitação.** Rota `graph` devolve `graph_paths` tipados com proveniência; Neo4j é fonte de verdade; upsert idempotente e reconciliação de obsoletos provados; isolamento por projeto provado; nenhum objeto de biblioteca terceira persistido; nenhum Cypher gerado por LLM em produção. **Todos verificados.** Com `NEO4J_ENABLED` por definir, a rota degrada para `structured` exatamente como antes da ativação; ativada, qualquer recusa tipada abstém-se de forma determinística, sem recurso a outro backend e sem chamadas ao provider.
 
 ### HBIM-090 — Índice media + jina-clip-v2 + ingestão de imagens/museu — **P3 / XL**
 - **Descrição.** `hbim_media_v1`; `image_ingestor.py`/`museum_ingestor.py` (CIDOC-lite); embeddings visuais.

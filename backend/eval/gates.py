@@ -750,6 +750,349 @@ def _eval_entity_linking(entry: Slice, outcome: SliceOutcome, root: Path) -> Non
     _apply_checks(entry, outcome, metrics)
 
 
+def _eval_graph_retrieval(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
+    """HBIM-082 §72/§94 — the umbrella activation gate.
+
+    Was `unavailable_future` while the graph had no backend. It now proves the
+    route is genuinely wired end to end and still fail-closed: the strategy is
+    real, the static unimplemented set no longer hides it, the availability
+    check is pure, the driver is lazy, and the typed request surface cannot
+    express Cypher. The three sibling slices measure contract, quality and
+    grounding; this one measures that they are actually reachable.
+    """
+    import inspect
+
+    from api import main as api_main
+    from api.schemas import GRAPH_REQUEST_MODELS
+    from retrieval import graph_activation as GA
+    from retrieval.graph_query import GraphIntent
+    from retrieval.router import Route
+
+    class _Disabled:
+        enabled = False
+
+    class _Configured:
+        enabled = True
+        uri = "bolt://graph.example.test:7687"
+        username = "neo4j"
+        password = object()
+
+    activation_source = inspect.getsource(api_main.graph_route_unavailable)
+    request_fields = {
+        name for model in GRAPH_REQUEST_MODELS for name in model.model_fields
+    }
+    metrics: dict[str, object] = {
+        "graph_strategy_is_real":
+            1.0 if api_main.BASE_STRATEGY[Route.GRAPH] == "graph" else 0.0,
+        "graph_left_the_unimplemented_set":
+            1.0 if Route.GRAPH not in api_main.UNIMPLEMENTED_ROUTES else 0.0,
+        "degraded_strategy_preserved":
+            1.0 if api_main.GRAPH_DEGRADED_STRATEGY == "structured" else 0.0,
+        "disabled_activation_degrades":
+            1.0 if api_main.graph_route_unavailable(_Disabled()) else 0.0,
+        "configured_activation_is_available":
+            0.0 if api_main.graph_route_unavailable(_Configured()) else 1.0,
+        # The availability check names no driver, session or query: deciding
+        # whether the route is on must cost a deployment nothing.
+        "availability_check_opens_nothing": 1.0 if not any(
+            token in activation_source
+            for token in ("build_driver", "session(", "retrieve(", "GraphDatabase")
+        ) else 0.0,
+        # Measured, not read from source: importing the seam and deciding
+        # availability must both leave the process with no handle at all.
+        "driver_is_lazy": 1.0 if _driver_stays_lazy() else 0.0,
+        "driver_closed_on_shutdown":
+            1.0 if "close_graph_driver()" in _module_source(api_main) else 0.0,
+        "typed_surface_covers_every_intent":
+            1.0 if len(GRAPH_REQUEST_MODELS) == len(list(GraphIntent)) else 0.0,
+        "request_surface_cannot_express_cypher": 1.0 if not (
+            request_fields & {"cypher", "statement", "query", "label", "labels",
+                              "relationship_type", "database", "timeout", "filter"}
+        ) else 0.0,
+        "outcome_codes_are_closed": float(len(list(GA.GraphOutcome))),
+        "failure_maps_to_abstention": 1.0 if all(
+            GA.classify_outcome(exc) is not GA.GraphOutcome.PATHS
+            for exc in (RuntimeError("x"), TimeoutError("x"), ValueError("x"))
+        ) else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
+def _module_source(module: Any) -> str:
+    from pathlib import Path as _Path
+
+    return _Path(module.__file__).read_text(encoding="utf-8")
+
+
+def _driver_stays_lazy() -> bool:
+    """§34 — no handle exists until something actually asks for one.
+
+    Behavioural: the seam is imported and the availability check is run, then
+    the cache is inspected. A build attempt would raise here (the graph is not
+    configured in CI), so a non-lazy seam fails loudly rather than silently.
+    """
+    from api import graph_driver
+    from api import main as api_main
+
+    before = graph_driver._HANDLE.get("handle")
+    if before is not None:  # pragma: no cover - a leaked handle is the failure
+        return False
+    api_main.graph_route_unavailable()
+    return graph_driver._HANDLE.get("handle") is None
+
+
+def _eval_graph_retrieval_contract(
+    entry: Slice, outcome: SliceOutcome, root: Path
+) -> None:
+    """HBIM-082 §49-§63 — the closed retrieval contract.
+
+    Pure: no driver, no fixture, no database. Proves the properties that make a
+    serving read structurally unable to widen — a closed intent set, static
+    parameterised Cypher, read-only access, project/schema/generation/revision
+    verification, bounded depth and results, and no storage identity anywhere.
+    """
+    from graph_store.client import _ALLOWED_ACCESS_MODES
+
+    from retrieval import graph_cypher as GC
+    from retrieval import graph_paths as GP
+    from retrieval import graph_retrieval as RT
+    from retrieval.graph_query import (
+        DEPTH_CHOICES,
+        INTENT_PREDICATES,
+        SPATIAL_TERM_PREDICATES,
+        UNSUPPORTED_SPATIAL_TERMS,
+        GraphIntent,
+    )
+
+    templates = list(GC.TEMPLATES.values())
+    retrieval_source = _module_source(RT)
+    statements = templates + [
+        GC.ACTIVE_VIEW, GC.COUNT_PROJECT_ROOTS, GC.COUNT_SERVEABLE_PROJECT_ROOTS,
+        GC.RESOLVE_BY_NODE_ID, GC.RESOLVE_BY_ELEMENT_ID, GC.RESOLVE_BY_GLOBAL_ID,
+    ]
+    metrics: dict[str, object] = {
+        "intent_count": float(len(list(GraphIntent))),
+        "template_count": float(len(GC.TEMPLATES)),
+        "every_intent_has_predicates": 1.0 if all(
+            INTENT_PREDICATES[intent] for intent in GraphIntent) else 0.0,
+        "no_statement_carries_a_forbidden_token": 1.0 if all(
+            token not in statement
+            for statement in statements
+            for token in GC.FORBIDDEN_CYPHER_TOKENS
+        ) else 0.0,
+        "every_template_scopes_the_project": 1.0 if all(
+            "$project_id" in statement for statement in templates) else 0.0,
+        "every_template_pins_the_node_generation": 1.0 if all(
+            "nrev" in statement for statement in templates) else 0.0,
+        "every_template_bounds_and_orders": 1.0 if all(
+            "LIMIT $limit" in statement and "ORDER BY" in statement
+            for statement in templates) else 0.0,
+        "predicate_types_are_parameters": 1.0 if all(
+            "$predicate_types" in statement for statement in templates) else 0.0,
+        "read_access_is_requested": 1.0 if "READ_ACCESS" in retrieval_source else 0.0,
+        "access_modes_are_a_closed_set":
+            1.0 if _ALLOWED_ACCESS_MODES == frozenset({"READ", "WRITE"}) else 0.0,
+        "row_verification_codes": float(len({
+            RT.ROW_PROJECT_MISMATCH, RT.ROW_SCHEMA_MISMATCH,
+            RT.ROW_NODE_GENERATION_MISMATCH, RT.ROW_RELATION_REVISION_MISMATCH,
+            RT.ROW_ENDPOINT_OCCURRENCE_MISMATCH, RT.ROW_MALFORMED,
+            RT.ROW_PREDICATE_NOT_REQUESTED,
+        })),
+        "ownership_is_never_stamped_from_the_view":
+            1.0 if "owner: str" in retrieval_source
+            and "def _assemble" in retrieval_source else 0.0,
+        "depth_is_a_closed_set":
+            1.0 if DEPTH_CHOICES == frozenset({1, 2, 3, 4, 5, 6}) else 0.0,
+        "storage_identity_fields": float(len(GP.STORAGE_IDENTITY_FIELDS)),
+        "spatial_terms_are_partitioned": 1.0 if not (
+            set(SPATIAL_TERM_PREDICATES) & set(UNSUPPORTED_SPATIAL_TERMS)
+        ) else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
+def _eval_graph_retrieval_quality(
+    entry: Slice, outcome: SliceOutcome, root: Path
+) -> None:
+    """HBIM-082 §78/§82 — recompute the committed retrieval campaign.
+
+    The evaluator replays a recorded row corpus through the real projection,
+    verification, ordering and bounds, then compares with the frozen gold. A
+    behaviour change moves a metric; it cannot be absorbed.
+    """
+    from eval.graph_retrieval_eval import evaluate
+
+    _apply_checks(entry, outcome, evaluate(root))
+
+
+def _eval_graph_evidence_grounding(
+    entry: Slice, outcome: SliceOutcome, root: Path
+) -> None:
+    """HBIM-082 §68-§76 — EvidencePack v3 and the grounded graph citation.
+
+    Pure. Builds a real v3 graph pack from the gold corpus, grounds it through
+    the production seam with a stub provider, and proves the properties that
+    keep a graph answer traceable: emittable kind, no score, payload iff graph
+    kind, canonical path ids as citation ids, no storage or revision identity in
+    the public projection, and zero provider calls with zero evidence.
+    """
+    from api.responses import AbstentionReason, generate_grounded_answer
+    from api.schemas import PublicCitation, to_public_pack
+    from eval.graph_retrieval_eval import PROJECT as GOLD_PROJECT
+    from retrieval.evidence import (
+        ALLOWED_SCORE_KIND,
+        EMITTABLE_SOURCE_KINDS,
+        EVIDENCE_PACK_VERSION,
+        Caveat,
+        EvidenceIdentityError,
+        EvidenceItem,
+        RetrievalMethod,
+        SourceKind,
+        build_pack_for_graph,
+        canonical_json,
+    )
+    from retrieval.graph_evidence import graph_pack_is_canonical_v3
+
+    del root
+    calls: list[int] = []
+
+    class _CountingLLM:
+        def complete(self, messages: list[dict[str, str]]) -> str:
+            calls.append(1)
+            return '{"status":"abstain","abstain_reason":"insufficient_evidence"}'
+
+    empty = build_pack_for_graph(None)
+    empty_outcome = generate_grounded_answer(empty, "q", _CountingLLM())
+
+    graph_pack = _gold_graph_pack()
+    rendered = canonical_json(graph_pack)
+    public = to_public_pack(graph_pack).model_dump_json()
+
+    def _element_rejects_a_graph_block() -> bool:
+        try:
+            EvidenceItem(
+                source_kind=SourceKind.CANONICAL_ELEMENT, source_id="el_x",
+                project_id=GOLD_PROJECT, index_identity="i", content="c",
+                content_truncated=False, order_index=0,
+                provenance=graph_pack.items[0].provenance,
+                graph=graph_pack.items[0].graph)
+            return False
+        except EvidenceIdentityError:
+            return True
+
+    metrics: dict[str, object] = {
+        "evidence_pack_is_v3":
+            1.0 if EVIDENCE_PACK_VERSION == "hbim-082-evidence-v3" else 0.0,
+        "graph_path_is_emittable":
+            1.0 if SourceKind.GRAPH_PATH in EMITTABLE_SOURCE_KINDS else 0.0,
+        "graph_traversal_is_a_method":
+            1.0 if RetrievalMethod.GRAPH_TRAVERSAL in ALLOWED_SCORE_KIND else 0.0,
+        "graph_traversal_carries_no_ranking": 1.0 if not ALLOWED_SCORE_KIND[
+            RetrievalMethod.GRAPH_TRAVERSAL] else 0.0,
+        "canonical_v3_is_single_sourced":
+            1.0 if graph_pack_is_canonical_v3() else 0.0,
+        "graph_payload_iff_graph_kind": 1.0 if all(
+            (item.graph is not None) == (item.source_kind is SourceKind.GRAPH_PATH)
+            for item in graph_pack.items
+        ) and _element_rejects_a_graph_block() else 0.0,
+        "citation_id_is_the_canonical_path_id": 1.0 if all(
+            item.source_id == item.graph.path_id and item.source_id.startswith("gp_")
+            for item in graph_pack.items if item.graph is not None
+        ) else 0.0,
+        "no_storage_identity_in_the_pack": 1.0 if not any(
+            token in rendered for token in
+            ("node_instance_id", "relationship_instance_id", '"ni_', '"ri_')
+        ) else 0.0,
+        "no_revision_identity_in_the_public_projection": 1.0 if not any(
+            token in public for token in
+            ("bundle_id", "node_revision_id", "native_revision_id",
+             "derived_revision_id", "index_identity")
+        ) else 0.0,
+        "public_citation_exposes_no_generation": 1.0 if not (
+            {"bundle_id", "node_revision_id", "native_revision_id",
+             "derived_revision_id"} & set(PublicCitation.model_fields)
+        ) else 0.0,
+        "zero_evidence_means_zero_provider_calls": 1.0 if (
+            not calls
+            and empty_outcome.provider_calls == 0
+            and empty_outcome.abstention_reason is AbstentionReason.NO_EVIDENCE
+        ) else 0.0,
+        "derived_paths_carry_their_caveat": 1.0 if (
+            Caveat.GRAPH_DERIVED_RELATION in graph_pack.caveats
+        ) else 0.0,
+        "graph_claim_validation_is_exact":
+            1.0 if _graph_support_rules_hold(graph_pack) else 0.0,
+    }
+    _apply_checks(entry, outcome, metrics)
+
+
+def _gold_graph_pack() -> Any:
+    """One real v3 pack from the frozen corpus (a native and a derived edge)."""
+    from eval.graph_retrieval_eval import pack_for_case
+    from retrieval.evidence import build_pack
+
+    packs = [pack_for_case("neighbors_native"), pack_for_case("neighbors_derived")]
+    return build_pack(
+        route="graph", strategy="graph", degraded=False,
+        items=[item for pack in packs for item in pack.items],
+        caveats={caveat for pack in packs for caveat in pack.caveats})
+
+
+def _graph_support_rules_hold(pack: Any) -> bool:
+    """§76 — the cited relation, direction and authority must all match."""
+    from api.responses import (
+        AbstentionReason,
+        DraftRejection,
+        SupportRecord,
+        validate_graph_claim_text,
+        validate_item_support,
+    )
+
+    item = next(i for i in pack.items if i.graph is not None)
+    graph = item.graph
+    quote = item.content.splitlines()[0]
+
+    def _support(**overrides: Any) -> SupportRecord:
+        base = dict(
+            ref="E001", quote=quote, path_id=graph.path_id,
+            edge_id=graph.edge_ids[0], predicate=graph.predicates[0],
+            direction=graph.traversal_directions[0],
+            source_kind=graph.edge_source_kinds[0])
+        base.update(overrides)
+        return SupportRecord(**base)
+
+    def _refused(**overrides: Any) -> bool:
+        try:
+            validate_item_support(_support(**overrides), item)
+            return False
+        except DraftRejection:
+            return True
+
+    try:
+        validate_item_support(_support(), item)
+    except DraftRejection:
+        return False
+    if not all([
+        _refused(path_id="gp_" + "0" * 32),
+        _refused(edge_id="rn_not_in_this_path"),
+        _refused(predicate="ABOVE" if graph.predicates[0] != "ABOVE" else "CONTAINS"),
+        _refused(direction="reverse" if graph.traversal_directions[0] == "forward"
+                 else "forward"),
+        _refused(source_kind="derived_geometry"
+                 if graph.edge_source_kinds[0] == "ifc_native" else "ifc_native"),
+        _refused(path_id=None),
+    ]):
+        return False
+    # §76 rule 5 — an unsupported meaning is refused whatever the fields say.
+    try:
+        validate_graph_claim_text("o elemento e adjacente ao pilar")
+        return False
+    except DraftRejection as rejection:
+        if rejection.reason is not AbstentionReason.UNSUPPORTED_GRAPH_CLAIM:
+            return False
+    return True
+
+
 def _eval_unit_delegated(entry: Slice, outcome: SliceOutcome, root: Path) -> None:
     """§4 C-3 — presence only; content is the backend-unit job's contract."""
     for pin in entry.inputs:
@@ -1658,7 +2001,13 @@ ADAPTERS: dict[str, SliceAdapter] = {
     "native_relation_quality": _eval_native_relation_quality,
     "derived_relation_quality": _eval_derived_relation_quality,
     "relation_generation_live": _eval_manual,
-    "graph_retrieval": _eval_unavailable,
+    # HBIM-082 §94 — `graph_retrieval` left `unavailable_future` when the route
+    # gained a real backend; the three sibling slices measure what it serves.
+    "graph_retrieval": _eval_graph_retrieval,
+    "graph_retrieval_contract": _eval_graph_retrieval_contract,
+    "graph_retrieval_quality": _eval_graph_retrieval_quality,
+    "graph_evidence_grounding": _eval_graph_evidence_grounding,
+    "graph_retrieval_live": _eval_manual,
     "multimodal_retrieval": _eval_unavailable,
 }
 

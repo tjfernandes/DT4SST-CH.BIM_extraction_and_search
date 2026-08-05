@@ -89,20 +89,22 @@ def item(**overrides: Any) -> EvidenceItem:
 # --------------------------------------------------------------------------- #
 # §41 — the version and the closed emittable set
 # --------------------------------------------------------------------------- #
-def test_version_is_v2_and_document_chunk_is_emittable() -> None:
-    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
+def test_document_chunk_is_emittable_under_the_current_version() -> None:
+    # HBIM-082 §68 bumped the marker to v3; DOCUMENT_CHUNK's own emittability,
+    # ordering and grouping are untouched by that bump.
+    assert EVIDENCE_PACK_VERSION == "hbim-082-evidence-v3"
     assert SourceKind.DOCUMENT_CHUNK in EMITTABLE_SOURCE_KINDS
     assert EMITTABLE_SOURCE_KINDS == {
         SourceKind.CANONICAL_ELEMENT,
         SourceKind.LEGACY_ELEMENT,
         SourceKind.DOCUMENT_CHUNK,
+        SourceKind.GRAPH_PATH,
     }
 
 
-def test_graph_and_media_kinds_are_still_unemittable() -> None:
-    for kind in (SourceKind.GRAPH_PATH, SourceKind.MEDIA_ITEM):
-        with pytest.raises(EvidenceIdentityError, match="cannot be emitted"):
-            item(source_kind=kind, source_id="x", document=None)
+def test_the_media_kind_is_still_unemittable() -> None:
+    with pytest.raises(EvidenceIdentityError, match="cannot be emitted"):
+        item(source_kind=SourceKind.MEDIA_ITEM, source_id="x", document=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -355,8 +357,15 @@ def test_public_citation_never_exposes_the_storage_chunk_id() -> None:
     assert "storage_chunk_id" not in PublicCitation.model_fields
     rendered = public.model_dump_json()
     assert "chl_conserv_p3_v1" not in rendered
-    for forbidden in ("uri", "path", "url", "host", "checksum"):
-        assert forbidden not in rendered.lower()
+    # `path_id` is a legitimate HBIM-082 graph citation field, so the scan is
+    # over the VALUES a document citation carries, never over field names.
+    values = " ".join(
+        str(value) for value in public.model_dump().values() if value is not None
+    ).lower()
+    for forbidden in ("uri", "://", "/", "\\", "host", "checksum"):
+        assert forbidden not in values, forbidden
+    for forbidden in ("uri", "url", "host", "checksum"):
+        assert forbidden not in set(PublicCitation.model_fields), forbidden
 
 
 def test_public_pack_contains_no_index_identity_or_revision() -> None:

@@ -69,7 +69,7 @@ def test_every_gold_line_is_a_complete_record() -> None:
 def test_gold_packs_build_through_public_hbim_052_constructors() -> None:
     for case in load_gold():
         pack = build_pack_from_gold(case["pack"])
-        assert pack.version == "hbim-073-evidence-v2"
+        assert pack.version == "hbim-082-evidence-v3"
 
 
 # --------------------------------------------------------------------------- #

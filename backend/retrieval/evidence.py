@@ -32,8 +32,14 @@ __all__ = [
     "EMITTABLE_SOURCE_KINDS",
     "EVIDENCE_PACK_VERSION",
     "DocumentEvidence",
+    "GRAPH_CAVEATS",
+    "GRAPH_STORAGE_IDENTITY_FIELDS",
+    "GraphPathEvidence",
     "build_pack_for_document_page",
+    "build_pack_for_graph",
     "document_caveats",
+    "graph_caveats",
+    "graph_projection",
     "MAX_EVIDENCE_REGIONS",
     "MAX_LINKED_IDS_IN_EVIDENCE",
     "MAX_CONTENT_CHARS",
@@ -73,8 +79,10 @@ __all__ = [
 ]
 
 #: §11 — bump on any change to a closed enum, field, ordering rule or the
-#: canonicalisation.
-EVIDENCE_PACK_VERSION = "hbim-073-evidence-v2"
+#: canonicalisation. HBIM-082 §68 — v3 grows ``EMITTABLE_SOURCE_KINDS`` by one
+#: member, appends one ``RetrievalMethod``, adds one typed block and one
+#: canonical key, so a v2 consumer must not silently accept a v3 pack.
+EVIDENCE_PACK_VERSION = "hbim-082-evidence-v3"
 
 
 # --------------------------------------------------------------------------- #
@@ -87,18 +95,20 @@ class SourceKind(str, Enum):
     CANONICAL_ELEMENT = "canonical_element"
     LEGACY_ELEMENT = "legacy_element"
     DOCUMENT_CHUNK = "document_chunk"   # HBIM-073 §41 — emitted in v2
-    GRAPH_PATH = "graph_path"           # HBIM-082 — never emitted in v1
+    GRAPH_PATH = "graph_path"           # HBIM-082 §68 — emitted in v3
     MEDIA_ITEM = "media_item"           # HBIM-090 — never emitted in v1
 
 
-#: §13 / HBIM-073 §41 — the only kinds a v2 builder may produce. The set grew
-#: by exactly one member (``DOCUMENT_CHUNK``); ``SOURCE_KIND_ORDER`` is
-#: unchanged, so element grouping and ordering stay byte-identical.
+#: §13 / HBIM-082 §68 — the only kinds a v3 builder may produce. The set grew
+#: by exactly one member (``GRAPH_PATH``); ``SOURCE_KIND_ORDER`` is unchanged
+#: because ``GRAPH_PATH`` already sat after ``DOCUMENT_CHUNK``, so element and
+#: document grouping and ordering stay byte-identical.
 EMITTABLE_SOURCE_KINDS = frozenset(
     {
         SourceKind.CANONICAL_ELEMENT,
         SourceKind.LEGACY_ELEMENT,
         SourceKind.DOCUMENT_CHUNK,
+        SourceKind.GRAPH_PATH,
     }
 )
 
@@ -122,8 +132,12 @@ class RetrievalMethod(str, Enum):
     STRUCTURED_FILTER = "structured_filter"
     EXACT_LOOKUP = "exact_lookup"
     SNAPSHOT_PAGE = "snapshot_page"
+    #: HBIM-082 §70 — appended, never inserted.
+    GRAPH_TRAVERSAL = "graph_traversal"
 
 
+#: §16 / HBIM-082 §70 — ``GRAPH_TRAVERSAL`` is appended **after**
+#: ``SNAPSHOT_PAGE``, so every existing provenance sort key is unchanged.
 METHOD_ORDER: tuple[RetrievalMethod, ...] = (
     RetrievalMethod.BM25,
     RetrievalMethod.DENSE_KNN,
@@ -132,6 +146,7 @@ METHOD_ORDER: tuple[RetrievalMethod, ...] = (
     RetrievalMethod.STRUCTURED_FILTER,
     RetrievalMethod.EXACT_LOOKUP,
     RetrievalMethod.SNAPSHOT_PAGE,
+    RetrievalMethod.GRAPH_TRAVERSAL,
 )
 
 
@@ -145,8 +160,10 @@ class ScoreKind(str, Enum):
     OPENSEARCH_QUERY = "opensearch_query_score"
 
 
-#: §17 — a method may only carry a score from its own scale. ``EXACT_LOOKUP``
-#: and ``SNAPSHOT_PAGE`` carry none: inventing one is a blocking defect.
+#: §17 — a method may only carry a score from its own scale. ``EXACT_LOOKUP``,
+#: ``SNAPSHOT_PAGE`` and ``GRAPH_TRAVERSAL`` carry none: inventing one is a
+#: blocking defect. HBIM-082 §70 — ``ScoreKind`` deliberately gains no member,
+#: because a deterministic traversal computes no ranking to report.
 ALLOWED_SCORE_KIND: Mapping[RetrievalMethod, frozenset[ScoreKind]] = {
     RetrievalMethod.BM25: frozenset({ScoreKind.BM25_SCORE}),
     RetrievalMethod.DENSE_KNN: frozenset({ScoreKind.DENSE_SIMILARITY}),
@@ -155,6 +172,7 @@ ALLOWED_SCORE_KIND: Mapping[RetrievalMethod, frozenset[ScoreKind]] = {
     RetrievalMethod.STRUCTURED_FILTER: frozenset({ScoreKind.OPENSEARCH_QUERY}),
     RetrievalMethod.EXACT_LOOKUP: frozenset(),
     RetrievalMethod.SNAPSHOT_PAGE: frozenset(),
+    RetrievalMethod.GRAPH_TRAVERSAL: frozenset(),
 }
 
 
@@ -164,6 +182,13 @@ class Caveat(str, Enum):
     DEGRADED_ROUTE = "degraded_route"
     DOCUMENT_METADATA_UNAVAILABLE = "document_metadata_unavailable"
     FUTURE_BACKEND_UNAVAILABLE = "future_backend_unavailable"
+    # HBIM-082 §71 — each derived from a fact about the returned paths, never
+    # from text. ``Caveat`` sorts by value, so adding members never reorders the
+    # caveats of a pack that carries none of them.
+    GRAPH_DERIVED_RELATION = "graph_derived_relation"
+    GRAPH_PREDICATE_UNSUPPORTED = "graph_predicate_unsupported"
+    GRAPH_RESULTS_TRUNCATED = "graph_results_truncated"
+    GRAPH_TOLERANT_RELATION = "graph_tolerant_relation"
     ITEMS_TRUNCATED_BY_LIMIT = "items_truncated_by_limit"
     LEGACY_SOURCE = "legacy_source"
     METADATA_CONFLICT = "metadata_conflict"
@@ -211,6 +236,31 @@ MAX_SERIALIZED_BYTES = 262144
 MAX_SOURCE_ID_CHARS = 512
 MAX_EVIDENCE_REGIONS = 8         # HBIM-073 §62
 MAX_LINKED_IDS_IN_EVIDENCE = 32  # HBIM-073 §62
+#: HBIM-082 §60 — the closed depth set tops out at 6, so a path carries at most
+#: six edges and seven nodes. The bound is asserted here rather than trusted.
+MAX_GRAPH_HOPS = 6
+
+#: HBIM-082 §64/§69 — mirrored from ``retrieval.graph_paths`` so this module
+#: keeps its zero-import purity; a permanent test pins the two sets equal. A
+#: storage-occurrence identity is writer plumbing and must never reach evidence:
+#: it does not survive a refresh, so citing one would make an answer uncitable
+#: after the next generation.
+GRAPH_STORAGE_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {"node_instance_id", "relationship_instance_id",
+     "source_node_instance_id", "target_node_instance_id"}
+)
+
+#: HBIM-082 §71 — the four graph caveats, as a closed tuple for the gates.
+GRAPH_CAVEATS: tuple[str, ...] = (
+    "graph_derived_relation",
+    "graph_predicate_unsupported",
+    "graph_results_truncated",
+    "graph_tolerant_relation",
+)
+
+#: The owner value a derived edge carries; mirrored from ``graph_paths`` for the
+#: same reason as the storage-identity set, and pinned by the same test.
+_DERIVED_OWNER = "derived_geometry"
 
 
 @dataclass(frozen=True)
@@ -398,6 +448,82 @@ class DocumentEvidence:
 
 
 @dataclass(frozen=True)
+class GraphPathEvidence:
+    """HBIM-082 §69 — the typed graph block carried by a graph-path item.
+
+    Present exactly when ``source_kind is GRAPH_PATH`` and absent otherwise
+    (enforced on ``EvidenceItem``), mirroring what ``DocumentEvidence`` already
+    does. ``path_id`` is the citation identity: it is built from canonical
+    ``node_id`` and ``edge_id`` values, which survive a refresh.
+
+    Carries no Cypher, no driver record, no raw property bag and no storage
+    identity. ``bundle_id`` and the three revisions are **internal audit** data:
+    they are never projected into a public citation.
+    """
+
+    path_id: str
+    intent: str
+    start_node_id: str
+    end_node_id: str
+    node_ids: tuple[str, ...]
+    edge_ids: tuple[str, ...]
+    predicates: tuple[str, ...]
+    edge_source_kinds: tuple[str, ...]
+    traversal_directions: tuple[str, ...]
+    hop_count: int
+    bundle_id: str
+    node_revision_id: str
+    native_revision_id: str
+    derived_revision_id: str
+    edge_provenance: tuple[Mapping[str, str], ...] = ()
+    node_labels: tuple[str, ...] = ()
+    node_ifc_classes: tuple[str, ...] = ()
+    node_global_ids: tuple[str | None, ...] = ()
+    node_names: tuple[str | None, ...] = ()
+
+    def __post_init__(self) -> None:
+        for field in ("path_id", "intent", "start_node_id", "end_node_id",
+                      "bundle_id", "node_revision_id", "native_revision_id",
+                      "derived_revision_id"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or not value.strip():
+                raise EvidenceIdentityError(f"{field} must be a non-empty string")
+            if len(value) > MAX_SOURCE_ID_CHARS:
+                raise EvidenceIdentityError(f"{field} exceeds {MAX_SOURCE_ID_CHARS} characters")
+        if not self.path_id.startswith("gp_"):
+            raise EvidenceIdentityError("path_id must be the canonical path identity")
+        object.__setattr__(
+            self, "hop_count", _non_negative_index(self.hop_count, "hop_count")
+        )
+        if self.hop_count > MAX_GRAPH_HOPS:
+            raise EvidenceLimitError(f"a path may not exceed {MAX_GRAPH_HOPS} hops")
+        # Every per-edge tuple describes ``edge_ids[i]``, so they share one width.
+        widths = {
+            len(self.edge_ids), len(self.predicates), len(self.edge_source_kinds),
+            len(self.traversal_directions), len(self.edge_provenance),
+        }
+        if len(widths) != 1:
+            raise EvidenceIdentityError("every per-edge tuple must have the same width")
+        if self.hop_count != len(self.edge_ids):
+            raise EvidenceIdentityError("hop_count must equal the number of edges")
+        if len(self.node_ids) != len(self.edge_ids) + 1:
+            raise EvidenceIdentityError("a path has one more node than it has edges")
+        for name in ("node_labels", "node_ifc_classes", "node_global_ids", "node_names"):
+            values = tuple(getattr(self, name))
+            if values and len(values) != len(self.node_ids):
+                raise EvidenceIdentityError(f"{name} must describe every node or none")
+            object.__setattr__(self, name, values)
+        if self.node_ids[0] != self.start_node_id or self.node_ids[-1] != self.end_node_id:
+            raise EvidenceIdentityError("start and end must be the path's own endpoints")
+        for provenance in self.edge_provenance:
+            if not isinstance(provenance, Mapping):
+                raise EvidenceIdentityError("edge_provenance entries must be mappings")
+            leaked = GRAPH_STORAGE_IDENTITY_FIELDS & set(provenance)
+            if leaked:
+                raise EvidenceIdentityError(f"storage identity leaked: {sorted(leaked)}")
+
+
+@dataclass(frozen=True)
 class EvidenceItem:
     source_kind: SourceKind
     source_id: str
@@ -410,6 +536,8 @@ class EvidenceItem:
     caveats: tuple[Caveat, ...] = ()
     #: §42 — present exactly when ``source_kind is DOCUMENT_CHUNK``.
     document: "DocumentEvidence | None" = None
+    #: HBIM-082 §69 — present exactly when ``source_kind is GRAPH_PATH``.
+    graph: "GraphPathEvidence | None" = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_kind, SourceKind):
@@ -463,6 +591,32 @@ class EvidenceItem:
         elif self.document is not None:
             raise EvidenceIdentityError(
                 f"{self.source_kind.value} items must not carry a document block"
+            )
+        # HBIM-082 §69 — the same mutual implication for the graph block, so a
+        # graph item can never degrade into an element item by losing it, and an
+        # element item can never acquire graph authority by gaining one.
+        if self.source_kind is SourceKind.GRAPH_PATH:
+            if not isinstance(self.graph, GraphPathEvidence):
+                raise EvidenceIdentityError(
+                    "a graph_path item requires a GraphPathEvidence block"
+                )
+            if self.source_id != self.graph.path_id:
+                raise EvidenceIdentityError(
+                    "§69: a graph item's source_id must be its path_id"
+                )
+            # §70 — a deterministic traversal is reached one way only, and it
+            # carries no score. Any other method on a graph item would import a
+            # ranking scale the traversal never computed.
+            if any(
+                entry.method is not RetrievalMethod.GRAPH_TRAVERSAL
+                for entry in self.provenance
+            ):
+                raise EvidenceIdentityError(
+                    "graph evidence carries graph_traversal provenance only"
+                )
+        elif self.graph is not None:
+            raise EvidenceIdentityError(
+                f"{self.source_kind.value} items must not carry a graph block"
             )
         # §32 Mode C — the document route never calls the reranker, so reranker
         # provenance on a document item is a contract violation, not a warning.
@@ -590,8 +744,8 @@ def _merge_pair(first: EvidenceItem, later: EvidenceItem) -> EvidenceItem:
     elif content and later.content and later.content != content:
         # §24 — never silently resolved: first wins, and it is recorded.
         caveats.add(Caveat.METADATA_CONFLICT)
-    if first.document != later.document:
-        # Same identity, different document metadata: never silently resolved.
+    if first.document != later.document or first.graph != later.graph:
+        # Same identity, different metadata: never silently resolved.
         caveats.add(Caveat.METADATA_CONFLICT)
     return replace(
         first,
@@ -696,6 +850,38 @@ def _document_to_dict(document: DocumentEvidence) -> dict[str, Any]:
     }
 
 
+def _graph_to_dict(graph: GraphPathEvidence) -> dict[str, Any]:
+    """§69 — plain JSON types, sorted keys, no Cypher and no storage identity.
+
+    ``bundle_id`` and the three revisions ARE serialized: the canonical dict is
+    the internal audit artefact, and reproducing a path later needs the exact
+    generation it was read from. The public projection drops them.
+    """
+    return {
+        "bundle_id": graph.bundle_id,
+        "derived_revision_id": graph.derived_revision_id,
+        "edge_ids": list(graph.edge_ids),
+        "edge_provenance": [
+            dict(sorted(entry.items())) for entry in graph.edge_provenance
+        ],
+        "edge_source_kinds": list(graph.edge_source_kinds),
+        "end_node_id": graph.end_node_id,
+        "hop_count": graph.hop_count,
+        "intent": graph.intent,
+        "native_revision_id": graph.native_revision_id,
+        "node_global_ids": list(graph.node_global_ids),
+        "node_ifc_classes": list(graph.node_ifc_classes),
+        "node_ids": list(graph.node_ids),
+        "node_labels": list(graph.node_labels),
+        "node_names": list(graph.node_names),
+        "node_revision_id": graph.node_revision_id,
+        "path_id": graph.path_id,
+        "predicates": list(graph.predicates),
+        "start_node_id": graph.start_node_id,
+        "traversal_directions": list(graph.traversal_directions),
+    }
+
+
 def pack_to_canonical_dict(pack: EvidencePack) -> dict[str, Any]:
     """Plain JSON types only. No timestamp, no random id, no environment
     value — so the output is byte-stable for identical input."""
@@ -744,6 +930,11 @@ def pack_to_canonical_dict(pack: EvidencePack) -> dict[str, Any]:
                             {}
                             if item.document is None
                             else {"document": _document_to_dict(item.document)}
+                        ),
+                        **(
+                            {}
+                            if item.graph is None
+                            else {"graph": _graph_to_dict(item.graph)}
                         ),
                     }
                     for item in group.items
@@ -1082,6 +1273,155 @@ def build_pack_for_document_page(
         total_hits=total_hits,
         result_from=result_from,
         caveats=(Caveat.SNAPSHOT_PAGE_WITHOUT_SCORES,) if snapshot_page else (),
+        limits=limits,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# HBIM-082 §69-§71 — the graph route
+# --------------------------------------------------------------------------- #
+def graph_projection(graph: GraphPathEvidence) -> tuple[str, bool]:
+    """§69 — the bounded, deterministic text a graph claim may be quoted from.
+
+    Every line is built from the path itself, so a quote that names a node,
+    predicate, direction or owner the path does not contain cannot be found
+    here. That is what makes §76 rule 6 — "names a node id absent from the
+    cited path" — a structural refusal rather than a prose judgement.
+    """
+    lines: list[str] = [f"Path: {graph.path_id}", f"Intent: {graph.intent}"]
+    for index, node_id in enumerate(graph.node_ids):
+        parts = [f"Node {index + 1}: {node_id}"]
+        if graph.node_ifc_classes:
+            parts.append(f"IFC class: {graph.node_ifc_classes[index]}")
+        if graph.node_labels:
+            parts.append(f"Label: {graph.node_labels[index]}")
+        if graph.node_global_ids and graph.node_global_ids[index]:
+            parts.append(f"GlobalId: {graph.node_global_ids[index]}")
+        if graph.node_names and graph.node_names[index]:
+            parts.append(f"Name: {graph.node_names[index]}")
+        lines.append(" | ".join(parts))
+        if index < len(graph.edge_ids):
+            lines.append(
+                f"Relation {index + 1}: {graph.predicates[index]} | "
+                f"Edge: {graph.edge_ids[index]} | "
+                f"Direction: {graph.traversal_directions[index]} | "
+                f"Source: {graph.edge_source_kinds[index]}"
+            )
+    lines.append(f"Hops: {graph.hop_count}")
+    text = "\n".join(lines)
+    if len(text) > MAX_CONTENT_CHARS:
+        return text[:MAX_CONTENT_CHARS], True
+    return text, False
+
+
+def graph_caveats(paths: Sequence[Any], *, truncated: bool) -> tuple[Caveat, ...]:
+    """§71 — re-derived from the paths themselves, never from a supplied summary.
+
+    A caller that already computed a caveat list may be wrong or stale; the
+    paths cannot be, because they are what the answer will actually cite.
+    """
+    caveats: set[Caveat] = set()
+    for path in paths:
+        for edge in path.edges:
+            if edge.source_kind == _DERIVED_OWNER:
+                caveats.add(Caveat.GRAPH_DERIVED_RELATION)
+                if edge.quality == "tolerant":
+                    caveats.add(Caveat.GRAPH_TOLERANT_RELATION)
+    if truncated:
+        caveats.add(Caveat.GRAPH_RESULTS_TRUNCATED)
+    return tuple(sorted(caveats, key=lambda caveat: caveat.value))
+
+
+def _graph_evidence_for(path: Any, view: Any) -> GraphPathEvidence:
+    """Project one verified ``GraphPath`` — never a driver record."""
+    return GraphPathEvidence(
+        path_id=path.path_id,
+        intent=path.intent,
+        start_node_id=path.start_node_id,
+        end_node_id=path.end_node_id,
+        node_ids=tuple(path.node_ids),
+        edge_ids=tuple(path.edge_ids),
+        predicates=tuple(edge.predicate for edge in path.edges),
+        edge_source_kinds=tuple(edge.source_kind for edge in path.edges),
+        traversal_directions=tuple(edge.traversal_direction for edge in path.edges),
+        hop_count=path.hop_count,
+        bundle_id=view.active_bundle_id,
+        node_revision_id=view.active_node_revision_id,
+        native_revision_id=view.active_native_revision_id,
+        derived_revision_id=view.active_derived_revision_id,
+        edge_provenance=tuple(dict(edge.provenance) for edge in path.edges),
+        node_labels=tuple(node.label for node in path.nodes),
+        node_ifc_classes=tuple(node.ifc_class for node in path.nodes),
+        node_global_ids=tuple(node.global_id for node in path.nodes),
+        node_names=tuple(node.name for node in path.nodes),
+    )
+
+
+def build_pack_for_graph(
+    result: Any | None,
+    *,
+    route: str = "graph",
+    caveats: Iterable[Caveat] = (),
+    limits: PackLimits = DEFAULT_LIMITS,
+) -> EvidencePack:
+    """§69/§74 — one item per verified path; never a fabricated one.
+
+    ``result`` is a ``retrieval.graph_retrieval.GraphResult``. ``None`` — an
+    unsupported term, an unresolved anchor, a refused read — yields an empty
+    pack carrying ``no_evidence``, which is what makes the endpoint abstain
+    **before** any provider call rather than after one.
+    """
+    if result is None:
+        return build_pack(
+            route=route, strategy="graph", degraded=False, items=[],
+            total_hits=0, result_from=0, caveats=caveats, limits=limits,
+        )
+
+    view = result.view
+    # Internal only: the generation a path was read from. Never projected into a
+    # public pack or citation, and never shown to a client.
+    index_identity = f"{view.kg_schema_version}/{view.active_bundle_id}"
+    items: list[EvidenceItem] = []
+    for position, path in enumerate(result.paths):
+        graph = _graph_evidence_for(path, view)
+        content, truncated = graph_projection(graph)
+        item_caveats = [Caveat.TRUNCATED_PROJECTION] if truncated else []
+        if any(kind == _DERIVED_OWNER for kind in graph.edge_source_kinds):
+            item_caveats.append(Caveat.GRAPH_DERIVED_RELATION)
+        for edge in path.edges:
+            if edge.source_kind == _DERIVED_OWNER and edge.quality == "tolerant":
+                item_caveats.append(Caveat.GRAPH_TOLERANT_RELATION)
+        items.append(
+            EvidenceItem(
+                source_kind=SourceKind.GRAPH_PATH,
+                # §69 — the stable citation identity, not a storage id.
+                source_id=graph.path_id,
+                project_id=result.project_id,
+                index_identity=index_identity,
+                content=content,
+                content_truncated=truncated,
+                order_index=position,
+                # §70 — no score: the traversal computes no ranking, and `rank`
+                # carries the §63 order that it does compute.
+                provenance=(
+                    ProvenanceEntry(
+                        method=RetrievalMethod.GRAPH_TRAVERSAL, rank=position + 1
+                    ),
+                ),
+                caveats=tuple(item_caveats),
+                graph=graph,
+            )
+        )
+    pack_caveats = set(_order_caveats(caveats))
+    pack_caveats.update(graph_caveats(result.paths, truncated=result.truncated))
+    return build_pack(
+        route=route,
+        strategy="graph",
+        degraded=False,
+        items=items,
+        total_hits=len(items),
+        result_from=0,
+        caveats=pack_caveats,
         limits=limits,
     )
 

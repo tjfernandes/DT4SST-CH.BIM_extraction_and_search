@@ -2,10 +2,136 @@
 
 ## Last completed issue
 
-HBIM-081 — canonical relations: authoritative IFC-native relations and
-geometry-derived spatial relations, produced by independent generators over
-`GeometryFact`, grounded by frozen independent gold and a re-validated
-tolerance. HBIM-082 is unblocked.
+HBIM-082 — Neo4j graph retrieval, **activated end to end**: the deterministic
+router now selects a real `graph` strategy, the endpoint executes a read-only
+traversal over the active generation, and the answer is grounded on EvidencePack
+v3 with `GRAPH_PATH` citations. See the section below.
+
+## Status of HBIM-082
+
+**Complete and activated.**
+
+### What activation changed
+
+`Route.GRAPH` left the static `UNIMPLEMENTED_ROUTES` set and
+`BASE_STRATEGY[Route.GRAPH]` became `"graph"`. Availability is decided per
+request by `graph_route_unavailable()`, which is **pure**: it reads
+`Neo4jSettings` and nothing else, so deciding whether the route is on
+constructs no driver and opens no socket. With `NEO4J_ENABLED` unset — the
+default — the route degrades to `"structured"` with `degraded=True`, which is
+byte-identical to the pre-activation behaviour.
+
+The driver lifecycle lives in `backend/api/graph_driver.py`: one handle per API
+process, built on first use, closed during FastAPI lifespan shutdown, and
+replaceable by a test without connecting to anything. It is a separate module
+so the readiness probe can reach the seam without importing `api.main`.
+
+`backend/retrieval/graph_activation.py` converts a request into one member of
+the closed nine-way `GraphQuery` union. The optional `graph_query` request field
+is a pydantic discriminated union over the nine intents with `extra="forbid"`:
+there is no field in which to put Cypher, a label, a relationship-type string,
+a database name, a timeout or a property filter, so those are unrepresentable
+rather than rejected. Without it, the frozen text surface serves the seven
+supported spatial terms as bounded depth-1 neighbour reads; the five terms with
+no canonical predicate abstain.
+
+### EvidencePack v3
+
+`EVIDENCE_PACK_VERSION` is now `hbim-082-evidence-v3`. `EMITTABLE_SOURCE_KINDS`
+grew by exactly one member (`GRAPH_PATH`) and `RetrievalMethod` by exactly one
+(`GRAPH_TRAVERSAL`, **appended** after `SNAPSHOT_PAGE`, so every existing
+provenance sort key is unchanged). `SOURCE_KIND_ORDER` did not move —
+`GRAPH_PATH` already sat after `DOCUMENT_CHUNK` — so element and document
+grouping and ordering are byte-identical. `ALLOWED_SCORE_KIND[GRAPH_TRAVERSAL]`
+is empty: a deterministic traversal computes no ranking, and `ScoreKind` gained
+no member. `Caveat` gained the four §71 graph values; it sorts by value, so a
+pack carrying none of them serialises exactly as before.
+
+`GraphPathEvidence` is present **iff** `source_kind is GRAPH_PATH`, and the
+item's `source_id` is the canonical `path_id`. `graph_evidence.py` is now a
+narrow re-export layer over `evidence.py`; the dormant duplicate v3 contract and
+serializer are gone, so there is exactly one canonical v3 implementation.
+
+### Grounding and citations
+
+A claim citing a graph path must declare `path_id`, `edge_id`, `predicate`,
+`direction` and `source_kind`, each compared for equality against the value the
+traversal returned **at that edge index**. Naming a real predicate on the wrong
+edge, the right edge in the wrong direction, or IFC-native authority for a
+geometry-derived edge are all refused. The five §51 unsupported meanings
+(adjacency, proximity, support, opening, communication) are refused by a closed
+accent-folded scan of the claim text whatever the claim cites. `AbstentionReason`
+gained exactly one member, `unsupported_graph_claim`.
+
+The public citation carries `path_id`, the ordered node and edge ids, the
+predicates, directions, owners and hop count. It deliberately carries **no**
+bundle id, no node/native/derived revision and no `*_instance_id`: a citation
+must survive the next refresh, and a storage occurrence does not.
+
+### Failure policy — divergence from spec §73
+
+The specification's §73 table routes *enabled-but-timeout* and
+*enabled-but-unhealthy* to the structured backend with `degraded=True`. The
+activation decision **overrides those two rows**: once the graph route is
+activated, every typed refusal or failure abstains deterministically with a
+public-safe reason code, zero provider calls and no partial paths. Answering a
+graph question from the element index while the graph is activated would be a
+silent substitution, which the activation brief forbids explicitly. Disabled
+activation still degrades to `structured`, exactly as §73 row 1 requires. This
+divergence is recorded here rather than resolved silently; reverting it is a
+spec-level decision.
+
+### Defect found and fixed during activation
+
+The 24 **ranged** Cypher templates carried no relationship-type filter at all:
+`MATCH p = (a)-[r*1..N]->(b)` with no `type(r) IN $predicate_types` clause and
+no type check in `_PATH_RETURN`. A `descendants` query restricted to `CONTAINS`
+was therefore answered with a `HAS_MATERIAL` edge, and grounding would have let
+a claim cite it as containment. The 10 depth-1 templates were always correct,
+which is why the earlier mutation campaign — whose unrequested-type witness sat
+on the hop family — did not surface it.
+
+Fixed on both sides, following the §41 dual-verification principle already used
+for project and revision: the ranged templates now filter the type in Cypher,
+and `_verify_edge_row` independently refuses a predicate the query never asked
+for with the new closed code `row_predicate_not_requested`. Regressions: two
+offline gold cases, one row-verification test, one template-text test, and one
+live test against a real server that was **proven non-vacuous** — it fails when
+the Cypher clause is removed and passes when it is restored.
+
+### Regression policy
+
+HBIM-060 grows 34 → 38. `graph_retrieval` left `unavailable_future` and is now
+a blocking umbrella gate over the activation itself (12 checks: strategy,
+unimplemented set, degraded value, fail-closed availability, lazy driver,
+shutdown close, nine-intent coverage, no-Cypher surface, closed outcome codes).
+Three new blocking pure slices: `graph_retrieval_contract` (15 checks),
+`graph_retrieval_quality` (13 checks over 23 recorded cases) and
+`graph_evidence_grounding` (13 checks). `graph_retrieval_live` is `manual_live`,
+like every other operator-run suite. The 34 existing slices keep their meaning;
+a permanent test compares each of them against the committed policy at `HEAD`.
+
+`backend/eval/graph_retrieval_eval.py` recomputes the served path **offline**:
+it replays a recorded row corpus — the exact columns the frozen templates
+return — through the real `_read`, error classification, active-view resolution,
+anchor resolution, row verification, path construction, §63 ordering, §66
+deduplication, §61 bounds and the §69 pack projection. All nine families are
+covered, and all seven row-verification codes are witnessed.
+
+### Known limitations
+
+* **Mixed evidence is not supported** (§74). A graph response carries graph
+  paths only; combining traversal results with BM25, dense or reranked element
+  hits would merge incomparable outputs into one ordering with no defined
+  semantics.
+* **The graph route does not paginate.** It issues no snapshot and has no frozen
+  ranking to replay, so a stored graph plan submitted for pagination abstains.
+* **The text surface is effectively previous-result anchored.** A query
+  containing a GlobalId routes to `EXACT_LOOKUP` by router precedence, so in
+  practice the text path resolves its anchor from `result_ids`.
+* **`graph_retrieval_quality` is offline by construction.** It proves the
+  projection, verification, ordering and bounds; it does not and cannot claim
+  live server behaviour, which is why `graph_retrieval_live` exists separately.
 
 ## Status of HBIM-081
 
@@ -1964,11 +2090,10 @@ HBIM-041 (ROADMAP §836) and HBIM-090 (ROADMAP §890).
 
 ## Active issue
 
-None — awaiting the next issue in the roadmap. HBIM-081 unblocks **HBIM-082**
-(relation persistence and graph retrieval), per the roadmap ordering and the
-recomputed decision artifact. HBIM-082 owns Neo4j, Cypher, the `GRAPH_PATH`
-EvidencePack contribution and the `graph_retrieval` gate; HBIM-081 owns none of
-them.
+None — awaiting the next issue in the roadmap. HBIM-082 is complete and
+activated, so the `graph` route now has a real backend. The remaining
+`unavailable_future` slice is `multimodal_retrieval`, which HBIM-090 owns
+together with `Route.MULTIMODAL` and the `MEDIA_ITEM` source kind.
 
 ## Scope of HBIM-042
 

@@ -138,6 +138,10 @@ module = [
     "eval.ocr_eval",
     "ingestion.entity_linking",
     "eval.entity_linking_eval",
+    # HBIM-082 §72 — the activation modules. Fully typed, no new debt.
+    "api.graph_driver",
+    "retrieval.graph_activation",
+    "eval.graph_retrieval_eval",
 ]
 disallow_untyped_defs = true
 
@@ -161,6 +165,16 @@ warn_unused_ignores = false
 # comment above already states. It hides nothing that was previously checked.
 [[tool.mypy.overrides]]
 module = ["api.search"]
+follow_imports = "skip"
+
+# HBIM-082 §72: `api.health` (gated) reads the graph activation policy from
+# `api.main`, and `eval.gates` (gated) measures it. `api.main` is legacy and
+# explicitly outside the blocking gate above; following it here would drag it
+# in for the first time and surface pre-existing errors in a file this
+# milestone is not rewriting. The graph seam itself lives in `api.graph_driver`,
+# which IS fully typed and IS in the gate, so nothing new is hidden.
+[[tool.mypy.overrides]]
+module = ["api.main"]
 follow_imports = "skip"
 
 # Bibliotecas externas que não estão instaladas nos jobs de quality.

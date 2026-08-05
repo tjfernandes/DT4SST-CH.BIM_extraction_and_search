@@ -1,0 +1,695 @@
+{
+  "cases": [
+    {
+      "accepted": true,
+      "case_id": "neighbors_native",
+      "caveats": [],
+      "directions": [
+        [
+          "forward"
+        ],
+        [
+          "forward"
+        ],
+        [
+          "forward"
+        ],
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_0"
+        ],
+        [
+          "rn_gold_1"
+        ],
+        [
+          "rn_gold_2"
+        ],
+        [
+          "rn_gold_3"
+        ]
+      ],
+      "evidence_items": 4,
+      "intent": "neighbors",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer01"
+        ],
+        [
+          "el_gold_anchor",
+          "el_gold_peer02"
+        ],
+        [
+          "el_gold_anchor",
+          "el_gold_peer03"
+        ],
+        [
+          "el_gold_anchor",
+          "el_gold_peer04"
+        ]
+      ],
+      "path_count": 4,
+      "path_ids": [
+        "gp_dbdbd5cf92ea0306ede1908d9089945c",
+        "gp_39cfa502abe348feb14a4f6473c843f1",
+        "gp_4ea7bdb146953741fb615397c74ffd30",
+        "gp_0e8d20622875f12cdc17d6aa5a226913"
+      ],
+      "predicates": [
+        [
+          "CONTAINS"
+        ],
+        [
+          "CONTAINS"
+        ],
+        [
+          "CONTAINS"
+        ],
+        [
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "neighbors_derived",
+      "caveats": [
+        "graph_derived_relation"
+      ],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "gd_gold_above"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "neighbors",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer01"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_37044090db26c4b7799f2af66678cd3b"
+      ],
+      "predicates": [
+        [
+          "ABOVE"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "neighbors_tolerant",
+      "caveats": [
+        "graph_derived_relation",
+        "graph_tolerant_relation"
+      ],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "gd_gold_tol"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "neighbors",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer02"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_ae309119fd49ca535d87784959154148"
+      ],
+      "predicates": [
+        [
+          "ABOVE"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "attribute_relation",
+      "caveats": [],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_mat"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "attribute_relation",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "mt_gold_material"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_2995a3acedf97c66d72f430724111d4e"
+      ],
+      "predicates": [
+        [
+          "HAS_MATERIAL"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "native_connections",
+      "caveats": [],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_conn"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "native_connections",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer03"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_7c17223b9ec7d0ba9108a6e7f0db0fd3"
+      ],
+      "predicates": [
+        [
+          "CONNECTS_TO"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "derived_neighborhood",
+      "caveats": [
+        "graph_derived_relation"
+      ],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "gd_gold_touch"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "derived_neighborhood",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer04"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_3ccc8a40e3a7673591f1e361a14760db"
+      ],
+      "predicates": [
+        [
+          "TOUCHES"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "relation_exists",
+      "caveats": [],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_0"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "relation_exists",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer01"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_da146104f68451c6e6585d77170b3b8b"
+      ],
+      "predicates": [
+        [
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "descendants_two_hops",
+      "caveats": [],
+      "directions": [
+        [
+          "forward",
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_hop1",
+          "rn_gold_hop2"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "descendants",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_mid",
+          "el_gold_tail"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_987eb71a88aa1e9534d848a5e8d8769c"
+      ],
+      "predicates": [
+        [
+          "CONTAINS",
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "ancestors_reverse",
+      "caveats": [],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_up"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "ancestors",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_mid"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_b26fb657c5ae7b3398cacbff99cdafa0"
+      ],
+      "predicates": [
+        [
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "shortest_path",
+      "caveats": [],
+      "directions": [
+        [
+          "forward",
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_hop1",
+          "rn_gold_hop2"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "shortest_path",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_mid",
+          "el_gold_tail"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_b1dd4645cf8591f7482f01428cc10379"
+      ],
+      "predicates": [
+        [
+          "CONTAINS",
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "containment_check",
+      "caveats": [],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_contain"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "containment_check",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_mid"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_539d10c8f9a21f432e8b1b99054bb812"
+      ],
+      "predicates": [
+        [
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_foreign_project",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_project_mismatch",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_stale_schema",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_schema_mismatch",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_retained_node_generation",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_node_generation_mismatch",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_retained_relation_revision",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_relation_revision_mismatch",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_endpoint_claim_mismatch",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_endpoint_occurrence_mismatch",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_missing_provenance",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "GraphPathError",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_malformed_row",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_malformed",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_unrequested_type_walk",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "descendants",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_predicate_not_requested",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_unrequested_type_hop",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_predicate_not_requested",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": false,
+      "case_id": "refuse_occurrence_forged",
+      "caveats": [],
+      "directions": [],
+      "edge_ids": [],
+      "evidence_items": 0,
+      "intent": "neighbors",
+      "node_ids": [],
+      "path_count": 0,
+      "path_ids": [],
+      "predicates": [],
+      "refusal_code": "row_endpoint_occurrence_mismatch",
+      "storage_identity_leaked": false,
+      "truncated": false
+    },
+    {
+      "accepted": true,
+      "case_id": "bound_result_limit",
+      "caveats": [
+        "graph_results_truncated"
+      ],
+      "directions": [
+        [
+          "forward"
+        ],
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_b0"
+        ],
+        [
+          "rn_gold_b1"
+        ]
+      ],
+      "evidence_items": 2,
+      "intent": "neighbors",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer01"
+        ],
+        [
+          "el_gold_anchor",
+          "el_gold_peer02"
+        ]
+      ],
+      "path_count": 2,
+      "path_ids": [
+        "gp_e637177dcd624789c27a0bcb181bc64d",
+        "gp_1501c09e696ed638f5e21db671d7754d"
+      ],
+      "predicates": [
+        [
+          "CONTAINS"
+        ],
+        [
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": true
+    },
+    {
+      "accepted": true,
+      "case_id": "bound_path_limit",
+      "caveats": [
+        "graph_results_truncated"
+      ],
+      "directions": [
+        [
+          "forward"
+        ]
+      ],
+      "edge_ids": [
+        [
+          "rn_gold_p0"
+        ]
+      ],
+      "evidence_items": 1,
+      "intent": "neighbors",
+      "node_ids": [
+        [
+          "el_gold_anchor",
+          "el_gold_peer01"
+        ]
+      ],
+      "path_count": 1,
+      "path_ids": [
+        "gp_d33bb75c8381dbedc5fca477f5ed5c46"
+      ],
+      "predicates": [
+        [
+          "CONTAINS"
+        ]
+      ],
+      "refusal_code": "",
+      "storage_identity_leaked": false,
+      "truncated": true
+    }
+  ],
+  "corpus_id": "hbim-082-retrieval-gold-v1"
+}

@@ -15,6 +15,11 @@ from prometheus_client import CollectorRegistry
 from pydantic import BaseModel
 
 from api.errors import internal_error_response, register_exception_handlers
+from api.graph_driver import (
+    build_graph_driver,  # noqa: F401 - the test seam; see api.graph_driver
+    close_graph_driver,
+    get_graph_driver,
+)
 from api.health import healthz, readyz
 from api.metrics import MetricsMiddleware, create_metrics, make_metrics_endpoint
 from api.middleware import RequestIdMiddleware
@@ -29,7 +34,7 @@ from api.responses import (
     default_grounded_llm,
     generate_grounded_answer,
 )
-from api.schemas import PublicCitation, PublicEvidencePack
+from api.schemas import GraphQueryRequest, PublicCitation, PublicEvidencePack
 from api.search import (
     Condition,
     ExtractedAggregation,
@@ -87,8 +92,10 @@ BASE_STRATEGY: Mapping[Route, str] = MappingProxyType(
         Route.EXACT_LOOKUP: "detail",
         Route.STRUCTURED: "structured",
         Route.HYBRID_SEMANTIC: "semantic",
+        # HBIM-082 §72 — the graph route has a real backend now; it degrades to
+        # "structured" only while activation is off (see graph_route_unavailable).
+        Route.GRAPH: "graph",
         # No backend yet (spec §C3) — degraded on purpose:
-        Route.GRAPH: "structured",
         Route.MULTIMODAL: "semantic",
         # HBIM-073 §37 — the document route has a real backend now; it degrades
         # to "semantic" only while activation is off (see UNIMPLEMENTED_ROUTES).
@@ -96,16 +103,21 @@ BASE_STRATEGY: Mapping[Route, str] = MappingProxyType(
     }
 )
 
-#: Routes with no backend at all (Neo4j, media). HBIM-073 §37: the document
-#: route is NOT in this static set any more — its availability is decided at
-#: request time by ``document_route_unavailable()``, so a misconfigured or
+#: Routes with no backend at all (media). HBIM-073 §37 and HBIM-082 §72: the
+#: document and graph routes are NOT in this static set any more — availability
+#: is decided at request time by their own policies, so a misconfigured or
 #: unverified deployment still degrades exactly as before.
-UNIMPLEMENTED_ROUTES: frozenset[Route] = frozenset({Route.GRAPH, Route.MULTIMODAL})
+UNIMPLEMENTED_ROUTES: frozenset[Route] = frozenset({Route.MULTIMODAL})
 
 #: The degraded strategy the document route falls back to when activation is
 #: off or a preflight fails. Kept byte-identical to the pre-HBIM-073 value so
 #: every legacy response is unchanged.
 DOCUMENT_DEGRADED_STRATEGY = "semantic"
+
+#: HBIM-082 §72 — the degraded strategy the graph route falls back to while
+#: activation is off. Byte-identical to the pre-activation ``BASE_STRATEGY``
+#: value, so a deployment without ``NEO4J_ENABLED`` answers exactly as before.
+GRAPH_DEGRADED_STRATEGY = "structured"
 
 
 def document_route_unavailable(activation: object | None = None) -> bool:
@@ -123,6 +135,35 @@ def document_route_unavailable(activation: object | None = None) -> bool:
         except Exception:  # noqa: BLE001 — misconfiguration degrades, never 500s
             return True
     return not getattr(activation, "enabled", False)
+
+
+def graph_route_unavailable(settings: object | None = None) -> bool:
+    """HBIM-082 §72 — True while the graph route must behave exactly as before.
+
+    The analogue of ``document_route_unavailable`` and fail-closed for the same
+    reason: a missing URI, a missing credential, a disabled flag or any settings
+    error keeps the route degraded rather than raising.
+
+    Deliberately **pure and lazy**: it reads settings and nothing else. No
+    driver is constructed, no socket is opened and no query runs, so deciding
+    whether the route is available costs a deployment nothing. Reachability is
+    proven later, by the read itself, and a failure there abstains (§73) instead
+    of silently answering the graph question from another backend.
+    """
+    if settings is None:
+        try:
+            from shared.config import Neo4jSettings
+
+            settings = Neo4jSettings()
+        except Exception:  # noqa: BLE001 — misconfiguration degrades, never 500s
+            return True
+    if not getattr(settings, "enabled", False):
+        return True
+    return not (
+        getattr(settings, "uri", None)
+        and getattr(settings, "username", None)
+        and getattr(settings, "password", None) is not None
+    )
 
 
 def execution_strategy(
@@ -145,6 +186,10 @@ def execution_strategy(
     if decision.route is Route.DOCUMENT_HYBRID and document_route_unavailable():
         # §37 — activation off (or unverifiable): byte-identical legacy behaviour.
         return DOCUMENT_DEGRADED_STRATEGY, True
+    if decision.route is Route.GRAPH and graph_route_unavailable():
+        # HBIM-082 §72 — activation off (or unconfigured): byte-identical
+        # pre-activation behaviour, decided without touching the database.
+        return GRAPH_DEGRADED_STRATEGY, True
     if decision.route is Route.EXACT_LOOKUP and not context.has_previous_results:
         return "structured", True
     return BASE_STRATEGY[decision.route], False
@@ -659,6 +704,217 @@ def _try_snapshot_page(
     return (snapshot.n, offset, page_ids, request.snapshot, evidence_pack)
 
 
+# --------------------------------------------------------------------------- #
+# HBIM-082 §52-§55, §72-§76 — the graph execution path
+# --------------------------------------------------------------------------- #
+class _GraphAbstain(Exception):
+    """Internal control flow: the outcome is already decided and typed."""
+
+
+def _graph_project_scope(
+    request: "ChatRequest", parsed: "ParsedQuery | None"
+) -> tuple[str, bool]:
+    """§58 — the explicit request scope. Never inferred, never widened.
+
+    Returns ``(scope, mismatch)``. The parser deliberately does not infer a
+    project (HBIM-041 §21.1), so the scope is either one the user named or one
+    the typed query declared. With neither, the route abstains: an unscoped
+    traversal would read whatever project happened to match.
+
+    Two scopes that disagree are a *mismatch*, reported as its own outcome
+    rather than as "no scope": silently preferring one of them would let a
+    typed query read a project the message did not name.
+    """
+    declared = getattr(request.graph_query, "project_id", None)
+    parsed_scope = getattr(parsed, "project_id", None)
+    if declared and parsed_scope and declared != parsed_scope:
+        return "", True
+    return str(declared or parsed_scope or ""), False
+
+
+def _graph_text_term(decision: "RoutingDecision") -> tuple[str, bool]:
+    """§51/§54 — the one frozen term this query is served by.
+
+    Returns ``(term, supported)``. Selection is deterministic: ``matched_terms``
+    is already sorted, and the first supported term wins. When the query matched
+    only terms with no canonical predicate, the second element is ``False`` and
+    the route abstains rather than answering a neighbouring question.
+    """
+    from retrieval.graph_query import SPATIAL_TERM_PREDICATES, UNSUPPORTED_SPATIAL_TERMS
+
+    unsupported = ""
+    for term in decision.matched_terms:
+        if term in SPATIAL_TERM_PREDICATES:
+            return term, True
+        if term in UNSUPPORTED_SPATIAL_TERMS and not unsupported:
+            unsupported = term
+    return unsupported, False
+
+
+def _graph_anchor_value(
+    request: "ChatRequest", parsed: "ParsedQuery | None", question: str
+) -> str:
+    """§52 — the closed set of anchor candidates for the text surface.
+
+    An exact IFC GlobalId, or a reference to a result the client already holds.
+    There is no name-to-node matching and no LLM: an anchor the deterministic
+    resolver cannot confirm must abstain, because guessing which element the
+    user meant would make every downstream relation a guess too.
+    """
+    global_ids = sorted(getattr(parsed, "global_ids", ()) or ())
+    if global_ids:
+        return str(global_ids[0])
+    previous = request.result_ids or []
+    if previous and getattr(parsed, "refers_previous", False):
+        index = parse_detail_ref(question, len(previous))
+        return str(previous[index - 1])
+    return ""
+
+
+def _graph_abstention(
+    outcome: object, *, question: str, caveats: tuple = ()
+) -> tuple["EvidencePack", "GroundedOutcome"]:
+    """§73/§74 — an empty pack, then the pre-provider abstention it forces.
+
+    The pack is built even though it is empty: a supported route that produced
+    nothing still declares an EvidencePack, and ``generate_grounded_answer``
+    refuses it on ``no_evidence`` **before** constructing a provider, so
+    ``provider_calls`` is zero by construction rather than by convention.
+    """
+    from retrieval.evidence import build_pack_for_graph
+
+    pack = build_pack_for_graph(None, caveats=caveats)
+    return pack, _grounded_answer(pack, question)
+
+
+def _graph_answer(
+    *,
+    request: "ChatRequest",
+    parsed: "ParsedQuery | None",
+    decision: "RoutingDecision",
+    question: str,
+) -> "ChatResponse":
+    """§72-§76 — the graph route, end to end.
+
+    One shape for every outcome: a v3 EvidencePack, the shared grounded seam,
+    the existing response envelope. There is no separate ungrounded generator
+    and no fallback to another backend — a refusal abstains, because answering
+    a graph question from OpenSearch while the graph is activated would be
+    exactly the silent substitution §1 forbids.
+    """
+    from retrieval import graph_activation as GA
+    from retrieval.evidence import Caveat, build_pack_for_graph
+    from retrieval.graph_query import EntityAmbiguous, EntityUnresolved
+
+    outcome = GA.GraphOutcome.PATHS
+    intent: str | None = None
+    result: object | None = None
+    pack: "EvidencePack | None" = None
+    grounded: "GroundedOutcome | None" = None
+    caveats: tuple = ()
+
+    try:
+        scope, mismatch = _graph_project_scope(request, parsed)
+        if not scope:
+            outcome = (
+                GA.GraphOutcome.PROJECT_MISMATCH if mismatch
+                else GA.GraphOutcome.NO_PROJECT_SCOPE
+            )
+            raise _GraphAbstain
+
+        if request.graph_query is not None:
+            from api.schemas import to_graph_request
+
+            graph_request = to_graph_request(request.graph_query, project_id=scope)
+        else:
+            term, supported = _graph_text_term(decision)
+            if not supported:
+                outcome = GA.GraphOutcome.UNSUPPORTED_TERM
+                caveats = (Caveat.GRAPH_PREDICATE_UNSUPPORTED,)
+                raise _GraphAbstain
+            anchor_value = _graph_anchor_value(request, parsed, question)
+            if not anchor_value:
+                outcome = GA.GraphOutcome.NO_ANCHOR
+                raise _GraphAbstain
+            built = GA.graph_request_for_term(
+                term, project_id=scope, anchor_value=anchor_value
+            )
+            if not isinstance(built, GA.GraphRequest):
+                outcome = GA.GraphOutcome.UNSUPPORTED_TERM
+                caveats = (Caveat.GRAPH_PREDICATE_UNSUPPORTED,)
+                raise _GraphAbstain
+            graph_request = built
+        intent = graph_request.intent.value
+
+        # §34 — the driver is built here and nowhere earlier: routing and the
+        # activation check above have already run without touching the network.
+        handle = get_graph_driver()
+        from retrieval.graph_retrieval import resolve_active_view, resolve_anchor, retrieve
+
+        view = resolve_active_view(handle, project_id=scope)
+        anchor = resolve_anchor(handle, view=view, value=graph_request.anchor_value)
+        if isinstance(anchor, (EntityUnresolved, EntityAmbiguous)):
+            outcome = GA.outcome_for_resolution(anchor)
+            raise _GraphAbstain
+        target_node_id = ""
+        if graph_request.target_value:
+            target = resolve_anchor(
+                handle, view=view, value=graph_request.target_value
+            )
+            if isinstance(target, (EntityUnresolved, EntityAmbiguous)):
+                outcome = GA.outcome_for_resolution(target)
+                raise _GraphAbstain
+            target_node_id = target.node_id
+
+        query = GA.build_graph_query(
+            graph_request, anchor=anchor, target_node_id=target_node_id
+        )
+        result = retrieve(handle, query=query)
+        pack = build_pack_for_graph(result)
+        if pack.result_count == 0:
+            outcome = GA.GraphOutcome.NO_PATHS
+    except _GraphAbstain:
+        pass
+    except Exception as exc:  # noqa: BLE001 — classified, never surfaced raw
+        outcome = GA.classify_outcome(exc)
+        logger.warning("graph route abstained: outcome=%s", outcome.value)
+        pack = None
+        result = None
+
+    if pack is None:
+        pack, grounded = _graph_abstention(outcome, question=question, caveats=caveats)
+    else:
+        _log_evidence(pack)
+        grounded = _grounded_answer(pack, question)
+
+    log_preprocess_json(
+        "graph_route",
+        GA.graph_observability_event(
+            outcome=outcome,
+            activation_enabled=True,
+            degraded=False,
+            intent=intent,
+            result=result,
+            provider_calls=grounded.provider_calls,
+        ),
+    )
+    return ChatResponse(
+        response=grounded.text,
+        plan={
+            "search_strategy": GA.GRAPH_STRATEGY,
+            "route": decision.route.value,
+            "route_degraded": False,
+            "graph_intent": intent,
+            "graph_outcome": outcome.value,
+        },
+        total_hits=pack.total_hits,
+        result_from=0,
+        result_count=pack.result_count,
+        evidence=_public_evidence(pack),
+        **_grounded_fields(grounded),
+    )
+
+
 @lru_cache(maxsize=1)
 def _canonical_mapping_meta() -> Mapping[str, object]:
     """The canonical elements-v2 identity, read from the production mapping.
@@ -907,6 +1163,11 @@ class ChatRequest(BaseModel):
     # §19.3 v6 — the opaque signed ranking-snapshot token issued by a hybrid
     # initial search; echoed by clients for pagination and detail follow-up.
     snapshot: Optional[str] = None
+    # HBIM-082 §49-§55 — additive and optional. Absent, the graph route uses the
+    # frozen text surface (§51); present, it expresses the eight richer families
+    # the text surface deliberately cannot. It carries no Cypher: see the union
+    # in ``api.schemas`` — there is no field in which to put one.
+    graph_query: Optional["GraphQueryRequest"] = None
 
 
 class ChatResponse(BaseModel):
@@ -966,6 +1227,23 @@ async def chat_endpoint(request: ChatRequest):
                 query_embedding = None
             else:
                 search_plan = SearchPlan(**request.pagination.stored_plan)
+                # HBIM-082 §67 — the graph route issues no snapshot and has no
+                # frozen ranking to page through, so a stored graph plan cannot
+                # be replayed. Abstain rather than run an OpenSearch query under
+                # a plan that says "graph".
+                if search_plan.search_strategy == "graph":
+                    graph_pack, graph_outcome = _graph_abstention(
+                        None, question=request.pagination.original_query or user_input
+                    )
+                    return ChatResponse(
+                        response=graph_outcome.text,
+                        plan=dict(request.pagination.stored_plan),
+                        total_hits=0,
+                        result_from=request.pagination.offset,
+                        result_count=0,
+                        evidence=_public_evidence(graph_pack),
+                        **_grounded_fields(graph_outcome),
+                    )
                 search_plan.offset = request.pagination.offset
                 needs_search = search_plan.search_strategy not in ("chat", "aggregation")
                 is_aggregation = False
@@ -1065,6 +1343,18 @@ async def chat_endpoint(request: ChatRequest):
             residency_ok = await _ensure_residency_for_route(
                 routing_decision.route, route_degraded
             )
+
+            # HBIM-082 §72/§73 — the activated graph route. Taken before any
+            # OpenSearch work, so an activated graph question is never answered
+            # from the element index. While activation is off the strategy is
+            # the pre-activation "structured" and this branch is not taken.
+            if strategy == "graph" and not route_degraded:
+                return _graph_answer(
+                    request=request,
+                    parsed=parsed,
+                    decision=routing_decision,
+                    question=effective_query,
+                )
 
             if needs_search:
                 # HBIM-041 bridge (spec §22): the pydantic DTOs keep their
@@ -1402,7 +1692,13 @@ async def _lifespan(application: FastAPI):
         raise ApiConfigurationError(
             "API_AUTH_ENABLED=true mas API_KEYS está vazio ou ausente."
         )
-    yield
+    try:
+        yield
+    finally:
+        # HBIM-082 §34 — the graph handle is the only long-lived client this
+        # module owns, so shutdown closes it. Nothing is opened here: a process
+        # that never served a graph request has nothing to close.
+        close_graph_driver()
 
 
 def create_app(api_settings: ApiSettings | None = None) -> FastAPI:

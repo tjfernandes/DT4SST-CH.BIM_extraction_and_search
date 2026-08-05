@@ -328,7 +328,7 @@ def test_an_empty_result_is_valid_and_carries_no_caveat(handle, view) -> None:  
     result = RT.retrieve(handle, query=NeighborsQuery(
         project_id=P1, anchor=anchor, predicates=(P.CONTAINS,), limit=50))
     assert result.is_empty and not result.caveats
-    assert build_graph_evidence(result).is_empty
+    assert build_graph_evidence(result).result_count == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -341,12 +341,16 @@ def test_the_internal_v3_pack_mirrors_the_paths_exactly(handle, view) -> None:  
         limit=200, max_paths=100))
     pack = build_graph_evidence(result)
     assert pack.version == "hbim-082-evidence-v3"
-    assert [i.path_id for i in pack.items] == [p.path_id for p in result.paths]
+    assert [i.source_id for i in pack.items] == [p.path_id for p in result.paths]
     for item, path in zip(pack.items, result.paths, strict=True):
-        assert item.node_ids == path.node_ids
-        assert item.edge_ids == path.edge_ids
-        assert item.hop_count == path.hop_count
-        assert len(item.edge_provenance) == len(path.edges)
+        assert item.graph is not None
+        assert item.source_id == item.graph.path_id
+        assert item.graph.node_ids == path.node_ids
+        assert item.graph.edge_ids == path.edge_ids
+        assert item.graph.hop_count == path.hop_count
+        assert len(item.graph.edge_provenance) == len(path.edges)
+        # §70 — a deterministic traversal carries no score at all.
+        assert all(entry.score_kind is None for entry in item.provenance)
 
 
 def test_no_storage_identity_reaches_a_path_or_the_pack(handle, view) -> None:  # type: ignore[no-untyped-def]
@@ -361,13 +365,13 @@ def test_no_storage_identity_reaches_a_path_or_the_pack(handle, view) -> None:  
     assert not any(e.startswith("ri_") for p in result.paths for e in p.edge_ids)
 
 
-def test_the_public_pack_is_still_v2_while_v3_exists_internally() -> None:
+def test_the_public_pack_is_the_canonical_v3() -> None:
     from retrieval.evidence import EMITTABLE_SOURCE_KINDS, EVIDENCE_PACK_VERSION, SourceKind
-    from retrieval.graph_evidence import public_path_is_still_v2
+    from retrieval.graph_evidence import graph_pack_is_canonical_v3
 
-    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
-    assert SourceKind.GRAPH_PATH not in EMITTABLE_SOURCE_KINDS
-    assert public_path_is_still_v2()
+    assert EVIDENCE_PACK_VERSION == "hbim-082-evidence-v3"
+    assert SourceKind.GRAPH_PATH in EMITTABLE_SOURCE_KINDS
+    assert graph_pack_is_canonical_v3()
 
 
 # --------------------------------------------------------------------------- #
@@ -414,3 +418,27 @@ def test_an_error_never_carries_a_credential_or_the_query(handle) -> None:  # ty
     assert "bolt://" not in message
     assert SYNTHETIC_PASSWORD not in message
     assert "CREATE" not in message
+
+
+# --------------------------------------------------------------------------- #
+# activation regression — the ranged templates had no relationship-type filter
+# --------------------------------------------------------------------------- #
+def test_a_ranged_walk_never_traverses_an_unrequested_relationship_type(  # type: ignore[no-untyped-def]
+    handle, view
+) -> None:
+    """§50 against a real server.
+
+    The v2 fixture attaches a `HAS_MATERIAL` edge to the shared anchor. Before
+    the activation fix the ranged templates carried no `type(r) IN
+    $predicate_types` clause, so a `descendants` read restricted to the
+    hierarchy set walked into it. The server must now never return that row.
+    """
+    anchor = _anchor(handle, view, ANCHOR)
+    result = RT.retrieve(handle, query=DescendantsQuery(
+        project_id=P1, anchor=anchor, predicates=HIERARCHY_PREDICATES,
+        max_depth=3, limit=200, max_paths=100))
+    served = {predicate for path in result.paths for predicate in
+              (edge.predicate for edge in path.edges)}
+    requested = {predicate.value for predicate in HIERARCHY_PREDICATES}
+    assert served <= requested, sorted(served - requested)
+    assert "HAS_MATERIAL" not in served
