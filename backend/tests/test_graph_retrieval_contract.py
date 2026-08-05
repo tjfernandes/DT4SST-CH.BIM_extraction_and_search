@@ -287,17 +287,18 @@ def _node_row(project_id: str = PROJECT, node_id: str = "el_a", revision: str = 
 
 def _edge_row(project_id: str = PROJECT, revision: str = GEN_B,
               src: str | None = None, tgt: str | None = None,
-              schema: str = KG_SCHEMA_VERSION) -> dict[str, object]:
+              schema: str = KG_SCHEMA_VERSION,
+              predicate: str = "CONTAINS") -> dict[str, object]:
     src = src or _occ(PROJECT, "el_a", GEN_B)
     tgt = tgt or _occ(PROJECT, "el_b", GEN_B)
-    return {"edge_id": "rn_contract", "project_id": project_id, "predicate": "CONTAINS",
+    return {"edge_id": "rn_contract", "project_id": project_id, "predicate": predicate,
             "source_kind": "ifc_native", "native_revision_id": revision,
             "kg_schema_version": schema,
             "relationship_instance_id": relationship_instance_id(
                 kg_schema_version=schema, project_id=project_id, edge_id="rn_contract",
                 source_kind="ifc_native", relation_revision_id=revision,
                 source_node_instance_id=src, target_node_instance_id=tgt,
-                predicate="CONTAINS"),
+                predicate=predicate),
             "source_node_instance_id": src, "target_node_instance_id": tgt}
 
 
@@ -337,22 +338,47 @@ def test_an_occurrence_id_must_match_the_rows_own_fields() -> None:
     assert excinfo.value.code == RT.ROW_ENDPOINT_OCCURRENCE_MISMATCH
 
 
+#: §50 — the relationship types the query under test asked for. Verification
+#: is independent of the statement, so the set is supplied explicitly.
+REQUESTED = frozenset({"CONTAINS"})
+
+
 def test_a_valid_relationship_row_verifies() -> None:
     src, tgt = _node_row(node_id="el_a"), _node_row(node_id="el_b")
-    assert RT._verify_edge_row(_edge_row(), src, tgt, VIEW) == PROJECT
+    assert RT._verify_edge_row(_edge_row(), src, tgt, VIEW, REQUESTED) == PROJECT
+
+
+def test_an_unrequested_relationship_type_is_refused() -> None:
+    """Activation regression: the ranged templates carried no `type(r) IN
+    $predicate_types` clause, so a `descendants` read restricted to CONTAINS
+    was answered with a HAS_MATERIAL edge. The projection now refuses it
+    independently of the statement that produced the row."""
+    src, tgt = _node_row(node_id="el_a"), _node_row(node_id="el_b")
+    with pytest.raises(RT.RowVerificationError) as excinfo:
+        RT._verify_edge_row(_edge_row(predicate="HAS_MATERIAL"), src, tgt, VIEW,
+                            REQUESTED)
+    assert excinfo.value.code == RT.ROW_PREDICATE_NOT_REQUESTED
+
+
+def test_every_ranged_template_filters_the_relationship_type() -> None:
+    """The Cypher half of the same regression: the scope must be in the
+    statement too, so an unrequested row is never even returned."""
+    for statement in GC.TEMPLATES.values():
+        assert "$predicate_types" in statement
 
 
 def test_a_foreign_relationship_with_local_endpoints_is_refused() -> None:
     src, tgt = _node_row(node_id="el_a"), _node_row(node_id="el_b")
     with pytest.raises(RT.RowVerificationError) as excinfo:
-        RT._verify_edge_row(_edge_row(project_id="proj-other.example.test"), src, tgt, VIEW)
+        RT._verify_edge_row(_edge_row(project_id="proj-other.example.test"), src, tgt,
+                            VIEW, REQUESTED)
     assert excinfo.value.code == RT.ROW_PROJECT_MISMATCH
 
 
 def test_a_retained_relation_revision_is_refused() -> None:
     src, tgt = _node_row(node_id="el_a"), _node_row(node_id="el_b")
     with pytest.raises(RT.RowVerificationError) as excinfo:
-        RT._verify_edge_row(_edge_row(revision=GEN_A), src, tgt, VIEW)
+        RT._verify_edge_row(_edge_row(revision=GEN_A), src, tgt, VIEW, REQUESTED)
     assert excinfo.value.code == RT.ROW_RELATION_REVISION_MISMATCH
 
 
@@ -360,7 +386,7 @@ def test_claimed_endpoints_must_equal_the_nodes_returned_with_the_row() -> None:
     src, tgt = _node_row(node_id="el_a"), _node_row(node_id="el_b")
     lying = _edge_row(src=_occ(PROJECT, "el_z", GEN_B))
     with pytest.raises(RT.RowVerificationError) as excinfo:
-        RT._verify_edge_row(lying, src, tgt, VIEW)
+        RT._verify_edge_row(lying, src, tgt, VIEW, REQUESTED)
     assert excinfo.value.code == RT.ROW_ENDPOINT_OCCURRENCE_MISMATCH
 
 
@@ -486,42 +512,57 @@ def test_an_unknown_predicate_is_refused_at_the_boundary() -> None:
 # --------------------------------------------------------------------------- #
 # §68–§71 — internal v3, and the public path that must not move
 # --------------------------------------------------------------------------- #
-def test_the_public_evidence_pack_is_still_v2_and_cannot_emit_a_graph_path() -> None:
+def test_the_public_evidence_pack_is_v3_and_can_emit_a_graph_path() -> None:
     from retrieval.evidence import EMITTABLE_SOURCE_KINDS, EVIDENCE_PACK_VERSION, SourceKind
 
-    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
-    assert SourceKind.GRAPH_PATH not in EMITTABLE_SOURCE_KINDS
+    assert EVIDENCE_PACK_VERSION == "hbim-082-evidence-v3"
+    assert SourceKind.GRAPH_PATH in EMITTABLE_SOURCE_KINDS
 
 
-def test_the_internal_v3_contract_is_additive_only() -> None:
+def test_the_v3_contract_is_additive_only() -> None:
+    """§68/§70 — one emittable member and one method added, nothing reordered."""
     from retrieval import graph_evidence as GE
     from retrieval.evidence import (
         EMITTABLE_SOURCE_KINDS,
         METHOD_ORDER,
         SOURCE_KIND_ORDER,
+        RetrievalMethod,
         SourceKind,
     )
 
     assert GE.EVIDENCE_PACK_VERSION_V3 == "hbim-082-evidence-v3"
-    assert GE.V3_EMITTABLE_SOURCE_KINDS == frozenset(
-        EMITTABLE_SOURCE_KINDS | {SourceKind.GRAPH_PATH})
-    assert tuple(GE.V3_METHOD_ORDER)[: len(METHOD_ORDER)] == tuple(METHOD_ORDER)
+    assert GE.V3_EMITTABLE_SOURCE_KINDS is EMITTABLE_SOURCE_KINDS
+    assert METHOD_ORDER[-1] is RetrievalMethod.GRAPH_TRAVERSAL
+    assert tuple(METHOD_ORDER)[:-1] == tuple(
+        m for m in RetrievalMethod if m is not RetrievalMethod.GRAPH_TRAVERSAL)
     assert GE.GRAPH_ALLOWED_SCORE_KINDS == frozenset()
     order = list(SOURCE_KIND_ORDER)
     assert order.index(SourceKind.GRAPH_PATH) == order.index(SourceKind.DOCUMENT_CHUNK) + 1
-    assert GE.public_path_is_still_v2()
+    assert GE.graph_pack_is_canonical_v3()
 
 
-def test_the_router_and_api_are_untouched_by_retrieval() -> None:
-    """§72 — activation is a later step; nothing here may reach the public route."""
+def test_there_is_exactly_one_canonical_v3_serializer() -> None:
+    """The dormant duplicate is gone: `graph_evidence` re-exports, never redefines."""
+    from retrieval import evidence as EV
+    from retrieval import graph_evidence as GE
+
+    assert GE.canonical_json is EV.canonical_json
+    assert GE.GraphPathEvidence is EV.GraphPathEvidence
+    source = pathlib.Path(GE.__file__).read_text()
+    assert "class GraphEvidencePackV3" not in source
+    assert "json.dumps" not in source
+
+
+def test_the_router_module_itself_is_still_untouched() -> None:
+    """§72 — activation lives in the endpoint; `route()` stays pure and total."""
     from retrieval import router
 
     assert "graph_retrieval" not in pathlib.Path(router.__file__).read_text()
-    main = pathlib.Path("backend/api/main.py")
-    if main.exists():
-        text = main.read_text()
-        assert "graph_retrieval" not in text
-        assert "Route.GRAPH" in text and "UNIMPLEMENTED_ROUTES" in text
+    import api.main
+
+    text = pathlib.Path(api.main.__file__).read_text()
+    assert "Route.GRAPH" in text and "UNIMPLEMENTED_ROUTES" in text
+    assert "graph_route_unavailable" in text
 
 
 def test_depth_choices_are_the_closed_set() -> None:

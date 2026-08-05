@@ -103,8 +103,9 @@ def pack_of(*items: EvidenceItem, **kwargs: object) -> EvidencePack:
 # Schema, version and closed enums (§43)
 # --------------------------------------------------------------------------- #
 def test_version_literal_is_pinned() -> None:
-    # HBIM-073 §41 — the closed emittable set grew, so the version bumped.
-    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
+    # HBIM-082 §68 — the closed emittable set grew again, so the version bumped
+    # again. A v2 consumer must not silently accept a v3 pack.
+    assert EVIDENCE_PACK_VERSION == "hbim-082-evidence-v3"
     assert pack_of(item()).version == EVIDENCE_PACK_VERSION
 
 
@@ -113,18 +114,25 @@ def test_every_closed_enum_has_its_exact_members_and_order() -> None:
         "canonical_element", "legacy_element", "document_chunk",
         "graph_path", "media_item",
     ]
+    # HBIM-082 §70 — `graph_traversal` is APPENDED, so every existing
+    # provenance sort key keeps the index it already had.
     assert [m.value for m in RetrievalMethod] == [
         "bm25", "dense_knn", "rrf_fusion", "reranker",
         "structured_filter", "exact_lookup", "snapshot_page",
+        "graph_traversal",
     ]
     assert [s.value for s in ScoreKind] == [
         "bm25_score", "dense_similarity", "rrf_fused",
         "reranker_probability", "opensearch_query_score",
     ]
-    # HBIM-073 §45 added exactly four document caveats; the set stays closed.
+    # HBIM-073 §45 added four document caveats and HBIM-082 §71 four graph
+    # ones; the set stays closed. `Caveat` sorts by value, so a pack carrying
+    # none of the new members serialises byte-identically to before.
     assert sorted(c.value for c in Caveat) == [
         "degraded_route", "document_metadata_unavailable",
-        "future_backend_unavailable", "items_truncated_by_limit",
+        "future_backend_unavailable", "graph_derived_relation",
+        "graph_predicate_unsupported", "graph_results_truncated",
+        "graph_tolerant_relation", "items_truncated_by_limit",
         "legacy_source", "metadata_conflict", "no_evidence",
         "ocr_derived_passage", "page_region_unavailable", "passage_truncated",
         "snapshot_page_without_scores", "threshold_accept_all",
@@ -156,19 +164,22 @@ def test_blank_and_oversized_source_ids_are_rejected() -> None:
 
 
 def test_future_source_kinds_can_never_be_emitted() -> None:
-    # HBIM-073 §41 — the set grew by exactly one member. Graph and media
-    # remain declared-but-unemittable, so a future backend cannot leak in.
+    # HBIM-082 §68 — the set grew by exactly one member again. Media remains
+    # declared-but-unemittable, so a future backend cannot leak in.
     assert EMITTABLE_SOURCE_KINDS == {
         SourceKind.CANONICAL_ELEMENT,
         SourceKind.LEGACY_ELEMENT,
         SourceKind.DOCUMENT_CHUNK,
+        SourceKind.GRAPH_PATH,
     }
-    for kind in (SourceKind.GRAPH_PATH, SourceKind.MEDIA_ITEM):
-        with pytest.raises(EvidenceIdentityError, match="cannot be emitted"):
-            item(kind=kind)
-    # A document kind is emittable but still requires its typed block (§42).
+    with pytest.raises(EvidenceIdentityError, match="cannot be emitted"):
+        item(kind=SourceKind.MEDIA_ITEM)
+    # An emittable kind still requires its own typed block (§42/§69), so a
+    # document or graph item can never degrade into an element item.
     with pytest.raises(EvidenceIdentityError, match="DocumentEvidence"):
         item(kind=SourceKind.DOCUMENT_CHUNK)
+    with pytest.raises(EvidenceIdentityError, match="GraphPathEvidence"):
+        item(kind=SourceKind.GRAPH_PATH)
 
 
 def test_bool_is_rejected_wherever_a_number_is_expected() -> None:
@@ -223,6 +234,9 @@ def test_each_method_accepts_only_its_own_scale() -> None:
         RetrievalMethod.STRUCTURED_FILTER: {ScoreKind.OPENSEARCH_QUERY},
         RetrievalMethod.EXACT_LOOKUP: set(),
         RetrievalMethod.SNAPSHOT_PAGE: set(),
+        # HBIM-082 §70 — a deterministic traversal computes no ranking, so it
+        # carries no score and `ScoreKind` gained no member.
+        RetrievalMethod.GRAPH_TRAVERSAL: set(),
     }
     assert {m: set(v) for m, v in ALLOWED_SCORE_KIND.items()} == expected
     for method, kinds in expected.items():
@@ -747,7 +761,7 @@ def test_fresh_subprocess_import_with_socket_and_subprocess_bombs() -> None:
         "subprocess.run = boom\n"
         "import retrieval.evidence as m\n"
         "import api.schemas\n"
-        "assert m.EVIDENCE_PACK_VERSION == 'hbim-073-evidence-v2'\n"
+        "assert m.EVIDENCE_PACK_VERSION == 'hbim-082-evidence-v3'\n"
         "print('OK')\n"
     )
     proc = subprocess.run(

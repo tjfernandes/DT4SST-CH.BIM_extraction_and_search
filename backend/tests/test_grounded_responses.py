@@ -145,13 +145,16 @@ def test_versions_are_pinned() -> None:
     assert GROUNDED_OUTPUT_VERSION == "hbim-053-output-v1"
 
 
-def test_abstention_taxonomy_is_exactly_the_specified_seventeen() -> None:
+def test_abstention_taxonomy_is_exactly_the_specified_eighteen() -> None:
+    # HBIM-082 §75 added exactly one member: a graph claim the cited path does
+    # not contain. Every pre-existing reason keeps its value.
     assert sorted(r.value for r in AbstentionReason) == [
         "aggregate_mismatch", "malformed_output", "model_abstained", "no_claims",
         "no_evidence", "no_pack", "no_usable_content", "output_too_large",
         "projection_too_large", "provider_unavailable", "quote_not_found",
         "render_failure", "response_format_unsupported", "schema_violation",
-        "unknown_reference", "unsupported_claim", "unsupported_pack_version",
+        "unknown_reference", "unsupported_claim", "unsupported_graph_claim",
+        "unsupported_pack_version",
     ]
     assert MODEL_ABSTAIN_REASONS == {"insufficient_evidence", "out_of_scope"}
 
@@ -825,14 +828,17 @@ def test_grounded_test_modules_never_import_the_real_client() -> None:
                 assert node.func.id != "OpenAI", name
 
 
-def test_evidence_pack_v1_is_untouched_by_this_milestone() -> None:
-    # HBIM-073 §41 — v2 adds document_chunk to the closed emittable set.
-    # Element packs built through the v1 code path stay byte-identical,
-    # which the golden serialization assertions below still prove.
-    """§9 — HBIM-053 consumes EvidencePack v1 unchanged."""
+def test_element_grounding_survives_every_evidence_version_bump() -> None:
+    """§9 — HBIM-053 consumes whatever EvidencePack version is current.
+
+    v2 added `document_chunk` and HBIM-082 §68 added `graph_path`, each growing
+    the closed emittable set by exactly one member. Element packs built through
+    the original code path stay byte-identical apart from the version marker,
+    which the golden serialization assertions in this module still prove.
+    """
     from retrieval.evidence import EVIDENCE_PACK_VERSION
 
-    assert EVIDENCE_PACK_VERSION == "hbim-073-evidence-v2"
+    assert EVIDENCE_PACK_VERSION == "hbim-082-evidence-v3"
 
 
 def test_get_response_keeps_its_own_fallback_for_chat() -> None:

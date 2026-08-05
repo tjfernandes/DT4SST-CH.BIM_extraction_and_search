@@ -111,6 +111,11 @@ ROW_NODE_GENERATION_MISMATCH: Final[str] = "row_node_generation_mismatch"
 ROW_RELATION_REVISION_MISMATCH: Final[str] = "row_relation_revision_mismatch"
 ROW_ENDPOINT_OCCURRENCE_MISMATCH: Final[str] = "row_endpoint_occurrence_mismatch"
 ROW_MALFORMED: Final[str] = "row_malformed"
+#: §50 — a relationship whose type the query never asked for. The templates
+#: already scope this in Cypher; verifying it again here is the §41 principle
+#: applied to the read side, and it is what makes the guarantee independent of
+#: the statement that produced the row.
+ROW_PREDICATE_NOT_REQUESTED: Final[str] = "row_predicate_not_requested"
 
 
 @dataclass(frozen=True)
@@ -312,13 +317,24 @@ def _verify_edge_row(
     source_props: Mapping[str, Any],
     target_props: Mapping[str, Any],
     view: ActiveView,
+    requested: frozenset[str],
 ) -> str:
-    """Return the relationship's own project id, proven equal to the requested one."""
+    """Return the relationship's own project id, proven equal to the requested one.
+
+    ``requested`` is the relationship-type set this query asked for. It is
+    checked here as well as in Cypher because a filter and a check that share
+    one source of truth prove nothing: a template that lost its `type(r) IN
+    $predicate_types` clause must be caught by the projection, not trusted.
+    """
     project_id = _required(props, "project_id", "relationship")
     schema = _required(props, "kg_schema_version", "relationship")
     source_kind = _required(props, "source_kind", "relationship")
     _required(props, "edge_id", "relationship")
     _required(props, "relationship_instance_id", "relationship")
+    predicate = _required(props, "predicate", "relationship")
+    if predicate not in requested:
+        raise RowVerificationError(
+            ROW_PREDICATE_NOT_REQUESTED, "relationship type was not requested")
     if project_id != view.project_id:
         raise RowVerificationError(ROW_PROJECT_MISMATCH, "relationship belongs to another project")
     if schema != view.kg_schema_version:
@@ -366,12 +382,14 @@ def _verified_project(*project_ids: str) -> str:
 def _hop_paths(query: GraphQuery, view: ActiveView, rows: Sequence[Mapping[str, Any]]
                ) -> list[GraphPath]:
     """Depth-1 rows: one edge per row, so one two-node path per row."""
+    requested = frozenset(relationship_types_for(query.predicates))
     paths: list[GraphPath] = []
     for row in rows:
         owners = [
             _verify_node_row(row["anchor_props"], view, "anchor node"),
             _verify_node_row(row["other_props"], view, "neighbour node"),
-            _verify_edge_row(row["edge_props"], row["anchor_props"], row["other_props"], view),
+            _verify_edge_row(row["edge_props"], row["anchor_props"],
+                             row["other_props"], view, requested),
         ]
         owner = _verified_project(*owners)
         anchor = build_node(row["anchor_props"], row["anchor_labels"])
@@ -392,6 +410,7 @@ def _hop_paths(query: GraphQuery, view: ActiveView, rows: Sequence[Mapping[str, 
 def _walk_paths(query: GraphQuery, view: ActiveView, rows: Sequence[Mapping[str, Any]]
                 ) -> list[GraphPath]:
     """Ranged rows: whole walks, already generation-filtered inside Cypher."""
+    requested = frozenset(relationship_types_for(query.predicates))
     paths: list[GraphPath] = []
     for row in rows:
         node_ids = [str(x) for x in row["node_ids"]]
@@ -413,7 +432,8 @@ def _walk_paths(query: GraphQuery, view: ActiveView, rows: Sequence[Mapping[str,
                 == len(nodes) - 1):
             raise GraphPathError("a walk row has mismatched relationship columns")
         owners += [
-            _verify_edge_row(edge_props[index], node_props[index], node_props[index + 1], view)
+            _verify_edge_row(edge_props[index], node_props[index],
+                             node_props[index + 1], view, requested)
             for index in range(len(nodes) - 1)
         ]
         owner = _verified_project(*owners)

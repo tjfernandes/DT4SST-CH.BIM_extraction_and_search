@@ -48,7 +48,7 @@ def _write_policy(tmp_path: Path, payload: dict) -> Path:
 # --------------------------------------------------------------------------- #
 # Policy loading (§11)
 # --------------------------------------------------------------------------- #
-def test_committed_policy_loads_and_has_the_thirty_four_slices() -> None:
+def test_committed_policy_loads_and_has_the_thirty_eight_slices() -> None:
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.policy_version == POLICY_VERSION
     # HBIM-070 added three document slices; HBIM-071 §32 added exactly three
@@ -68,7 +68,11 @@ def test_committed_policy_loads_and_has_the_thirty_four_slices() -> None:
     # native_relation_quality, derived_relation_quality,
     # relation_generation_live): 30 → 34. graph_retrieval STILL stays
     # unavailable_future — relations are generated, not served.
-    assert len(policy.slices) == 34
+    # HBIM-082 §94 added exactly four (graph_retrieval_contract,
+    # graph_retrieval_quality, graph_evidence_grounding, graph_retrieval_live)
+    # and reclassified graph_retrieval from unavailable_future to
+    # blocking/pure — the route is now genuinely served: 34 → 38.
+    assert len(policy.slices) == 38
     assert {s.slice_id for s in policy.slices} == set(ADAPTERS)
 
 
@@ -196,7 +200,7 @@ def test_real_tree_passes_every_gated_slice(real_report) -> None:
     # HBIM-081 §68: +3 passed (relation_contract, native_relation_quality,
     # derived_relation_quality), +1 manual (relation_generation_live).
     assert real_report["counts"] == {
-        "passed": 25, "failed": 0, "delegated": 1, "manual": 6, "unavailable": 2,
+        "passed": 29, "failed": 0, "delegated": 1, "manual": 7, "unavailable": 1,
     }
 
 
@@ -240,16 +244,23 @@ def test_real_tree_ocr_decision_margins_are_recomputed(real_report) -> None:
 
 
 def test_future_slices_are_unavailable_never_green(real_report) -> None:
-    """Graph and multimodal genuinely have no backend and must stay unavailable.
+    """Only multimodal genuinely has no backend, and it must stay unavailable.
 
-    ``document_retrieval`` deliberately left this set in HBIM-073 §54 — it now
-    has a real implementation and is gated numerically, which the assertions
-    below prove rather than assume.
+    ``document_retrieval`` left this set in HBIM-073 §54 and ``graph_retrieval``
+    in HBIM-082 §94 — both now have a real implementation and are gated
+    numerically, which the assertions below prove rather than assume.
     """
-    for slice_id in ("graph_retrieval", "multimodal_retrieval"):
-        record = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
-        assert record["status"] == "unavailable"
-        assert record["checks"] == []
+    record = next(
+        s for s in real_report["slices"] if s["slice_id"] == "multimodal_retrieval"
+    )
+    assert record["status"] == "unavailable"
+    assert record["checks"] == []
+
+    for slice_id in ("document_retrieval", "graph_retrieval"):
+        served = next(s for s in real_report["slices"] if s["slice_id"] == slice_id)
+        assert served["status"] == "pass"
+        assert served["classification"] == "blocking"
+        assert served["checks"]
 
     document = next(
         s for s in real_report["slices"] if s["slice_id"] == "document_retrieval"
@@ -582,7 +593,7 @@ def test_ci_mode_report_records_mode(tmp_path) -> None:
     assert main(["run", "--ci", "--report-dir", str(tmp_path / "ci")]) == 0
     report = json.loads((tmp_path / "ci" / "gates_report.json").read_text(encoding="utf-8"))
     assert report["mode"] == "ci"
-    assert len(report["slices"]) == 34   # every registered slice, none skipped
+    assert len(report["slices"]) == 38   # every registered slice, none skipped
 
 
 # --------------------------------------------------------------------------- #
@@ -986,8 +997,9 @@ def test_graph_retrieval_stays_unavailable(real_report) -> None:
     """HBIM-079 decides the extraction pipeline; it must not open a retrieval
     path. Making graph_retrieval available would be scope creep."""
     entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_retrieval")
-    assert entry["status"] == "unavailable"
-    assert entry["classification"] == "unavailable_future"
+    assert entry["status"] == "pass"
+    assert entry["classification"] == "blocking"
+    assert entry["checks"]
 
 
 def test_the_live_graph_slice_never_runs_geometry_in_ci(real_report) -> None:
@@ -1330,8 +1342,9 @@ def test_an_altered_historical_mapping_fails(tmp_path) -> None:
 def test_geometry_graph_retrieval_still_unavailable(real_report) -> None:
     """HBIM-080 extracts geometry; it must not open a retrieval path."""
     entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_retrieval")
-    assert entry["status"] == "unavailable"
-    assert entry["classification"] == "unavailable_future"
+    assert entry["status"] == "pass"
+    assert entry["classification"] == "blocking"
+    assert entry["checks"]
 
 
 def test_geometry_real_model_live_never_runs_in_ci(real_report) -> None:
@@ -1656,8 +1669,9 @@ def test_p33_dropped_determinism_agreement_fails(tmp_path) -> None:
 # --- 34 scope guards --------------------------------------------------------- #
 def test_p34_graph_retrieval_stays_unavailable(real_report) -> None:
     entry = next(s for s in real_report["slices"] if s["slice_id"] == "graph_retrieval")
-    assert entry["status"] == "unavailable"
-    assert entry["classification"] == "unavailable_future"
+    assert entry["status"] == "pass"
+    assert entry["classification"] == "blocking"
+    assert entry["checks"]
 
 
 def test_relation_generation_live_never_runs_in_ci(real_report) -> None:

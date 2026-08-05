@@ -192,6 +192,9 @@ jobs:
           backend/eval/relation_fixtures.py
           backend/eval/relation_gold.py
           backend/eval/relation_benchmark.py
+          backend/api/graph_driver.py
+          backend/retrieval/graph_activation.py
+          backend/eval/graph_retrieval_eval.py
 
   document-parse:
     runs-on: ubuntu-latest

@@ -30,9 +30,12 @@ def test_readyz_ready(make_app):
     client = _client_with_checker(make_app, {"config": "ok", "opensearch": "ok"})
     resp = client.get("/readyz")
     assert resp.status_code == 200
+    # HBIM-082 §72 — the graph state is REPORTED, never part of the verdict:
+    # an optional route that was never enabled cannot make a deployment 503.
     assert resp.json() == {
         "status": "ready",
         "checks": {"config": "ok", "opensearch": "ok"},
+        "graph": "disabled",
     }
 
 
@@ -46,6 +49,7 @@ def test_readyz_not_ready_exposes_no_internals(make_app):
     assert body == {
         "status": "not_ready",
         "checks": {"config": "ok", "opensearch": "unavailable"},
+        "graph": "disabled",
     }
     assert "example.test" not in resp.text
     assert "Traceback" not in resp.text

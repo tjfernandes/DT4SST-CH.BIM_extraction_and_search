@@ -35,7 +35,9 @@ from retrieval.evidence import (
     Caveat,
     EvidenceItem,
     EvidencePack,
+    SourceKind,
 )
+from retrieval.router import fold_text
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,9 @@ MAX_CLAIM_CHARS = 400
 MAX_SUPPORTS_PER_CLAIM = 4
 MAX_QUOTE_CHARS = 240
 MIN_NORMALIZED_QUOTE_CHARS = 8
+#: HBIM-082 §76 — the graph support fields are canonical ids and closed enum
+#: values, so they are bounded like an evidence source id.
+MAX_GRAPH_FIELD_CHARS = 512
 MAX_RENDERED_RESPONSE_CHARS = 12000
 
 #: §21 — the only abstain reasons the model itself may emit.
@@ -113,6 +118,8 @@ class AbstentionReason(str, Enum):
     UNKNOWN_REFERENCE = "unknown_reference"
     QUOTE_NOT_FOUND = "quote_not_found"
     AGGREGATE_MISMATCH = "aggregate_mismatch"
+    #: HBIM-082 §75 — a graph claim that the cited path does not contain.
+    UNSUPPORTED_GRAPH_CLAIM = "unsupported_graph_claim"
     MODEL_ABSTAINED = "model_abstained"
     RENDER_FAILURE = "render_failure"
 
@@ -295,6 +302,20 @@ def build_projection(
                 record["page_number"] = document.page_number
                 record["section_title"] = document.section_title
                 record["ocr"] = document.ocr
+            # HBIM-082 §76 — a graph item exposes exactly the structure a claim
+            # must declare to be validated. The bundle id and the three active
+            # revisions stay out: the model needs none of them, and they are not
+            # citable. So do the storage ids, which never reach evidence at all.
+            graph = entry.item.graph
+            if graph is not None:
+                record["path_id"] = graph.path_id
+                record["intent"] = graph.intent
+                record["node_ids"] = list(graph.node_ids)
+                record["edge_ids"] = list(graph.edge_ids)
+                record["predicates"] = list(graph.predicates)
+                record["traversal_directions"] = list(graph.traversal_directions)
+                record["edge_source_kinds"] = list(graph.edge_source_kinds)
+                record["hop_count"] = graph.hop_count
             evidence.append(record)
         projection["evidence"] = evidence
 
@@ -324,6 +345,15 @@ class SupportRecord:
     quote: str | None = None
     agg_key: str | None = None
     agg_count: int | None = None
+    # HBIM-082 §76 — a graph support names the exact relation it relies on, so
+    # every rule below is an equality against the cited path rather than a
+    # judgement about prose. A model that wants to assert native authority for a
+    # geometry-derived edge has to *declare* `ifc_native` and be refused.
+    path_id: str | None = None
+    edge_id: str | None = None
+    predicate: str | None = None
+    direction: str | None = None
+    source_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -348,7 +378,11 @@ class DraftRejection(Exception):
 
 
 _CLAIM_KEYS = frozenset({"text", "supports"})
-_SUPPORT_KEYS = frozenset({"ref", "quote", "agg_key", "agg_count"})
+_SUPPORT_KEYS = frozenset(
+    {"ref", "quote", "agg_key", "agg_count",
+     "path_id", "edge_id", "predicate", "direction", "source_kind"}
+)
+_GRAPH_SUPPORT_KEYS = ("path_id", "edge_id", "predicate", "direction", "source_kind")
 _DRAFT_KEYS = frozenset({"status", "claims", "abstain_reason"})
 
 
@@ -440,15 +474,26 @@ def _parse_support(entry: object) -> SupportRecord:
     if not (is_item or is_agg):
         raise _reject(AbstentionReason.UNKNOWN_REFERENCE)
 
+    graph_fields = {name: entry.get(name) for name in _GRAPH_SUPPORT_KEYS}
+
     if is_item:
         if agg_key is not None or agg_count is not None:
             raise _reject(AbstentionReason.SCHEMA_VIOLATION)
         text = _require_str(quote)
         if not text.strip() or len(text) > MAX_QUOTE_CHARS:
             raise _reject(AbstentionReason.SCHEMA_VIOLATION)
-        return SupportRecord(ref=ref, quote=text)
+        # §76 — the graph fields are typed here and matched against the cited
+        # path in `validate_item_support`; presence is decided there, because
+        # only the reference map knows whether this item is a graph path.
+        for name, value in graph_fields.items():
+            if value is not None:
+                parsed = _require_str(value)
+                if not parsed.strip() or len(parsed) > MAX_GRAPH_FIELD_CHARS:
+                    raise _reject(AbstentionReason.SCHEMA_VIOLATION)
+                graph_fields[name] = parsed
+        return SupportRecord(ref=ref, quote=text, **graph_fields)
 
-    if quote is not None:
+    if quote is not None or any(value is not None for value in graph_fields.values()):
         raise _reject(AbstentionReason.SCHEMA_VIOLATION)
     key = _require_str(agg_key)
     if isinstance(agg_count, bool) or not isinstance(agg_count, int):
@@ -459,14 +504,79 @@ def _parse_support(entry: object) -> SupportRecord:
 # --------------------------------------------------------------------------- #
 # Support validation (§24-§26)
 # --------------------------------------------------------------------------- #
+def unsupported_graph_terms() -> frozenset[str]:
+    """HBIM-082 §51/§76 rule 5 — the frozen terms with no canonical predicate.
+
+    Read from the single table in ``retrieval.graph_query`` rather than copied,
+    so a term can never be supported there and still be assertable here. The
+    import is local: the grounding module holds no graph dependency at import.
+    """
+    from retrieval.graph_query import UNSUPPORTED_SPATIAL_TERMS
+
+    return frozenset(UNSUPPORTED_SPATIAL_TERMS)
+
+
+def validate_graph_claim_text(text: str) -> None:
+    """§76 rule 5 — adjacency, proximity, support and communication are not
+    expressible over this graph, so a claim asserting one is refused whatever
+    edge it cites. Closed vocabulary, accent-folded, word-boundary matched."""
+    folded = " ".join(fold_text(text).split())
+    padded = f" {folded} "
+    for term in unsupported_graph_terms():
+        if f" {term} " in padded:
+            raise _reject(AbstentionReason.UNSUPPORTED_GRAPH_CLAIM)
+
+
+def validate_graph_support(support: SupportRecord, item: EvidenceItem) -> None:
+    """§76 rules 1-4 and 6 — every graph fact traced to the cited path.
+
+    The path is the authority. Each declared value is compared with the value
+    the traversal actually returned **at the same edge index**, so naming a real
+    predicate on the wrong edge, or the right edge in the wrong direction, is
+    refused as firmly as inventing one.
+    """
+    graph = item.graph
+    if graph is None:  # pragma: no cover - the item type already guarantees this
+        raise _reject(AbstentionReason.SCHEMA_VIOLATION)
+    missing = [name for name in _GRAPH_SUPPORT_KEYS if getattr(support, name) is None]
+    if missing:
+        raise _reject(AbstentionReason.UNSUPPORTED_GRAPH_CLAIM)
+    # rule: an unknown path id fails closed rather than matching by position.
+    if support.path_id != graph.path_id:
+        raise _reject(AbstentionReason.UNKNOWN_REFERENCE)
+    # rule 1 — a relation the cited path does not contain.
+    if support.edge_id not in graph.edge_ids:
+        raise _reject(AbstentionReason.UNSUPPORTED_GRAPH_CLAIM)
+    index = graph.edge_ids.index(support.edge_id or "")
+    # rules 1/2/3 — predicate, direction and authority, at that exact edge.
+    if support.predicate != graph.predicates[index]:
+        raise _reject(AbstentionReason.UNSUPPORTED_GRAPH_CLAIM)
+    if support.direction != graph.traversal_directions[index]:
+        raise _reject(AbstentionReason.UNSUPPORTED_GRAPH_CLAIM)
+    if support.source_kind != graph.edge_source_kinds[index]:
+        raise _reject(AbstentionReason.UNSUPPORTED_GRAPH_CLAIM)
+
+
 def validate_item_support(support: SupportRecord, item: EvidenceItem) -> None:
-    """§24 — the quote must exist in **this** item's bounded content."""
+    """§24 — the quote must exist in **this** item's bounded content.
+
+    HBIM-082 §76 — a graph item additionally proves its relation, direction and
+    authority against the path. Rule 6 ("names a node id absent from the cited
+    path") needs no separate check: the content is built from the path's own
+    node ids, so a quote naming a foreign node is not findable in it.
+    """
     quote = support.quote or ""
     normalized_quote = normalize_for_support(quote)
     if len(normalized_quote) < MIN_NORMALIZED_QUOTE_CHARS:
         raise _reject(AbstentionReason.QUOTE_NOT_FOUND)
     if normalized_quote not in normalize_for_support(item.content):
         raise _reject(AbstentionReason.QUOTE_NOT_FOUND)
+    if item.source_kind is SourceKind.GRAPH_PATH:
+        validate_graph_support(support, item)
+    elif any(getattr(support, name) is not None for name in _GRAPH_SUPPORT_KEYS):
+        # A graph field on an element or document item would assert graph
+        # authority for evidence that has none.
+        raise _reject(AbstentionReason.SCHEMA_VIOLATION)
 
 
 def validate_aggregate_support(support: SupportRecord, entry: AggRef) -> None:
@@ -487,6 +597,16 @@ def validate_draft(draft: GroundedDraft, refmap: ReferenceMap) -> None:
     for claim in draft.claims:
         if not claim.supports:  # pragma: no cover - parse already rejects this
             raise _reject(AbstentionReason.UNSUPPORTED_CLAIM)
+        # HBIM-082 §76 rule 5 — checked once per claim, before its supports: a
+        # claim asserting an unsupported meaning is refused even if every
+        # structural field it declares happens to be correct.
+        entries = [refmap.by_ref.get(support.ref) for support in claim.supports]
+        if any(
+            isinstance(entry, ItemRef)
+            and entry.item.source_kind is SourceKind.GRAPH_PATH
+            for entry in entries
+        ):
+            validate_graph_claim_text(claim.text)
         for support in claim.supports:
             entry = refmap.by_ref.get(support.ref)
             if entry is None:
@@ -524,6 +644,19 @@ class Citation:
     page_span: tuple[int, int] | None = None
     section_title: str | None = None
     ocr: bool | None = None
+    # HBIM-082 §69/§76 — graph provenance. `bundle_id` and the three revisions
+    # are deliberately absent: they are internal audit values, not citation
+    # identity, and a client must never anchor on a generation pointer.
+    path_id: str | None = None
+    intent: str | None = None
+    start_node_id: str | None = None
+    end_node_id: str | None = None
+    node_ids: tuple[str, ...] | None = None
+    edge_ids: tuple[str, ...] | None = None
+    predicates: tuple[str, ...] | None = None
+    traversal_directions: tuple[str, ...] | None = None
+    edge_source_kinds: tuple[str, ...] | None = None
+    hop_count: int | None = None
 
 
 def build_citations(
@@ -538,6 +671,7 @@ def build_citations(
         entry = refmap.by_ref[ref]
         if isinstance(entry, ItemRef):
             document = entry.item.document
+            graph = entry.item.graph
             citations.append(
                 Citation(
                     ref=ref,
@@ -545,6 +679,21 @@ def build_citations(
                     source_kind=entry.item.source_kind.value,
                     source_id=entry.item.source_id,
                     project_id=entry.item.project_id,
+                    # §76 — read from the validated path, never from the model.
+                    path_id=None if graph is None else graph.path_id,
+                    intent=None if graph is None else graph.intent,
+                    start_node_id=None if graph is None else graph.start_node_id,
+                    end_node_id=None if graph is None else graph.end_node_id,
+                    node_ids=None if graph is None else graph.node_ids,
+                    edge_ids=None if graph is None else graph.edge_ids,
+                    predicates=None if graph is None else graph.predicates,
+                    traversal_directions=(
+                        None if graph is None else graph.traversal_directions
+                    ),
+                    edge_source_kinds=(
+                        None if graph is None else graph.edge_source_kinds
+                    ),
+                    hop_count=None if graph is None else graph.hop_count,
                     # Filled by the server from the validated evidence item
                     # (§48) — never from model output.
                     document_id=None if document is None else document.document_id,
@@ -606,6 +755,30 @@ def document_citation_labels(
     return tuple(labels)
 
 
+def graph_citation_labels(
+    draft: GroundedDraft, refmap: ReferenceMap
+) -> tuple[str, ...]:
+    """HBIM-082 §76 — ``(E00n: caminho <path_id>, N saltos)`` per cited path.
+
+    Server-filled from the validated path, in reference-map order. The path id
+    is the citation identity, so it is what the reader is shown — never a
+    bundle, a revision or a storage occurrence.
+    """
+    cited = {support.ref for claim in draft.claims for support in claim.supports}
+    labels: list[str] = []
+    for ref in refmap.order:
+        if ref not in cited:
+            continue
+        graph = getattr(getattr(refmap.by_ref[ref], "item", None), "graph", None)
+        if graph is None:
+            continue
+        labels.append(
+            f"({ref}: caminho {graph.path_id}, {graph.hop_count} salto"
+            f"{'' if graph.hop_count == 1 else 's'})"
+        )
+    return tuple(labels)
+
+
 def render_answer(
     draft: GroundedDraft, refmap: ReferenceMap, pack: EvidencePack
 ) -> str:
@@ -621,7 +794,7 @@ def render_answer(
     # §48 — one deterministic label per cited document item, filled by the
     # server from validated evidence. The model emits only ``[E00n]`` markers;
     # no document or page value is ever model-written.
-    labels = document_citation_labels(draft, refmap)
+    labels = document_citation_labels(draft, refmap) + graph_citation_labels(draft, refmap)
     if labels:
         rendered += "\n\n" + "\n".join(labels)
     if pack.total_hits is not None and pack.total_hits > pack.result_count:
@@ -630,6 +803,14 @@ def render_answer(
         )
     if Caveat.LEGACY_SOURCE in pack.caveats:
         rendered += "\n\n_Fonte: índice legado._"
+    # HBIM-082 §71/§76 rule 4 — a geometry-derived relation is never presented
+    # as an IFC-authored one, and a tolerant one says so.
+    if Caveat.GRAPH_DERIVED_RELATION in pack.caveats:
+        rendered += (
+            "\n\n_Relação derivada da geometria, não declarada no IFC._"
+        )
+    if Caveat.GRAPH_TOLERANT_RELATION in pack.caveats:
+        rendered += "\n\n_Relação obtida dentro da tolerância geométrica._"
 
     # §33.2 — never truncate: truncation could drop a citation marker.
     if len(rendered) > MAX_RENDERED_RESPONSE_CHARS:
@@ -842,6 +1023,10 @@ def observability_event(outcome: GroundedOutcome) -> dict[str, Any]:
 
 __all__: Sequence[str] = (
     "document_citation_labels",
+    "graph_citation_labels",
+    "unsupported_graph_terms",
+    "validate_graph_claim_text",
+    "validate_graph_support",
     "GROUNDING_PROMPT_VERSION",
     "GROUNDING_PROJECTION_VERSION",
     "GROUNDED_OUTPUT_VERSION",

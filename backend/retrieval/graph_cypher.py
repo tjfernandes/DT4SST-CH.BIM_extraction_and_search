@@ -34,6 +34,8 @@ from retrieval.graph_query import (
 
 __all__ = [
     "ACTIVE_VIEW",
+    "COUNT_PROJECT_ROOTS",
+    "COUNT_SERVEABLE_PROJECT_ROOTS",
     "FORBIDDEN_CYPHER_TOKENS",
     "RESOLVE_BY_ELEMENT_ID",
     "RESOLVE_BY_GLOBAL_ID",
@@ -80,6 +82,20 @@ ACTIVE_VIEW: Final[str] = (
 #: Anti-ambiguity: §Phase-6 requires proof that exactly one active root exists.
 COUNT_PROJECT_ROOTS: Final[str] = (
     f"MATCH (root:{_ROOT}) WHERE root.project_id = $project_id\n"
+    "RETURN count(root) AS total"
+)
+
+#: §72 readiness — a project-agnostic probe: does this database hold at least
+#: one root at the supported schema whose generation is complete? Readiness has
+#: no project scope, so it asks whether the graph can serve *anything*, never
+#: whether one project is ready. Read-only, bounded and parameterless.
+COUNT_SERVEABLE_PROJECT_ROOTS: Final[str] = (
+    f"MATCH (root:{_ROOT})\n"
+    "WHERE root.kg_schema_version = $kg_schema_version\n"
+    "  AND root.active_bundle_id IS NOT NULL\n"
+    "  AND root.active_node_revision_id IS NOT NULL\n"
+    "  AND root.active_native_revision_id IS NOT NULL\n"
+    "  AND root.active_derived_revision_id IS NOT NULL\n"
     "RETURN count(root) AS total"
 )
 
@@ -196,7 +212,14 @@ def _depth_one(direction: TraversalDirection) -> str:
 
 _PATH_RETURN = (
     "WITH root, nrev, natrev, drev, p, nodes(p) AS ns, relationships(p) AS rs\n"
-    "WHERE all(x IN ns WHERE x.project_id = $project_id AND x.node_revision_id = nrev)\n"
+    # §50 — the requested predicate set applies to EVERY relationship in the
+    # walk, exactly as `type(r) IN $predicate_types` applies to the single
+    # relationship of a depth-1 read. Without this a ranged intent traverses any
+    # relationship type at all, so `descendants` restricted to `CONTAINS` would
+    # return a `HAS_MATERIAL` edge and the answer would cite it as containment.
+    # Passed as a parameter and never interpolated, like every other value.
+    "WHERE all(y IN rs WHERE type(y) IN $predicate_types)\n"
+    "  AND all(x IN ns WHERE x.project_id = $project_id AND x.node_revision_id = nrev)\n"
     "  AND all(y IN rs WHERE y.project_id = $project_id\n"
     "          AND ( (y.source_kind = 'ifc_native'       AND y.native_revision_id  = natrev)\n"
     "             OR (y.source_kind = 'derived_geometry' AND y.derived_revision_id = drev) ))\n"

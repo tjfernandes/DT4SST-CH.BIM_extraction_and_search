@@ -12,14 +12,23 @@ unchanged.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Annotated, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.responses import Citation
 from retrieval.evidence import EvidencePack
 
 __all__ = [
+    "GRAPH_REQUEST_MODELS",
+    "AncestorsRequest",
+    "AttributeRelationRequest",
+    "ContainmentCheckRequest",
+    "DerivedNeighborhoodRequest",
+    "DescendantsRequest",
+    "GraphQueryRequest",
+    "NativeConnectionsRequest",
+    "NeighborsRequest",
     "PublicAggregateBucket",
     "PublicAggregation",
     "PublicCitation",
@@ -28,6 +37,9 @@ __all__ = [
     "PublicEvidencePack",
     "PublicPackLimits",
     "PublicProvenanceEntry",
+    "RelationExistsRequest",
+    "ShortestPathRequest",
+    "to_graph_request",
     "to_public_citations",
     "to_public_pack",
 ]
@@ -64,6 +76,19 @@ class PublicEvidenceItem(BaseModel):
     page_span: Optional[List[int]] = None
     section_title: Optional[str] = None
     ocr: Optional[bool] = None
+    # HBIM-082 §69 — additive graph fields. Deliberately absent: the bundle id,
+    # the three active revisions and every storage-occurrence identity. The
+    # first two are internal audit values; the last never reaches evidence.
+    path_id: Optional[str] = None
+    intent: Optional[str] = None
+    start_node_id: Optional[str] = None
+    end_node_id: Optional[str] = None
+    node_ids: Optional[List[str]] = None
+    edge_ids: Optional[List[str]] = None
+    predicates: Optional[List[str]] = None
+    traversal_directions: Optional[List[str]] = None
+    edge_source_kinds: Optional[List[str]] = None
+    hop_count: Optional[int] = None
 
 
 class PublicEvidenceGroup(BaseModel):
@@ -148,6 +173,34 @@ def to_public_pack(pack: EvidencePack) -> PublicEvidencePack:
                             None if item.document is None else item.document.section_title
                         ),
                         ocr=None if item.document is None else item.document.ocr,
+                        path_id=None if item.graph is None else item.graph.path_id,
+                        intent=None if item.graph is None else item.graph.intent,
+                        start_node_id=(
+                            None if item.graph is None else item.graph.start_node_id
+                        ),
+                        end_node_id=(
+                            None if item.graph is None else item.graph.end_node_id
+                        ),
+                        node_ids=(
+                            None if item.graph is None else list(item.graph.node_ids)
+                        ),
+                        edge_ids=(
+                            None if item.graph is None else list(item.graph.edge_ids)
+                        ),
+                        predicates=(
+                            None if item.graph is None else list(item.graph.predicates)
+                        ),
+                        traversal_directions=(
+                            None
+                            if item.graph is None
+                            else list(item.graph.traversal_directions)
+                        ),
+                        edge_source_kinds=(
+                            None
+                            if item.graph is None
+                            else list(item.graph.edge_source_kinds)
+                        ),
+                        hop_count=None if item.graph is None else item.graph.hop_count,
                         project_id=item.project_id,
                         content=item.content,
                         content_truncated=item.content_truncated,
@@ -196,6 +249,130 @@ def to_public_pack(pack: EvidencePack) -> PublicEvidencePack:
 
 
 # --------------------------------------------------------------------------- #
+# HBIM-082 §49-§55 — the optional typed graph request
+#
+# A discriminated union over the nine intents. What a client may say is decided
+# by these types: an intent member, canonical anchor and target values, enum
+# predicates, a traversal direction, a depth from the closed set and two bounded
+# limits. What a client may NOT say has no field to say it in — there is no
+# Cypher field, no label, no relationship-type string, no database name, no
+# timeout and no property filter, so those are unrepresentable rather than
+# rejected. ``extra="forbid"`` makes an unknown key a validation error.
+# --------------------------------------------------------------------------- #
+class _GraphRequestBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: Optional here and cross-checked against the request scope: the two must
+    #: agree, and a graph query may never widen to another project.
+    project_id: Optional[str] = None
+    anchor: str = Field(min_length=1, max_length=512)
+    predicates: Optional[List[str]] = Field(default=None, max_length=32)
+    direction: Literal["forward", "reverse"] = "forward"
+    max_depth: Literal[1, 2, 3, 4, 5, 6] = 4
+    limit: int = Field(default=50, ge=1, le=200)
+    max_paths: int = Field(default=25, ge=1, le=100)
+
+
+class _GraphTargetRequestBase(_GraphRequestBase):
+    target: str = Field(min_length=1, max_length=512)
+
+
+class NeighborsRequest(_GraphRequestBase):
+    intent: Literal["neighbors"] = "neighbors"
+
+
+class AncestorsRequest(_GraphRequestBase):
+    intent: Literal["ancestors"] = "ancestors"
+
+
+class DescendantsRequest(_GraphRequestBase):
+    intent: Literal["descendants"] = "descendants"
+
+
+class AttributeRelationRequest(_GraphRequestBase):
+    intent: Literal["attribute_relation"] = "attribute_relation"
+
+
+class NativeConnectionsRequest(_GraphRequestBase):
+    intent: Literal["native_connections"] = "native_connections"
+
+
+class DerivedNeighborhoodRequest(_GraphRequestBase):
+    intent: Literal["derived_neighborhood"] = "derived_neighborhood"
+
+
+class ShortestPathRequest(_GraphTargetRequestBase):
+    intent: Literal["shortest_path"] = "shortest_path"
+
+
+class ContainmentCheckRequest(_GraphTargetRequestBase):
+    intent: Literal["containment_check"] = "containment_check"
+
+
+class RelationExistsRequest(_GraphTargetRequestBase):
+    intent: Literal["relation_exists"] = "relation_exists"
+
+
+GraphQueryRequest = Annotated[
+    Union[
+        NeighborsRequest,
+        AncestorsRequest,
+        DescendantsRequest,
+        AttributeRelationRequest,
+        NativeConnectionsRequest,
+        DerivedNeighborhoodRequest,
+        ShortestPathRequest,
+        ContainmentCheckRequest,
+        RelationExistsRequest,
+    ],
+    Field(discriminator="intent"),
+]
+
+#: Exposed so a test can prove the union covers the nine intents exactly.
+GRAPH_REQUEST_MODELS: tuple[type[BaseModel], ...] = (
+    NeighborsRequest,
+    AncestorsRequest,
+    DescendantsRequest,
+    AttributeRelationRequest,
+    NativeConnectionsRequest,
+    DerivedNeighborhoodRequest,
+    ShortestPathRequest,
+    ContainmentCheckRequest,
+    RelationExistsRequest,
+)
+
+
+def to_graph_request(model: BaseModel, *, project_id: str) -> object:
+    """Project the API model onto the pure ``retrieval`` request.
+
+    ``project_id`` is the request's own resolved scope. A graph query that
+    names a different project is refused rather than silently re-scoped, so a
+    client can never read another project's graph through this field.
+    """
+    from retrieval.graph_activation import GraphActivationError, GraphRequest
+    from retrieval.graph_query import GraphIntent, TraversalDirection
+
+    # Read through `model_dump()` rather than attribute access: the parameter is
+    # a nine-member union whose branches carry different field sets, so `target`
+    # exists on three of them only.
+    fields = model.model_dump()
+    declared = fields.get("project_id")
+    if declared and declared != project_id:
+        raise GraphActivationError("request and graph-query project scopes disagree")
+    return GraphRequest(
+        intent=GraphIntent(fields["intent"]),
+        project_id=project_id,
+        anchor_value=fields["anchor"],
+        target_value=fields.get("target") or "",
+        predicates=tuple(fields.get("predicates") or ()),
+        direction=TraversalDirection(fields["direction"]),
+        max_depth=fields["max_depth"],
+        limit=fields["limit"],
+        max_paths=fields["max_paths"],
+    )
+
+
+# --------------------------------------------------------------------------- #
 # HBIM-053 §35 — public citations
 # --------------------------------------------------------------------------- #
 class PublicCitation(BaseModel):
@@ -229,6 +406,20 @@ class PublicCitation(BaseModel):
     page_span: Optional[List[int]] = None
     section_title: Optional[str] = None
     ocr: Optional[bool] = None
+    # HBIM-082 §76 — graph citation fields. ``path_id`` is the citation
+    # identity. Deliberately NOT here: the bundle id, the node/native/derived
+    # revisions and every ``*_instance_id`` — a client must be able to cite a
+    # relation without depending on the generation it was read from.
+    path_id: Optional[str] = None
+    intent: Optional[str] = None
+    start_node_id: Optional[str] = None
+    end_node_id: Optional[str] = None
+    node_ids: Optional[List[str]] = None
+    edge_ids: Optional[List[str]] = None
+    predicates: Optional[List[str]] = None
+    traversal_directions: Optional[List[str]] = None
+    edge_source_kinds: Optional[List[str]] = None
+    hop_count: Optional[int] = None
 
 
 def to_public_citations(citations: tuple[Citation, ...]) -> List[PublicCitation]:
@@ -251,6 +442,26 @@ def to_public_citations(citations: tuple[Citation, ...]) -> List[PublicCitation]
             ),
             section_title=citation.section_title,
             ocr=citation.ocr,
+            path_id=citation.path_id,
+            intent=citation.intent,
+            start_node_id=citation.start_node_id,
+            end_node_id=citation.end_node_id,
+            node_ids=None if citation.node_ids is None else list(citation.node_ids),
+            edge_ids=None if citation.edge_ids is None else list(citation.edge_ids),
+            predicates=(
+                None if citation.predicates is None else list(citation.predicates)
+            ),
+            traversal_directions=(
+                None
+                if citation.traversal_directions is None
+                else list(citation.traversal_directions)
+            ),
+            edge_source_kinds=(
+                None
+                if citation.edge_source_kinds is None
+                else list(citation.edge_source_kinds)
+            ),
+            hop_count=citation.hop_count,
         )
         for citation in citations
     ]

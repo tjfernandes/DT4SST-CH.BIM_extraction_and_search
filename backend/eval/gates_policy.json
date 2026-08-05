@@ -1252,15 +1252,294 @@
    "title": "HBIM-081 operator-run relation campaign (manual_unavailable is valid; never in CI)"
   },
   {
-   "checks": [],
-   "classification": "unavailable_future",
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "graph_strategy_is_real"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "graph_left_the_unimplemented_set"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "degraded_strategy_preserved"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "disabled_activation_degrades"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "configured_activation_is_available"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "availability_check_opens_nothing"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "driver_is_lazy"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "driver_closed_on_shutdown"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "typed_surface_covers_every_intent"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "request_surface_cannot_express_cypher"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "failure_maps_to_abstention"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "outcome_codes_are_closed",
+     "threshold": 17.0
+    }
+   ],
+   "classification": "blocking",
    "corpus_id": "none",
    "delegated_to": null,
-   "execution": "unavailable_future",
+   "execution": "pure",
    "inputs": [],
    "min_cases": null,
    "slice_id": "graph_retrieval",
-   "title": "blocked on HBIM-079+ graph pipeline"
+   "title": "HBIM-082 graph route activated end to end (router, driver lifecycle, typed surface)"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "evidence_pack_is_v3"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "graph_path_is_emittable"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "graph_traversal_is_a_method"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "graph_traversal_carries_no_ranking"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "canonical_v3_is_single_sourced"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "graph_payload_iff_graph_kind"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "citation_id_is_the_canonical_path_id"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_storage_identity_in_the_pack"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_revision_identity_in_the_public_projection"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "public_citation_exposes_no_generation"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "zero_evidence_means_zero_provider_calls"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "derived_paths_carry_their_caveat"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "graph_claim_validation_is_exact"
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "hbim-082-retrieval-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/graph_retrieval_gold/cases.json",
+     "sha256": "ed7bf38c6980b9d6ff3fa2c9fb7e7d74458145a8c417c4aaeb05862cf927ca6f"
+    }
+   ],
+   "min_cases": null,
+   "slice_id": "graph_evidence_grounding",
+   "title": "HBIM-082 EvidencePack v3, graph citations and grounded support validation"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "every_intent_has_predicates"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_statement_carries_a_forbidden_token"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "every_template_scopes_the_project"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "every_template_pins_the_node_generation"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "every_template_bounds_and_orders"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "predicate_types_are_parameters"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "read_access_is_requested"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "access_modes_are_a_closed_set"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "ownership_is_never_stamped_from_the_view"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "depth_is_a_closed_set"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "spatial_terms_are_partitioned"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "intent_count",
+     "threshold": 9.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "template_count",
+     "threshold": 34.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "row_verification_codes",
+     "threshold": 7.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "storage_identity_fields",
+     "threshold": 4.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "graph_retrieval_contract",
+   "title": "HBIM-082 retrieval contract: closed intents, static Cypher, read-only, bounded, verified"
+  },
+  {
+   "checks": [],
+   "classification": "manual_live",
+   "corpus_id": "none",
+   "delegated_to": null,
+   "execution": "manual_live",
+   "inputs": [],
+   "min_cases": null,
+   "slice_id": "graph_retrieval_live",
+   "title": "HBIM-082 operator-run live Neo4j retrieval suite (manual_unavailable is valid; never in CI)"
+  },
+  {
+   "checks": [
+    {
+     "comparator": "exact_one",
+     "metric": "gold_recomputation_matches"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "path_identity_stable"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "predicates_exact"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "directions_exact"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "every_refusal_is_typed"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_partial_result_on_refusal"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "truncation_reported"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "evidence_mirrors_paths"
+    },
+    {
+     "comparator": "exact_one",
+     "metric": "no_storage_identity_leak"
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "case_count",
+     "threshold": 23.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "accepted_case_count",
+     "threshold": 13.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "refused_case_count",
+     "threshold": 10.0
+    },
+    {
+     "comparator": "gte_threshold",
+     "metric": "supported_families_covered",
+     "threshold": 9.0
+    }
+   ],
+   "classification": "blocking",
+   "corpus_id": "hbim-082-retrieval-gold-v1",
+   "delegated_to": null,
+   "execution": "pure",
+   "inputs": [
+    {
+     "path": "backend/eval/dataset/graph_retrieval_gold/cases.json",
+     "sha256": "ed7bf38c6980b9d6ff3fa2c9fb7e7d74458145a8c417c4aaeb05862cf927ca6f"
+    }
+   ],
+   "min_cases": 23,
+   "slice_id": "graph_retrieval_quality",
+   "title": "HBIM-082 retrieval quality recomputed through the real projection and verification"
   },
   {
    "checks": [],
