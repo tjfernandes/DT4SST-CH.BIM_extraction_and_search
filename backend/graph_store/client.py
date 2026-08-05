@@ -85,6 +85,15 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
+#: §34/§35 — the closed set of access modes this facade will forward. Spelled as
+#: the driver's own literal values so no import happens at module scope: the
+#: driver is loaded lazily in :func:`build_driver`, and `neo4j.READ_ACCESS` and
+#: `neo4j.WRITE_ACCESS` are exactly these strings. A membership test against a
+#: frozenset keeps an unsupported value — a bool, an object, a typo — out of the
+#: driver call entirely.
+_ALLOWED_ACCESS_MODES: frozenset[str] = frozenset({"READ", "WRITE"})
+
+
 @dataclass(frozen=True)
 class Neo4jDriverHandle:
     """A closable handle. Domain code receives this, never a driver or session."""
@@ -93,9 +102,33 @@ class Neo4jDriverHandle:
     settings: Neo4jSettings
 
     @contextmanager
-    def session(self) -> Iterator[Any]:
-        """A session bound to the configured database, always closed."""
-        session = self._driver.session(database=self.settings.database)
+    def session(self, *, default_access_mode: str | None = None) -> Iterator[Any]:
+        """A session bound to the configured database, always closed.
+
+        ``default_access_mode`` is the **only** driver option this facade
+        forwards, and it is drawn from a closed set. Without it the call is
+        byte-for-byte the session the writer has always opened; with
+        ``READ_ACCESS`` the server itself refuses a write, which is what makes a
+        write clause in a serving template a database error rather than a code
+        review promise.
+
+        Deliberately not ``**kwargs``: bookmarks, impersonation, routing and the
+        database name are not the caller's to choose, and a passthrough would
+        make that a matter of discipline instead of type.
+        """
+        if default_access_mode is None:
+            session = self._driver.session(database=self.settings.database)
+        else:
+            if default_access_mode not in _ALLOWED_ACCESS_MODES:
+                # §35 — closed code only; the value is not echoed back because a
+                # caller could have passed anything at all.
+                raise Neo4jSemanticError(
+                    "unsupported Neo4j access mode; expected READ_ACCESS or WRITE_ACCESS"
+                )
+            session = self._driver.session(
+                database=self.settings.database,
+                default_access_mode=default_access_mode,
+            )
         try:
             yield session
         finally:
